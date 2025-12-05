@@ -1,0 +1,317 @@
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { Box, Button } from "@mui/material";
+import FileDownloadIcon from "@mui/icons-material/FileDownload";
+import AddIcon from "@mui/icons-material/Add";
+
+import useApi from "../../../hooks/useApi";
+import useCustomSnackbar from "../../../utils/useCustomSnackbar";
+
+import SearchFilters from "../components/SearchFilters";
+import UsersHeader from "../components/UsersHeader";
+import UsersTable from "../components/UsersTable";
+import UserDialog from "../components/UserDialog";
+import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
+
+const API_URL =
+  import.meta.env?.VITE_USERS_API_URL || "/UM/user/user-details";
+
+export default function UserManagement() {
+  const snackbar = useCustomSnackbar();
+  const { callApi, loading, error: apiError } = useApi();
+
+  // -----------------------------
+  // Local states
+  // -----------------------------
+
+  const [rows, setRows] = useState([]);
+  const [roles, setRoles] = useState([]);
+
+  const [uiError, setUiError] = useState("");
+
+  // server side filters
+  const [reqUserid, setReqUserid] = useState("");
+  const [reqBranch, setReqBranch] = useState("");
+  const [reqRole, setReqRole] = useState("");
+
+  // client filters
+  const [query, setQuery] = useState("");
+  const [filterRole, setFilterRole] = useState("");
+  const [selection, setSelection] = useState([]);
+
+  // dialog states
+  const emptyForm = {
+    id: null,
+    USERID: "",
+    FIRST_NAME: "",
+    MIDDLE_NAME: "",
+    LAST_NAME: "",
+    EMAIL: "",
+    PHONE_NUMBER: "",
+    ROLE_NAME: "",
+    ROLE_ID: "",
+    BRANCH: "",
+  };
+
+  const [form, setForm] = useState(emptyForm);
+  const [openEdit, setOpenEdit] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+
+  // -----------------------------
+  // Helpers
+  // -----------------------------
+
+  const makePayload = useCallback(
+    () => ({
+      id: reqUserid || undefined,
+      branch: reqBranch || undefined,
+      roleId: reqRole || undefined,
+    }),
+    [reqUserid, reqBranch, reqRole]
+  );
+
+  const normalizeUsers = useCallback((users = []) => {
+    return users.map((u, idx) => {
+      const USERID = u?.USERID ?? u?.userId ?? "";
+
+      const first = (u?.FIRST_NAME ?? u?.firstName ?? "").toString().trim();
+      const last = (u?.LAST_NAME ?? u?.lastName ?? "").toString().trim();
+      const name = [first, last].filter(Boolean).join(" ");
+
+      const roleIdRaw = u?.ROLE_ID ?? u?.roleId ?? "";
+      const parsedRoleId = isNaN(Number(roleIdRaw))
+        ? null
+        : Number(roleIdRaw);
+
+      return {
+        id: USERID || String(idx + 1),
+        USERID,
+        FIRST_NAME: first,
+        LAST_NAME: last,
+        EMAIL: (u?.EMAIL ?? u?.email ?? "").toString(),
+        PHONE_NUMBER: (u?.PHONE_NUMBER ?? u?.phone ?? "").toString(),
+        ROLE_NAME: (u?.ROLE_NAME ?? u?.roleName ?? "").toString().trim(),
+        ROLE_ID: parsedRoleId,
+        BRANCH: (u?.BRANCH ?? u?.branch ?? "").toString(),
+        _name: name || USERID || "(unknown)",
+        ACCOUNT_STATUS: u?.ACCOUNT_STATUS,
+      };
+    });
+  }, []);
+
+  // -----------------------------
+  // API Calls
+  // -----------------------------
+
+  const fetchUsers = useCallback(async () => {
+    setUiError("");
+    try {
+      const data = await callApi(API_URL, makePayload(), "GET");
+      const users = data?.result?.users ?? [];
+      setRows(normalizeUsers(users));
+    } catch (e) {
+      console.error(e);
+      setRows([]);
+      setUiError("Failed to fetch users.");
+    }
+  }, [callApi, makePayload, normalizeUsers]);
+
+  const fetchRoles = useCallback(async () => {
+    try {
+      const data = await callApi(
+        "/UM/role/get-roles",
+        { permissions: false },
+        "GET"
+      );
+      const raw = data?.result?.roles ?? [];
+      setRoles(
+        raw.map((r) => ({
+          id: r?.roleId,
+          name: (r?.roleName ?? "").trim(),
+          description: r?.description ?? "",
+        }))
+      );
+    } catch (e) {
+      console.error("Error fetching roles", e);
+    }
+  }, [callApi]);
+
+  const findRole = useCallback(
+    (id) => roles.find((r) => String(r.id) === String(id)),
+    [roles]
+  );
+
+  useEffect(() => {
+    fetchUsers();
+    fetchRoles();
+  }, [fetchUsers, fetchRoles]);
+
+  // -----------------------------
+  // Client-side filtered rows
+  // -----------------------------
+
+  const filteredRows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    return rows.filter((r) => {
+      const okQ =
+        r._name.toLowerCase().includes(q) ||
+        r.EMAIL.toLowerCase().includes(q) ||
+        String(r.USERID).toLowerCase().includes(q) ||
+        String(r.PHONE_NUMBER).toLowerCase().includes(q);
+
+      const okRole =
+        !filterRole ||
+        String(r.ROLE_ID) === String(filterRole) ||
+        r.ROLE_NAME === (findRole(filterRole)?.name ?? "");
+
+      return okQ && okRole;
+    });
+  }, [rows, query, filterRole, findRole]);
+
+  // -----------------------------
+  // CSV Export
+  // -----------------------------
+
+  const csvEscape = (v) => {
+    const s = (v ?? "").toString();
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const exportCSV = useCallback(() => {
+    if (!filteredRows.length) return;
+
+    const header =
+      "USERID,FIRST_NAME,LAST_NAME,EMAIL,PHONE_NUMBER,ROLE_NAME,ROLE_ID,BRANCH";
+
+    const body = filteredRows.map((r) =>
+      [
+        csvEscape(r.USERID),
+        csvEscape(r.FIRST_NAME),
+        csvEscape(r.LAST_NAME),
+        csvEscape(r.EMAIL),
+        csvEscape(r.PHONE_NUMBER),
+        csvEscape(r.ROLE_NAME),
+        csvEscape(r.ROLE_ID),
+        csvEscape(r.BRANCH),
+      ].join(",")
+    );
+
+    const csv = [header, ...body].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "users.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [filteredRows]);
+
+  // -----------------------------
+  // Form rules
+  // -----------------------------
+
+  const canSave =
+    form.FIRST_NAME.trim() &&
+    form.EMAIL.trim() &&
+    form.ROLE_ID !== undefined &&
+    form.ROLE_ID !== null &&
+    form.ROLE_ID !== "";
+
+  const effectiveError =
+    apiError?.response?.data?.message ||
+    apiError?.message ||
+    uiError ||
+    "";
+
+  if (effectiveError) {
+    snackbar(effectiveError, "error");
+  }
+
+  // -----------------------------
+  // Render UI
+  // -----------------------------
+
+  return (
+    <Box sx={{ p: { xs: 2, md: 3 } }}>
+      {/* ALWAYS visible search + server filters */}
+      <SearchFilters
+        roles={roles}
+        reqUserid={reqUserid}
+        reqBranch={reqBranch}
+        reqRole={reqRole}
+        onChangeUserid={setReqUserid}
+        onChangeBranch={setReqBranch}
+        onChangeRole={setReqRole}
+        loading={loading}
+        errorText={effectiveError}
+        onSearch={fetchUsers}
+      />
+
+      {/* ALWAYS visible header controls */}
+      <UsersHeader
+        roles={roles}
+        filterRole={filterRole}
+        onFilterRoleChange={setFilterRole}
+        query={query}
+        onQueryChange={setQuery}
+        totalCount={rows.length}
+        filteredCount={filteredRows.length}
+        selectionCount={selection.length}
+        onBulkDelete={() =>
+          setRows((prev) => prev.filter((r) => !selection.includes(r.id)))
+        }
+        onExport={exportCSV}
+        onAddUser={() => {
+          setForm({ ...emptyForm });
+          setOpenEdit(true);
+        }}
+        loading={loading}
+        errorText={effectiveError}
+      />
+
+      {/* Users Table */}
+      <UsersTable
+        rows={filteredRows}
+        roles={roles}
+        loading={loading}
+        onSelectionChange={setSelection}
+        onEditRow={(row) => {
+          const matched = findRole(row.ROLE_ID);
+          setForm({
+            ...row,
+            ROLE_ID: matched ? matched.id : row.ROLE_ID,
+            ROLE_NAME: matched ? matched.name : row.ROLE_NAME,
+          });
+          setOpenEdit(true);
+        }}
+        onDeleteRow={(row) => setDeleteTarget(row)}
+        errorText={effectiveError}
+      />
+
+      {/* Add/Edit User Dialog */}
+      <UserDialog
+        open={openEdit}
+        onClose={() => setOpenEdit(false)}
+        roles={roles}
+        form={form}
+        setForm={setForm}
+        canSave={canSave}
+      />
+
+      {/* Delete Dialog */}
+      <DeleteConfirmDialog
+        open={!!deleteTarget}
+        name={deleteTarget?._name || deleteTarget?.USERID}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          if (deleteTarget?.id)
+            setRows((prev) =>
+              prev.filter((r) => r.id !== deleteTarget.id)
+            );
+          setDeleteTarget(null);
+        }}
+      />
+    </Box>
+  );
+}
