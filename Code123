@@ -1,0 +1,142 @@
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import expr, substring, col
+import time
+from datetime import date
+
+# =======================
+# Spark Session (Optimized)
+# =======================
+def create_spark_session():
+    spark = (
+        SparkSession.builder.appName("BOTOGL_FAST")
+        # Memory settings (tune as per cluster)
+        .config("spark.executor.memory", "5g")
+        .config("spark.driver.memory", "6g")
+        .config("spark.executor.cores", "2")
+        .config("spark.sql.shuffle.partitions", "200")
+        .config("spark.default.parallelism", "200")
+        # Kryo serializer (MUCH FASTER)
+        .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+        # Adaptive execution (reduces shuffle)
+        .config("spark.sql.adaptive.enabled", "true")
+        .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
+        .config("spark.sql.files.maxPartitionBytes", 134217728) # 128 MB
+        .getOrCreate()
+    )
+    return spark
+
+
+# =======================
+#  READ + PROCESS FUNCTION
+# =======================
+def read_and_process_data(spark):
+
+    print("======== Reading all BOTOGL files ========")
+
+    # READ ALL FILES (1500+)
+    hdfs_root = "hdfs://10.177.103.199:8022/CBS-FILES/"
+    today = date.today().strftime("%Y-%m-%d")
+    source_path = f"{hdfs_root}/{today}/BANCS24/BORTOGL*"
+
+    # ******** FASTEST WAY to read 1500 fixed-width files ********
+    raw_df = spark.read.text(source_path)
+
+    print("======== Reading Completed ========")
+
+    # Persist because we re-use raw_df
+    raw_df = raw_df.persist()
+
+    print("======== Processing BOTOGL Started ========")
+
+    # =======================
+    #    FIXED-WIDTH EXTRACTIONS
+    # =======================
+    select_exprs = [
+
+        substring("value", 4, 16).alias("ACCT_NO"),
+        substring("value", 20, 6).alias("BRN"),
+        substring("value", 25, 2).alias("STAFF"),
+        substring("value", 51, 4).alias("TERM_BASIS"),
+        substring("value", 29, 4).alias("MARKET_SEG_CODE"),
+        substring("value", 33, 2).alias("ACT_TYPE"),
+        substring("value", 108, 3).alias("CAT"),
+        substring("value", 30, 3).alias("CURRENCY_IND"),
+        substring("value", 103, 5).alias("OLD_BAD_DEBT_IND"),
+        substring("value", 105, 25).alias("GL_CLASSIFICATION_CODE"),
+
+        # CGL Component fields
+        substring("value", 227, 17).alias("CGL_COMPONENT_1_DR"),
+        substring("value", 244, 10).alias("CGL_COMPONENT_2_DR"),
+    ]
+
+    # =======================
+    #  NUMERIC FIELDS (3-substring + decimal)
+    # =======================
+    numeric_fields = [
+        ("LOAN_BAL", 44, 1, 27, 14, 41, 3, "decimal(17,3)"),
+        ("LOAN_INTR", 50, 1, 45, 5, 0, 0, "decimal(6,0)"),
+        ("APP_AMT", 81, 1, 64, 14, 78, 3, "decimal(17,3)"),
+        ("ADV_VAL", 99, 1, 82, 14, 96, 3, "decimal(17,3)"),
+        ("COLLECTION_AMT", 147, 1, 130, 14, 144, 3, "decimal(17,3)"),
+        ("INT_ACCR", 195, 1, 148, 12, 160, 5, "decimal(17,5)"),
+        ("BPI_ACCR", 183, 1, 166, 12, 178, 5, "decimal(17,5)"),
+        ("C1_ACCR", 330, 1, 314, 12, 329, 5, "decimal(17,5)"),
+    ]
+
+    for col_name, s1, l1, s2, l2, s3, l3, dtype in numeric_fields:
+        if l3 > 0:
+            expr_str = (
+                f"concat("
+                f"substring(value,{s1},{l1}),"
+                f"'.',"
+                f"substring(value,{s2},{l2}),"
+                f"substring(value,{s3},{l3})"
+                f")"
+            )
+        else:
+            expr_str = (
+                f"concat("
+                f"substring(value,{s1},{l1}),"
+                f"'.',"
+                f"substring(value,{s2},{l2})"
+                f")"
+            )
+
+        select_exprs.append(expr(expr_str).cast(dtype).alias(col_name))
+
+    # BUILD final DF
+    final_df = raw_df.select(*select_exprs)
+
+    # Release memory
+    raw_df.unpersist()
+
+    print("======== Processing Completed ========")
+
+    # =======================
+    # Write to Parquet
+    # =======================
+    dest_path = f"{hdfs_root}/{today}/processed/BORTOGL.parquet"
+
+    print(f"======== Writing to Parquet: {dest_path} ========")
+
+    (
+        final_df
+        .repartition(200)       # parallel writing
+        .write
+        .mode("overwrite")
+        .parquet(dest_path)
+    )
+
+    print("======== WRITE COMPLETED ========")
+
+
+# =======================
+# MAIN
+# =======================
+if __name__ == "__main__":
+    start = time.time()
+    spark = create_spark_session()
+    read_and_process_data(spark)
+
+    print(f"\nTOTAL JOB TIME: {time.time() - start:.2f} seconds\n")
+    spark.stop()
