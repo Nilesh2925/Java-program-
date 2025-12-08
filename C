@@ -1,0 +1,159 @@
+# optimized_bortogl_batch.py
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import substring, concat, lit, col
+from datetime import date
+import time
+
+# ---------------------------
+# Configuration (tune as needed)
+# ---------------------------
+HDFS_ROOT = "hdfs://10.177.103.199:8022/CBS-FILES"   # adjust
+TODAY = date.today().strftime("%Y-%m-%d")           # or hardcode if needed
+INPUT_GLOB = f"{HDFS_ROOT}/{TODAY}/BANCS24/BORTOGL*"  # reads all matching files
+OUTPUT_PATH = f"{HDFS_ROOT}/{TODAY}/processed/BORTOGL_parquet"
+# Spark tuning - adjust to your cluster/node resources
+DRIVER_MEM = "8g"
+EXECUTOR_MEM = "8g"
+EXECUTOR_CORES = "2"
+DEFAULT_PARALLELISM = 200        # controls CPU parallelism, tune to cluster cores
+MAX_PARTITION_BYTES = 128 * 1024 * 1024  # 128MB per file-split (good default)
+WRITE_REPARTITIONS = 200         # number of output writer tasks (tune)
+
+# ---------------------------
+# Create Spark session
+# ---------------------------
+def create_spark():
+    spark = (
+        SparkSession.builder
+        .appName("BORTOGL_Batch_Optimized")
+        .config("spark.driver.memory", DRIVER_MEM)
+        .config("spark.executor.memory", EXECUTOR_MEM)
+        .config("spark.executor.cores", str(EXECUTOR_CORES))
+        .config("spark.default.parallelism", str(DEFAULT_PARALLELISM))
+        .config("spark.sql.shuffle.partitions", str(DEFAULT_PARALLELISM))
+        .config("spark.sql.files.maxPartitionBytes", str(MAX_PARTITION_BYTES))
+        .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+        .config("spark.sql.adaptive.enabled", "true")
+        .getOrCreate()
+    )
+    spark.sparkContext.setLogLevel("WARN")
+    return spark
+
+# ---------------------------
+# Column mappings (positions from your layout)
+# ---------------------------
+# Example column mapping. Update the substring positions to match your exact fixed-width spec.
+# Format for numeric_fields: (col_name, sign_pos, sign_len, int_pos, int_len, dec_pos, dec_len, dtype)
+# If a field has no decimal part set dec_pos=0 and dec_len=0 and it will be created without the third part.
+numeric_fields = [
+    ("LOAN_BAL",         44, 1, 27, 14, 41, 3, "decimal(17,3)"),   # sign,int,dec
+    ("LOAN_TRIM",        50, 1, 45, 5, 0,   0, "decimal(6,0)"),    # sign+int only (example)
+    ("APP_AMT",          81, 1, 64, 14, 78, 3, "decimal(17,3)"),
+    ("ADV_VAL",          99, 1, 82, 14, 96, 3, "decimal(17,3)"),
+    ("COLLECTION_AMT",   147,1, 130,14, 144,3, "decimal(17,3)"),
+    ("INT_ACCR",         158,1, 160,5, 165,5, "decimal(17,5)"),
+    ("BPI_ACCR",         178,1, 180,5, 185,5, "decimal(17,5)"),
+    ("CI_ACCR",          192,1, 194,5, 199,5, "decimal(17,5)"),
+    ("INT_ADJUSTMENT",   214,1, 219,5, 224,5, "decimal(17,5)"),
+    ("ARR_INT_ACCR",     302,1, 307,5, 312,5, "decimal(17,5)"),
+    ("ARR_INT_ADJUSTMENT",334,1, 317,12, 329,5,"decimal(17,5)")
+]
+
+# Example of standard (non-numeric) substrings
+# Format: (alias, start_pos, length)
+standard_fields = [
+    ("ACCT_NO", 4, 16),
+    ("BR_NO", 20, 5),
+    ("STAT", 25, 2),
+    ("TERM_BASIS", 51, 1),
+    ("MARKET_SEG_CODE", 52, 4),
+    ("ACT_TYPE", 56, 4),
+    ("CAT", 60, 4),
+    ("CURRENCY_IND", 100, 3),
+    ("OLD_BAD_DEBT_IND", 103, 2),
+    ("GL_CLASSIFICATION_CODE", 105, 25),
+
+    # CGL components
+    ("CGL_COMPONENT_1_DR", 227, 17),
+    ("CGL_COMPONENT_2_DR", 244, 10),
+    ("CGL_COMPONENT_1_CR", 254, 17),
+    ("CGL_COMPONENT_2_CR", 271, 10),
+]
+
+# ---------------------------
+# Build select expressions efficiently (so Catalyst can optimize)
+# ---------------------------
+def build_select_exprs():
+    exprs = []
+    # standard columns
+    for alias, s, l in standard_fields:
+        exprs.append(substring("value", s, l).alias(alias))
+
+    # numeric columns -> we produce sign + "." + integer + decimal (or sign + "." + integer)
+    for col_name, s1, l1, s2, l2, s3, l3, dtype in numeric_fields:
+        if l3 and l3 > 0:
+            # include decimal part
+            conc = concat(
+                substring("value", s1, l1),   # sign
+                substring("value", s2, l2),   # integer part
+                lit("."),                     # dot separator
+                substring("value", s3, l3)    # decimal part
+            )
+        else:
+            # no decimal part - keep sign + integer (still add dot for uniformity if you want)
+            conc = concat(
+                substring("value", s1, l1),
+                substring("value", s2, l2)
+            )
+        exprs.append(conc.cast(dtype).alias(col_name))
+    return exprs
+
+# ---------------------------
+# Main processing function
+# ---------------------------
+def process_all_files(spark):
+    start_all = time.time()
+    print("Reading files from:", INPUT_GLOB)
+
+    # read all files matching glob (fast)
+    raw_df = spark.read.text(INPUT_GLOB)   # returns column "value"
+
+    # optional: if you want to only process BORTOGL records
+    # raw_df = raw_df.filter(substring("value", 1, 7) == "BORTOGL")
+
+    # Persist raw_df briefly only if reused - here we build final_df once so not strictly needed
+    # raw_df = raw_df.persist()
+
+    select_exprs = build_select_exprs()
+
+    t0 = time.time()
+    # single select pass — best for optimizer
+    final_df = raw_df.select(*select_exprs)
+    t1 = time.time()
+    print(f"Column extraction completed in {t1 - t0:.2f}s")
+
+    # Unpersist raw_df if persisted
+    # raw_df.unpersist()
+
+    # Repartition for parallel writing; choose WRITE_REPARTITIONS based on cluster
+    print(f"Repartitioning to {WRITE_REPARTITIONS} writer tasks")
+    final_df = final_df.repartition(WRITE_REPARTITIONS)
+
+    # Write parquet in parallel (overwrite)
+    write_start = time.time()
+    final_df.write.mode("overwrite").parquet(OUTPUT_PATH)
+    write_end = time.time()
+    print(f"Write to parquet completed in {write_end - write_start:.2f}s")
+
+    total = time.time() - start_all
+    print(f"TOTAL BATCH TIME: {total:.2f}s")
+
+# ---------------------------
+# Entrypoint
+# ---------------------------
+if __name__ == "__main__":
+    s = create_spark()
+    try:
+        process_all_files(s)
+    finally:
+        s.stop()
