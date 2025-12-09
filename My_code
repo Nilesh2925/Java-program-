@@ -313,5 +313,94 @@ export default function UserManagement() {
         }}
       />
     </Box>
-  );
-}
+  )
+
+
+
+
+
+
+
+
+
+new new 
+
+colorSchemes: {
+  light: { /* your existing code – unchanged */ },
+
+  dark: {
+    palette: {
+      // your existing dark palette – unchanged
+    },
+  },
+
+  // ⭐ NEW GREEN THEME (leaf) – copy-paste starts here
+  leaf: {
+    palette: {
+      mode: "light",
+
+      primary: {
+        light: "#A5F5B2",  // soft mint
+        main:  "#4EC96F",  // main green
+        dark:  "#1E7C3A",
+        contrastText: "#ffffff",
+      },
+
+      secondary: {
+        light: "#D4FFD6",
+        main:  "#8DE19A",
+        dark:  "#3E8A4E",
+        contrastText: "#003300",
+      },
+
+      success: {
+        light: "#B6F6C0",
+        main:  "#4CAF50",
+        dark:  "#1E7C3A",
+        contrastText: "#ffffff",
+      },
+
+      warning: {
+        light: "#FFE7B5",
+        main:  "#FFC047",
+        dark:  "#B77706",
+        contrastText: "#3B2800",
+      },
+
+      error: {
+        light: "#FFB3B3",
+        main:  "#F44336",
+        dark:  "#AA2017",
+        contrastText: "#ffffff",
+      },
+
+      info: {
+        light: "#B3E5FC",
+        main:  "#29B6F6",
+        dark:  "#0277BD",
+        contrastText: "#ffffff",
+      },
+
+      // use the same grey + alpha helpers you already import
+      grey: {
+        ...grey,
+      },
+
+      background: {
+        // light green base similar to your image
+        default: "#E6FBD9",
+        paper:   "rgba(255,255,255,0.88)",
+        glass:   "rgba(230,251,217,0.7)",   // if you use 'glass' in your layouts
+      },
+
+      text: {
+        primary:   "#103B1B",
+        secondary: alpha("#103B1B", 0.7),
+        disabled:  alpha("#103B1B", 0.4),
+      },
+
+      baseShadow: "0 8px 40px rgba(0, 0, 0, 0.18)",
+    },
+  },
+  // ⭐ NEW GREEN THEME (leaf) – copy-paste ends here
+},
