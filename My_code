@@ -404,3 +404,50 @@ colorSchemes: {
   },
   // ⭐ NEW GREEN THEME (leaf) – copy-paste ends here
 },
+
+
+
+
+neeeewweeee
+export const inputsCustomizations = {
+  MuiButton: {
+    styleOverrides: {
+      root: ({ theme, ownerState }) => ({
+        borderRadius: 10,
+        fontWeight: 600,
+        boxShadow: "none",
+        transition: "0.3s ease",
+
+        // Hover effect only when NOT disabled
+        "&:hover": {
+          boxShadow: ownerState.disabled
+            ? "none"
+            : "0 4px 15px rgba(93, 63, 211, 0.3)",
+        },
+
+        // ⭐ DISABLED BUTTON STYLE (Matches your UI sample)
+        "&.Mui-disabled": {
+          background: "linear-gradient(90deg, #b8b2d9, #d0caea)", // Light lavender gradient
+          color: "#ffffff",
+          opacity: 0.8,
+          boxShadow: "none",
+          cursor: "not-allowed",
+        },
+      }),
+
+      // PRIMARY BUTTON
+      containedPrimary: ({ theme }) => ({
+        background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${theme.palette.primary.light})`,
+        color: theme.palette.getContrastText(theme.palette.primary.main),
+      }),
+
+      // SECONDARY BUTTON
+      containedSecondary: ({ theme }) => ({
+        background: `linear-gradient(90deg, ${theme.palette.secondary.main}, ${theme.palette.secondary.light})`,
+        color: theme.palette.secondary.contrastText,
+      }),
+    },
+  },
+};
+
+
