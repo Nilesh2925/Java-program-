@@ -451,3 +451,59 @@ export const inputsCustomizations = {
 };
 
 
+
+
+
+
+..........
+
+
+const onSave = async () => {
+  if (saving) return;
+  if (typeof isViewMode !== "undefined" && isViewMode) return;
+
+  // required-field checks (adjust keys if yours differ)
+  if (!form.USERID || !form.FIRST_NAME || !form.LAST_NAME || !form.EMAIL || !form.PHONE_NUMBER || !form.ROLE_ID) {
+    snackbar("Kindly fill all the required fields.", "error");
+    return;
+  }
+
+  setSaving(true);
+
+  try {
+    const payload = makePayload(); // existing helper in file
+    const res = await callApi(API_URL, payload, "POST");
+
+    // determine success - adapt if your API response shape differs
+    const isSuccess =
+      (res && (res.ok === true || res.status === 200)) ||
+      (res && res.result && (res.result.success === true || res.result?.status === "OK")) ||
+      (res && res.data && (res.data.success === true || res.data?.status === "OK")) ||
+      (res && typeof res === "object" && !res.error);
+
+    if (isSuccess) {
+      snackbar("User saved successfully.", "success");
+
+      // close dialog by calling parent's onClose (preferred)
+      if (typeof onClose === "function") {
+        onClose();
+      } else {
+        // fallback: if parent state setters are passed (unlikely) call them
+        if (typeof setOpenEdit === "function") setOpenEdit(false);
+      }
+
+      // optional: reset form to empty template
+      if (typeof emptyForm !== "undefined" && typeof setForm === "function") {
+        setForm(emptyForm);
+      }
+    } else {
+      const errMsg = res?.result?.message || res?.data?.message || res?.message || "Failed to save user.";
+      snackbar(errMsg, "error");
+    }
+  } catch (e) {
+    console.error("onSave error:", e);
+    snackbar("Failed to save user. Check network or server.", "error");
+  } finally {
+    setSaving(false);
+  }
+};
