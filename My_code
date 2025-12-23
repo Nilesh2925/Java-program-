@@ -507,3 +507,227 @@ const onSave = async () => {
     setSaving(false);
   }
 };
+
+
+
+
+
+branch.   
+
+
+import React from "react";
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Grid,
+  TextField,
+  Button,
+  Autocomplete
+} from "@mui/material";
+import { LocalizationProvider, DatePicker } from "@mui/x-date-pickers";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+
+const BranchDialog = ({
+  open,
+  onClose,
+  editingId,
+  branchData,
+  setBranchData,
+  errors,
+  handleChange,
+  handleSubmit,
+  circleOptions,
+  branchOptions,
+  loading
+}) => {
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>
+        {editingId ? "Edit Branch" : "Add New Branch"}
+      </DialogTitle>
+
+      <DialogContent dividers>
+        <Grid container spacing={2}>
+
+          {/* Branch Code */}
+          <Grid item xs={12} sm={6}>
+            <TextField
+              label="Branch Code"
+              name="code"
+              value={branchData.code}
+              onChange={handleChange}
+              error={!!errors.code}
+              helperText={errors.code}
+              fullWidth
+              disabled={!!editingId}
+            />
+          </Grid>
+
+          {/* Branch Name */}
+          <Grid item xs={12} sm={6}>
+            <TextField
+              label="Branch Name"
+              name="name"
+              value={branchData.name}
+              onChange={handleChange}
+              error={!!errors.name}
+              helperText={errors.name}
+              fullWidth
+            />
+          </Grid>
+
+          {/* Circle Code */}
+          <Grid item xs={12} sm={6}>
+            <Autocomplete
+              options={circleOptions}
+              getOptionLabel={(option) => option.label || ""}
+              value={circleOptions.find(
+                (o) => o.code === branchData.circleCode
+              ) || null}
+              onChange={(e, value) =>
+                setBranchData((prev) => ({
+                  ...prev,
+                  circleCode: value?.code || ""
+                }))
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Circle"
+                  error={!!errors.circleCode}
+                  helperText={errors.circleCode}
+                />
+              )}
+            />
+          </Grid>
+
+          {/* Status */}
+          <Grid item xs={12} sm={6}>
+            <TextField
+              label="Status"
+              name="status"
+              value={branchData.status}
+              onChange={handleChange}
+              fullWidth
+            />
+          </Grid>
+
+          {/* Address */}
+          <Grid item xs={12}>
+            <TextField
+              label="Address"
+              name="address"
+              value={branchData.address}
+              onChange={handleChange}
+              error={!!errors.address}
+              helperText={errors.address}
+              fullWidth
+              multiline
+              rows={2}
+            />
+          </Grid>
+
+          {/* Pincode */}
+          <Grid item xs={12} sm={6}>
+            <TextField
+              label="Pincode"
+              name="pincode"
+              value={branchData.pincode}
+              onChange={handleChange}
+              error={!!errors.pincode}
+              helperText={errors.pincode}
+              fullWidth
+            />
+          </Grid>
+
+          {/* Phone */}
+          <Grid item xs={12} sm={6}>
+            <TextField
+              label="Phone Number"
+              name="phoneNumber"
+              value={branchData.phoneNumber}
+              onChange={handleChange}
+              error={!!errors.phoneNumber}
+              helperText={errors.phoneNumber}
+              fullWidth
+            />
+          </Grid>
+
+          {/* Email */}
+          <Grid item xs={12} sm={6}>
+            <TextField
+              label="Email"
+              name="emailId"
+              value={branchData.emailId}
+              onChange={handleChange}
+              error={!!errors.emailId}
+              helperText={errors.emailId}
+              fullWidth
+            />
+          </Grid>
+
+          {/* Open Date */}
+          <Grid item xs={12} sm={6}>
+            <LocalizationProvider dateAdapter={AdapterDayjs}>
+              <DatePicker
+                label="Open Date"
+                value={branchData.openDate}
+                onChange={(value) =>
+                  setBranchData((prev) => ({
+                    ...prev,
+                    openDate: value
+                  }))
+                }
+                renderInput={(params) => <TextField {...params} fullWidth />}
+              />
+            </LocalizationProvider>
+          </Grid>
+
+          {/* Close Date */}
+          {branchData.status === "Closed" && (
+            <Grid item xs={12} sm={6}>
+              <LocalizationProvider dateAdapter={AdapterDayjs}>
+                <DatePicker
+                  label="Close Date"
+                  value={branchData.closeDate}
+                  onChange={(value) =>
+                    setBranchData((prev) => ({
+                      ...prev,
+                      closeDate: value
+                    }))
+                  }
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      error={!!errors.closeDate}
+                      helperText={errors.closeDate}
+                      fullWidth
+                    />
+                  )}
+                />
+              </LocalizationProvider>
+            </Grid>
+          )}
+
+        </Grid>
+      </DialogContent>
+
+      <DialogActions>
+        <Button onClick={onClose} color="secondary">
+          Cancel
+        </Button>
+        <Button
+          onClick={handleSubmit}
+          variant="contained"
+          disabled={loading}
+        >
+          {editingId ? "Update" : "Create"}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
+export default BranchDialog;
