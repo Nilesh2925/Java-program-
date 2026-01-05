@@ -730,4 +730,41 @@ const BranchDialog = ({
   );
 };
 
-export default BranchDialog;
+export default BranchDialog
+
+
+
+
+
+/// axios 
+
+
+api.interceptors.request.use(
+  (config) => {
+    let token;
+
+    // 1️⃣ Try Redux token first
+    if (store) {
+      const state = store.getState();
+      token = state?.auth?.token;
+    }
+
+    // 2️⃣ Fallback to localStorage (CRITICAL FIX)
+    if (!token) {
+      token = localStorage.getItem("token");
+    }
+
+    // 3️⃣ Attach Authorization header
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    // 4️⃣ Ensure X-Request-Type exists
+    if (!config.headers["X-Request-Type"]) {
+      config.headers["X-Request-Type"] = "*";
+    }
+
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
