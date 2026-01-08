@@ -768,3 +768,47 @@ api.interceptors.request.use(
   },
   (error) => Promise.reject(error)
 );
+
+
+
+
+hhjjjjjkk
+
+
+const handleNameChange = (name, value, mandatory) => {
+  // 🔥 STEP 1: sanitize input (fixes EDIT form issue)
+  let sanitizedValue = value.replace(NAME_ALLOWED_CHARS, "");
+
+  // STEP 2: allow clearing
+  if (!sanitizedValue) {
+    setForm((p) => ({ ...p, [name]: "" }));
+    clearFieldError(name);
+    return;
+  }
+
+  // STEP 3: block only dot/space strings
+  if (!NAME_VALIDATION_REGEX.test(sanitizedValue)) {
+    return;
+  }
+
+  // STEP 4: validations
+  if (mandatory && sanitizedValue.trim().length < 3) {
+    setFieldError(name, "Minimum 3 characters required");
+  } else if (sanitizedValue.length > 30) {
+    setFieldError(name, "Maximum 30 characters allowed");
+  } else {
+    clearFieldError(name);
+  }
+
+  // STEP 5: update state
+  setForm((p) => ({ ...p, [name]: sanitizedValue }));
+};
+
+
+
+
+
+
+
+
+
