@@ -806,7 +806,35 @@ const handleNameChange = (name, value, mandatory) => {
 
 
 
+state
 
+
+<Autocomplete
+  fullWidth
+  options={states}
+  getOptionLabel={(option) =>
+    `${option.stateCode} - ${option.stateName}`
+  }
+  value={
+    states.find((s) => s.stateCode === branchData.state) || null
+  }
+  onChange={(_, value) => {
+    handleChange({
+      target: {
+        name: "state",
+        value: value?.stateCode || "",
+      },
+    });
+  }}
+  renderInput={(params) => (
+    <TextFieldStyle
+      {...params}
+      label="State *"
+      error={!!errors.state}
+      helperText={errors.state}
+    />
+  )}
+/>
 
 
 
