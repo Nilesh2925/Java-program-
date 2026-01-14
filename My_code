@@ -838,5 +838,35 @@ state
 
 
 
+circle code 
+
+<Autocomplete
+  fullWidth
+  options={circles}
+  getOptionLabel={(option) =>
+    `${option.circleCode} - ${option.circleName}`
+  }
+  value={
+    circles.find(
+      (c) => c.circleCode === branchData.circleCode
+    ) || null
+  }
+  onChange={(_, value) => {
+    handleChange({
+      target: {
+        name: "circleCode",
+        value: value?.circleCode || "",
+      },
+    });
+  }}
+  renderInput={(params) => (
+    <TextFieldStyle
+      {...params}
+      label="Circle Code *"
+      error={!!errors.circleCode}
+      helperText={errors.circleCode || ""}
+    />
+  )}
+/>
 
 
