@@ -252,3 +252,35 @@ if (open) {
   }
 }
 // ---------- END ----------
+
+
+
+
+
+
+let dd = value.slice(0, 2);
+      let mm = value.slice(2, 4);
+      let yyyy = value.slice(4, 8);
+
+      // reconstruct masked view
+      let masked = dd;
+      if (mm.length) masked += "/" + mm;
+      if (yyyy.length) masked += "/" + yyyy;
+
+      e.target.value = masked;
+
+      // if full date typed (8 digits)
+      if (value.length > 8) {
+        // rotate back to DD with extra digits
+        let extra = value.slice(8);         // remaining typed digits
+        dd = extra.slice(0, 2);
+        mm = extra.slice(2, 4);
+        yyyy = extra.slice(4, 8);
+
+        // rebuild from rotated
+        let newMasked = dd;
+        if (mm.length) newMasked += "/" + mm;
+        if (yyyy.length) newMasked += "/" + yyyy;
+
+        e.target.value = newMasked;
+      }
