@@ -284,3 +284,64 @@ let dd = value.slice(0, 2);
 
         e.target.value = newMasked;
       }
+
+
+
+
+
+slotProps={{
+  textField: {
+    inputProps: { maxLength: 10 }, // dd/mm/yyyy
+    onKeyDown: (e) => {
+      const allowed = /[0-9]/.test(e.key);
+
+      if (!allowed && e.key !== "Backspace" && e.key !== "Tab") {
+        e.preventDefault();
+        return;
+      }
+
+      const input = e.target;
+      const raw = input.value.replace(/\D/g, ""); // digits only
+
+      // If full date is already entered and user types digit -> rotate
+      if (raw.length >= 8 && allowed) {
+        e.preventDefault();
+        // Append new digit to front
+        const newRaw = (raw + e.key).slice(1, 9); // keep 8 digits total (ddmmyyyy)
+
+        // Reformat as DD/MM/YYYY
+        const newMasked =
+          newRaw.slice(0, 2) +
+          "/" +
+          newRaw.slice(2, 4) +
+          "/" +
+          newRaw.slice(4, 8);
+
+        input.value = newMasked;
+
+        // Move cursor to start (DD)
+        setTimeout(() => {
+          input.setSelectionRange(0, 0);
+        }, 0);
+
+        // Trigger synthetic input event for React controlled state
+        const ev = new Event("input", { bubbles: true });
+        input.dispatchEvent(ev);
+
+        return;
+      }
+
+      // While entering initial date, auto-insert slashes
+      setTimeout(() => {
+        let v = input.value.replace(/\D/g, "");
+        if (v.length >= 3 && v.length <= 4) {
+          input.value = v.slice(0, 2) + "/" + v.slice(2);
+        }
+        if (v.length >= 5) {
+          input.value =
+            v.slice(0, 2) + "/" + v.slice(2, 4) + "/" + v.slice(4, 8);
+        }
+      }, 0);
+    }
+  }
+}}
