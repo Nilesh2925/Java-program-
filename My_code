@@ -1001,3 +1001,55 @@ new date
     },
   }}
 />
+
+
+
+
+nnnnnnn
+
+<DatePicker1Style
+  label="Close Date"
+  format="DD/MM/YYYY"
+  name="closeDate"
+  disabled={!isClosed}
+
+  /* ✅ Calendar restriction */
+  minDate={
+    branchData.openDate
+      ? dayjs(branchData.openDate).add(1, "day")
+      : undefined
+  }
+
+  value={branchData.closeDate || null}
+
+  /* ✅ Typing validation */
+  onChange={(newValue) => {
+    if (!newValue) {
+      handleChange({
+        target: { name: "closeDate", value: null },
+      });
+      return;
+    }
+
+    if (
+      branchData.openDate &&
+      dayjs(newValue).isSameOrBefore(
+        dayjs(branchData.openDate),
+        "day"
+      )
+    ) {
+      return; // ❌ block invalid date
+    }
+
+    handleChange({
+      target: { name: "closeDate", value: newValue },
+    });
+  }}
+
+  slotProps={{
+    textField: {
+      fullWidth: true,
+      variant: "outlined",
+    },
+  }}
+/>
