@@ -140,3 +140,92 @@ if __name__ == "__main__":
 
     print(f"\nTOTAL JOB TIME: {time.time() - start:.2f} seconds\n")
     spark.stop()
+
+
+
+
+
+
+blockkkk
+
+
+
+import dayjs from "dayjs";
+
+/* ---------- calendar range logic ---------- */
+const today = dayjs();
+const open = branchData.openDate
+  ? dayjs(branchData.openDate, "DD/MM/YYYY")
+  : null;
+
+let calendarMinDate;
+
+if (open) {
+  // open date not in current year
+  if (open.year() !== today.year()) {
+    calendarMinDate = today.startOf("year");
+  }
+  // open date in same month & year
+  else if (open.isSame(today, "month")) {
+    calendarMinDate = open;
+  }
+  // open date in same year but different month
+  else {
+    calendarMinDate = open;
+  }
+}
+
+/* ---------- Close Date ---------- */
+<DatePicker1Style
+  label="Close Date"
+  format="DD/MM/YYYY"
+  name="closeDate"
+  disabled={!isClosed}
+
+  /* calendar restrictions */
+  minDate={calendarMinDate}
+  maxDate={today}
+
+  /* DatePicker value MUST be Dayjs */
+  value={
+    branchData.closeDate
+      ? dayjs(branchData.closeDate, "DD/MM/YYYY")
+      : null
+  }
+
+  /* typing + paste validation */
+  onChange={(newValue) => {
+    if (!newValue) {
+      handleChange({
+        target: { name: "closeDate", value: null },
+      });
+      return;
+    }
+
+    const close = newValue.startOf("day");
+
+    // block future date
+    if (close.isAfter(today.startOf("day"))) {
+      return;
+    }
+
+    // block close date smaller than open date
+    if (open && close.isBefore(open.startOf("day"))) {
+      return;
+    }
+
+    handleChange({
+      target: {
+        name: "closeDate",
+        value: newValue,
+      },
+    });
+  }}
+
+  slotProps={{
+    textField: {
+      fullWidth: true,
+      variant: "outlined",
+    },
+  }}
+/>
