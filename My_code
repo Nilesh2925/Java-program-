@@ -935,3 +935,69 @@ date
   }}
 />
 
+
+
+
+new date
+
+
+<DatePicker1Style
+  label="Close Date"
+  format="DD/MM/YYYY"
+  name="closeDate"
+  disabled={!isClosed}
+
+  /* ✅ Calendar restriction */
+  minDate={
+    branchData.openDate
+      ? dayjs(branchData.openDate).startOf("day").add(1, "day")
+      : undefined
+  }
+  maxDate={dayjs().startOf("day")} // ✅ no future dates
+
+  value={
+    branchData.closeDate
+      ? dayjs(branchData.closeDate)
+      : null
+  }
+
+  /* ✅ Typing + paste restriction */
+  onChange={(newValue) => {
+    if (!newValue) {
+      handleChange({
+        target: {
+          name: "closeDate",
+          value: null,
+        },
+      });
+      return;
+    }
+
+    const open = dayjs(branchData.openDate).startOf("day");
+    const close = newValue.startOf("day");
+
+    // ❌ Block future date
+    if (close.isAfter(dayjs().startOf("day"))) {
+      return;
+    }
+
+    // ❌ Block closeDate <= openDate
+    if (branchData.openDate && close.isSameOrBefore(open)) {
+      return;
+    }
+
+    handleChange({
+      target: {
+        name: "closeDate",
+        value: newValue,
+      },
+    });
+  }}
+
+  slotProps={{
+    textField: {
+      fullWidth: true,
+      variant: "outlined",
+    },
+  }}
+/>
