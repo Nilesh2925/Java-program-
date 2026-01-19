@@ -870,3 +870,68 @@ circle code
 />
 
 
+
+
+
+date
+
+<DatePicker1Style
+  label="Close Date"
+  format="DD/MM/YYYY"
+  name="closeDate"
+  disabled={!isClosed}
+
+  /* ✅ Calendar restriction */
+  minDate={
+    branchData.openDate
+      ? dayjs(branchData.openDate).add(1, "day")
+      : undefined
+  }
+  maxDate={dayjs()}   // ✅ restrict future date in calendar
+
+  value={
+    branchData.closeDate
+      ? dayjs(branchData.closeDate)
+      : null
+  }
+
+  /* ✅ Typing + paste restriction */
+  onChange={(newValue) => {
+    if (!newValue) {
+      handleChange({
+        target: {
+          name: "closeDate",
+          value: null,
+        },
+      });
+      return;
+    }
+
+    const open = dayjs(branchData.openDate);
+
+    // ❌ Block future date
+    if (newValue.isAfter(dayjs(), "day")) {
+      return;
+    }
+
+    // ❌ Block closeDate <= openDate
+    if (open.isValid() && newValue.isSameOrBefore(open, "day")) {
+      return;
+    }
+
+    handleChange({
+      target: {
+        name: "closeDate",
+        value: newValue,
+      },
+    });
+  }}
+
+  slotProps={{
+    textField: {
+      fullWidth: true,
+      variant: "outlined",
+    },
+  }}
+/>
+
