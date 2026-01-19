@@ -229,3 +229,26 @@ if (open) {
     },
   }}
 />
+
+
+
+
+
+// ---------- ADD THIS HERE ----------
+const today = dayjs();
+const open = branchData.openDate
+  ? dayjs(branchData.openDate, "DD/MM/YYYY")
+  : null;
+
+let calendarMinDate;
+
+if (open) {
+  if (open.year() !== today.year()) {
+    calendarMinDate = today.startOf("year");
+  } else if (open.isSame(today, "month")) {
+    calendarMinDate = open;
+  } else {
+    calendarMinDate = open;
+  }
+}
+// ---------- END ----------
