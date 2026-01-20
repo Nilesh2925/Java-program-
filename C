@@ -548,3 +548,145 @@ export default function Faqs() {
     </Box>
   );
 }
+
+
+
+
+with dummy data but updated
+
+
+import {
+  Box,
+  Typography,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  IconButton,
+  Collapse,
+} from "@mui/material";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+
+export default function Faqs() {
+  const navigate = useNavigate();
+  const [openRow, setOpenRow] = useState(null);
+  const [faqList, setFaqList] = useState([]);
+
+  // 🔹 Dummy data (temporary)
+  useEffect(() => {
+    setFaqList([
+      {
+        id: 1,
+        question: "Is ADS ID mandatory for all users?",
+        answer: "Yes, ADS ID is mandatory for all CRS users to login.",
+      },
+      {
+        id: 2,
+        question: "Can an auditor sign reports from another branch?",
+        answer:
+          "Yes, provided the auditor’s AD ID is mapped to the respective branch.",
+      },
+      {
+        id: 3,
+        question: "Do I need to reinstall CRS Digital Signer?",
+        answer:
+          "No, CRS Digital Signer installation is required only once per system.",
+      },
+      {
+        id: 4,
+        question: "Will CRS work on Windows 11?",
+        answer: "Yes, CRS is fully compatible with Windows 11.",
+      },
+    ]);
+  }, []);
+
+  const handleToggle = (id) => {
+    setOpenRow(openRow === id ? null : id);
+  };
+
+  return (
+    <Box p={4}>
+      {/* 🔹 Back Navigation */}
+      <Typography
+        variant="h6"
+        mb={2}
+        sx={{ cursor: "pointer" }}
+        onClick={() => navigate("/help-support")}
+      >
+        ← Frequently Asked Questions
+      </Typography>
+
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell width="5%" />
+              <TableCell>
+                <b>Question</b>
+              </TableCell>
+            </TableRow>
+          </TableHead>
+
+          <TableBody>
+            {faqList.map((faq) => (
+              <>
+                {/* QUESTION ROW */}
+                <TableRow
+                  key={faq.id}
+                  hover
+                  sx={{ cursor: "pointer" }}
+                  onClick={() => handleToggle(faq.id)}
+                >
+                  <TableCell>
+                    <IconButton size="small">
+                      {openRow === faq.id ? (
+                        <KeyboardArrowUpIcon />
+                      ) : (
+                        <KeyboardArrowDownIcon />
+                      )}
+                    </IconButton>
+                  </TableCell>
+                  <TableCell>{faq.question}</TableCell>
+                </TableRow>
+
+                {/* ANSWER ROW */}
+                <TableRow>
+                  <TableCell
+                    style={{ paddingBottom: 0, paddingTop: 0 }}
+                    colSpan={2}
+                  >
+                    <Collapse
+                      in={openRow === faq.id}
+                      timeout="auto"
+                      unmountOnExit
+                    >
+                      <Box m={2}>
+                        <Typography variant="body2">
+                          {faq.answer}
+                        </Typography>
+                      </Box>
+                    </Collapse>
+                  </TableCell>
+                </TableRow>
+              </>
+            ))}
+
+            {faqList.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={2} align="center">
+                  No FAQs available
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </Box>
+  );
+}
