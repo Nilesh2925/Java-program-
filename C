@@ -690,3 +690,30 @@ export default function Faqs() {
     </Box>
   );
 }
+
+
+
+arrow update 
+
+<Stack
+  direction="row"
+  alignItems="center"
+  spacing={1}
+  mb={2}
+>
+  <IconButton
+    onClick={() => navigate("/help-support")}
+    sx={{
+      backgroundColor: "grey.100",
+      "&:hover": {
+        backgroundColor: "grey.200",
+      },
+    }}
+  >
+    <ArrowBackIcon sx={{ fontSize: 28 }} />
+  </IconButton>
+
+  <Typography variant="h6">
+    Frequently Asked Questions
+  </Typography>
+</Stack>
