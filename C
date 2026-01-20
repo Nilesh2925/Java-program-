@@ -717,3 +717,106 @@ arrow update
     Frequently Asked Questions
   </Typography>
 </Stack>
+
+
+
+guide.js
+
+
+export const guideData = {
+  "CGL Management": {
+    title: "CGL Management",
+    steps: [
+      "Navigate to CGL Management from the main menu",
+      "Click on the Add CGL button",
+      "Enter CGL Code and CGL Description",
+      "Select the applicable segment",
+      "Verify entered details",
+      "Click Save to create the CGL"
+    ],
+  },
+
+  "Segment Management": {
+    title: "Segment Management",
+    steps: [
+      "Go to Segment Management screen",
+      "Click on Add Segment",
+      "Enter Segment Code and Segment Name",
+      "Choose applicable configuration options",
+      "Review the entered details",
+      "Click Save to add the segment"
+    ],
+  },
+
+  "Calendar Configuration": {
+    title: "Calendar Configuration",
+    steps: [
+      "Open Calendar Configuration module",
+      "Select the required year",
+      "Mark holidays and working days",
+      "Configure special non-working days if any",
+      "Review the calendar setup",
+      "Save the calendar configuration"
+    ],
+  },
+
+  "Circle Management": {
+    title: "Circle Management",
+    steps: [
+      "Navigate to Circle Management screen",
+      "Click on Add Circle",
+      "Enter Circle Name and Circle Code",
+      "Assign applicable regions or parameters",
+      "Verify the circle details",
+      "Click Save to create the circle"
+    ],
+  },
+
+  "Branch Management": {
+    title: "Branch Management",
+    steps: [
+      "Open Branch Management module",
+      "Select the Circle to which the branch belongs",
+      "Click on Add Branch",
+      "Enter Branch Code, Name, and Address",
+      "Validate the branch information",
+      "Save the branch details"
+    ],
+  },
+
+  "Currency Management": {
+    title: "Currency Management",
+    steps: [
+      "Navigate to Currency Management screen",
+      "Click on Add Currency",
+      "Enter Currency Code and Currency Name",
+      "Configure decimal and conversion settings",
+      "Verify currency information",
+      "Save the currency configuration"
+    ],
+  },
+
+  "User Management": {
+    title: "User Management",
+    steps: [
+      "Open User Management module",
+      "Click on Add User",
+      "Enter user details such as Name and AD ID",
+      "Assign Role, Circle, and Branch",
+      "Review user permissions",
+      "Save the user profile"
+    ],
+  },
+
+  "Reports": {
+    title: "Reports",
+    steps: [
+      "Navigate to Reports section",
+      "Select the required report type",
+      "Choose date range and filters",
+      "Click Generate Report",
+      "Review the generated report",
+      "Download or export the report if required"
+    ],
+  },
+};
