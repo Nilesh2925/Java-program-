@@ -1,4 +1,4 @@
-help and support 
+yhelp and support 
 
 router 
 import HelpSupportHome from "./features/helpSupport/pages/HelpSupportHome";
@@ -433,6 +433,118 @@ export default function Faqs() {
           </Table>
         </TableContainer>
       )}
+    </Box>
+  );
+}
+
+
+
+
+faq code with dummy data
+
+
+import {
+  Box,
+  Typography,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+} from "@mui/material";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+
+export default function Faqs() {
+  const navigate = useNavigate();
+
+  const [faqList, setFaqList] = useState([]);
+
+  // 🔹 Dummy FAQ data (TEMPORARY)
+  useEffect(() => {
+    const dummyFaqs = [
+      {
+        id: 1,
+        question: "Is ADS ID mandatory for all users?",
+        answer: "Yes, ADS ID is mandatory for all CRS users to login.",
+      },
+      {
+        id: 2,
+        question: "Can an auditor sign reports from another branch?",
+        answer:
+          "Yes, provided the auditor’s AD ID is mapped to the respective branch.",
+      },
+      {
+        id: 3,
+        question: "Do I need to reinstall CRS Digital Signer?",
+        answer:
+          "No, CRS Digital Signer installation is required only once per system.",
+      },
+      {
+        id: 4,
+        question: "Will CRS work on Windows 11?",
+        answer: "Yes, CRS is fully compatible with Windows 11.",
+      },
+      {
+        id: 5,
+        question: "Which browser is recommended for CRS?",
+        answer: "Google Chrome is recommended for best performance.",
+      },
+    ];
+
+    setFaqList(dummyFaqs);
+  }, []);
+
+  return (
+    <Box p={4}>
+      {/* 🔹 Back Navigation */}
+      <Typography
+        variant="h6"
+        mb={2}
+        sx={{ cursor: "pointer" }}
+        onClick={() => navigate("/help-support")}
+      >
+        ← Frequently Asked Questions
+      </Typography>
+
+      {/* 🔹 FAQ TABLE */}
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell width="5%">
+                <b>#</b>
+              </TableCell>
+              <TableCell width="40%">
+                <b>Question</b>
+              </TableCell>
+              <TableCell width="55%">
+                <b>Answer</b>
+              </TableCell>
+            </TableRow>
+          </TableHead>
+
+          <TableBody>
+            {faqList.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={3} align="center">
+                  No FAQs available
+                </TableCell>
+              </TableRow>
+            )}
+
+            {faqList.map((faq, index) => (
+              <TableRow key={faq.id}>
+                <TableCell>{index + 1}</TableCell>
+                <TableCell>{faq.question}</TableCell>
+                <TableCell>{faq.answer}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
     </Box>
   );
 }
