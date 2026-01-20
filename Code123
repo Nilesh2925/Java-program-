@@ -1,347 +1,546 @@
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import expr, substring, col
-import time
-from datetime import date
-
-# =======================
-# Spark Session (Optimized)
-# =======================
-def create_spark_session():
-    spark = (
-        SparkSession.builder.appName("BOTOGL_FAST")
-        # Memory settings (tune as per cluster)
-        .config("spark.executor.memory", "5g")
-        .config("spark.driver.memory", "6g")
-        .config("spark.executor.cores", "2")
-        .config("spark.sql.shuffle.partitions", "200")
-        .config("spark.default.parallelism", "200")
-        # Kryo serializer (MUCH FASTER)
-        .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-        # Adaptive execution (reduces shuffle)
-        .config("spark.sql.adaptive.enabled", "true")
-        .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
-        .config("spark.sql.files.maxPartitionBytes", 134217728) # 128 MB
-        .getOrCreate()
-    )
-    return spark
-
-
-# =======================
-#  READ + PROCESS FUNCTION
-# =======================
-def read_and_process_data(spark):
-
-    print("======== Reading all BOTOGL files ========")
-
-    # READ ALL FILES (1500+)
-    hdfs_root = "hdfs://10.177.103.199:8022/CBS-FILES/"
-    today = date.today().strftime("%Y-%m-%d")
-    source_path = f"{hdfs_root}/{today}/BANCS24/BORTOGL*"
-
-    # ******** FASTEST WAY to read 1500 fixed-width files ********
-    raw_df = spark.read.text(source_path)
-
-    print("======== Reading Completed ========")
-
-    # Persist because we re-use raw_df
-    raw_df = raw_df.persist()
-
-    print("======== Processing BOTOGL Started ========")
-
-    # =======================
-    #    FIXED-WIDTH EXTRACTIONS
-    # =======================
-    select_exprs = [
-
-        substring("value", 4, 16).alias("ACCT_NO"),
-        substring("value", 20, 6).alias("BRN"),
-        substring("value", 25, 2).alias("STAFF"),
-        substring("value", 51, 4).alias("TERM_BASIS"),
-        substring("value", 29, 4).alias("MARKET_SEG_CODE"),
-        substring("value", 33, 2).alias("ACT_TYPE"),
-        substring("value", 108, 3).alias("CAT"),
-        substring("value", 30, 3).alias("CURRENCY_IND"),
-        substring("value", 103, 5).alias("OLD_BAD_DEBT_IND"),
-        substring("value", 105, 25).alias("GL_CLASSIFICATION_CODE"),
-
-        # CGL Component fields
-        substring("value", 227, 17).alias("CGL_COMPONENT_1_DR"),
-        substring("value", 244, 10).alias("CGL_COMPONENT_2_DR"),
-    ]
-
-    # =======================
-    #  NUMERIC FIELDS (3-substring + decimal)
-    # =======================
-    numeric_fields = [
-        ("LOAN_BAL", 44, 1, 27, 14, 41, 3, "decimal(17,3)"),
-        ("LOAN_INTR", 50, 1, 45, 5, 0, 0, "decimal(6,0)"),
-        ("APP_AMT", 81, 1, 64, 14, 78, 3, "decimal(17,3)"),
-        ("ADV_VAL", 99, 1, 82, 14, 96, 3, "decimal(17,3)"),
-        ("COLLECTION_AMT", 147, 1, 130, 14, 144, 3, "decimal(17,3)"),
-        ("INT_ACCR", 195, 1, 148, 12, 160, 5, "decimal(17,5)"),
-        ("BPI_ACCR", 183, 1, 166, 12, 178, 5, "decimal(17,5)"),
-        ("C1_ACCR", 330, 1, 314, 12, 329, 5, "decimal(17,5)"),
-    ]
-
-    for col_name, s1, l1, s2, l2, s3, l3, dtype in numeric_fields:
-        if l3 > 0:
-            expr_str = (
-                f"concat("
-                f"substring(value,{s1},{l1}),"
-                f"'.',"
-                f"substring(value,{s2},{l2}),"
-                f"substring(value,{s3},{l3})"
-                f")"
-            )
-        else:
-            expr_str = (
-                f"concat("
-                f"substring(value,{s1},{l1}),"
-                f"'.',"
-                f"substring(value,{s2},{l2})"
-                f")"
-            )
-
-        select_exprs.append(expr(expr_str).cast(dtype).alias(col_name))
-
-    # BUILD final DF
-    final_df = raw_df.select(*select_exprs)
-
-    # Release memory
-    raw_df.unpersist()
-
-    print("======== Processing Completed ========")
-
-    # =======================
-    # Write to Parquet
-    # =======================
-    dest_path = f"{hdfs_root}/{today}/processed/BORTOGL.parquet"
-
-    print(f"======== Writing to Parquet: {dest_path} ========")
-
-    (
-        final_df
-        .repartition(200)       # parallel writing
-        .write
-        .mode("overwrite")
-        .parquet(dest_path)
-    )
-
-    print("======== WRITE COMPLETED ========")
-
-
-# =======================
-# MAIN
-# =======================
-if __name__ == "__main__":
-    start = time.time()
-    spark = create_spark_session()
-    read_and_process_data(spark)
-
-    print(f"\nTOTAL JOB TIME: {time.time() - start:.2f} seconds\n")
-    spark.stop()
-
-
-
-
-
-
-blockkkk
-
-
-
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
+import {
+  Dialog,
+  DialogActions,
+  DialogContent,
+  Button,
+  debounce,
+} from "@mui/material";
+import {
+  Add as AddIcon,
+  Close as CloseIcon,
+  Edit as EditIcon,
+} from "@mui/icons-material";
 import dayjs from "dayjs";
 
-/* ---------- calendar range logic ---------- */
-const today = dayjs();
-const open = branchData.openDate
-  ? dayjs(branchData.openDate, "DD/MM/YYYY")
-  : null;
+import { DialogTitleStyle, IconButtonStyle } from "./BranchMasterStyle";
+import useApi from "../../../hooks/useApi";
+import useCustomSnackbar from "../../../utils/useCustomSnackbar";
+import BranchForm from "./BranchForm";
 
-let calendarMinDate;
+const reDigits = /^[0-9]*$/;
+const reDesc = /^[a-zA-Z0-9\s/&,-.()]*$/;
+const eprefix = "sbi.";
+const emailDomain = "@sbi.co.in";
 
-if (open) {
-  // open date not in current year
-  if (open.year() !== today.year()) {
-    calendarMinDate = today.startOf("year");
-  }
-  // open date in same month & year
-  else if (open.isSame(today, "month")) {
-    calendarMinDate = open;
-  }
-  // open date in same year but different month
-  else {
-    calendarMinDate = open;
-  }
-}
+export default function BranchDialog({
+  open,
+  handleClose,
+  editingId,
+  initialData,
+  fetchBranches,
+  circles,
+  states,
+}) {
+  const { callApi, cancelAllRequests } = useApi();
+  const snackbar = useCustomSnackbar();
 
-/* ---------- Close Date ---------- */
-<DatePicker1Style
-  label="Close Date"
-  format="DD/MM/YYYY"
-  name="closeDate"
-  disabled={!isClosed}
-
-  /* calendar restrictions */
-  minDate={calendarMinDate}
-  maxDate={today}
-
-  /* DatePicker value MUST be Dayjs */
-  value={
-    branchData.closeDate
-      ? dayjs(branchData.closeDate, "DD/MM/YYYY")
-      : null
-  }
-
-  /* typing + paste validation */
-  onChange={(newValue) => {
-    if (!newValue) {
-      handleChange({
-        target: { name: "closeDate", value: null },
-      });
-      return;
-    }
-
-    const close = newValue.startOf("day");
-
-    // block future date
-    if (close.isAfter(today.startOf("day"))) {
-      return;
-    }
-
-    // block close date smaller than open date
-    if (open && close.isBefore(open.startOf("day"))) {
-      return;
-    }
-
-    handleChange({
-      target: {
-        name: "closeDate",
-        value: newValue,
-      },
-    });
-  }}
-
-  slotProps={{
-    textField: {
-      fullWidth: true,
-      variant: "outlined",
+  // Throttle Snackbars
+  const snackGateRef = useRef(true);
+  const notifyOnce = useCallback(
+    (msg, variant = "warning") => {
+      if (!snackGateRef.current) return;
+      snackGateRef.current = false;
+      snackbar(msg, variant);
+      setTimeout(() => (snackGateRef.current = true), 800);
     },
-  }}
-/>
+    [snackbar]
+  );
 
+  const [branchData, setBranchData] = useState({});
+  const [errors, setErrors] = useState({});
+  const [mwb, setMwb] = useState([]);
+  const [mwbLoading, setMwbLoading] = useState(false);
+  const [mwbInputValue, setMwbInputValue] = useState("");
+  const [isDataSame, setIsDataSame] = useState(true);
+  const [originalData, setOriginalData] = useState(null);
 
-
-
-
-// ---------- ADD THIS HERE ----------
-const today = dayjs();
-const open = branchData.openDate
-  ? dayjs(branchData.openDate, "DD/MM/YYYY")
-  : null;
-
-let calendarMinDate;
-
-if (open) {
-  if (open.year() !== today.year()) {
-    calendarMinDate = today.startOf("year");
-  } else if (open.isSame(today, "month")) {
-    calendarMinDate = open;
-  } else {
-    calendarMinDate = open;
-  }
-}
-// ---------- END ----------
-
-
-
-
-
-
-let dd = value.slice(0, 2);
-      let mm = value.slice(2, 4);
-      let yyyy = value.slice(4, 8);
-
-      // reconstruct masked view
-      let masked = dd;
-      if (mm.length) masked += "/" + mm;
-      if (yyyy.length) masked += "/" + yyyy;
-
-      e.target.value = masked;
-
-      // if full date typed (8 digits)
-      if (value.length > 8) {
-        // rotate back to DD with extra digits
-        let extra = value.slice(8);         // remaining typed digits
-        dd = extra.slice(0, 2);
-        mm = extra.slice(2, 4);
-        yyyy = extra.slice(4, 8);
-
-        // rebuild from rotated
-        let newMasked = dd;
-        if (mm.length) newMasked += "/" + mm;
-        if (yyyy.length) newMasked += "/" + yyyy;
-
-        e.target.value = newMasked;
-      }
-
-
-
-
-
-slotProps={{
-  textField: {
-    inputProps: { maxLength: 10 }, // dd/mm/yyyy
-    onKeyDown: (e) => {
-      const allowed = /[0-9]/.test(e.key);
-
-      if (!allowed && e.key !== "Backspace" && e.key !== "Tab") {
-        e.preventDefault();
-        return;
-      }
-
-      const input = e.target;
-      const raw = input.value.replace(/\D/g, ""); // digits only
-
-      // If full date is already entered and user types digit -> rotate
-      if (raw.length >= 8 && allowed) {
-        e.preventDefault();
-        // Append new digit to front
-        const newRaw = (raw + e.key).slice(1, 9); // keep 8 digits total (ddmmyyyy)
-
-        // Reformat as DD/MM/YYYY
-        const newMasked =
-          newRaw.slice(0, 2) +
-          "/" +
-          newRaw.slice(2, 4) +
-          "/" +
-          newRaw.slice(4, 8);
-
-        input.value = newMasked;
-
-        // Move cursor to start (DD)
-        setTimeout(() => {
-          input.setSelectionRange(0, 0);
-        }, 0);
-
-        // Trigger synthetic input event for React controlled state
-        const ev = new Event("input", { bubbles: true });
-        input.dispatchEvent(ev);
-
-        return;
-      }
-
-      // While entering initial date, auto-insert slashes
-      setTimeout(() => {
-        let v = input.value.replace(/\D/g, "");
-        if (v.length >= 3 && v.length <= 4) {
-          input.value = v.slice(0, 2) + "/" + v.slice(2);
+  // --- Initialization ---
+  useEffect(() => {
+    if (open) {
+      if (editingId && initialData) {
+        const init = { ...initialData };
+        setBranchData(init);
+        setOriginalData(init);
+        setIsDataSame(true);
+        if (init.mergedWithBranch) {
+          setMwb([init.mergedWithBranch]);
         }
-        if (v.length >= 5) {
-          input.value =
-            v.slice(0, 2) + "/" + v.slice(2, 4) + "/" + v.slice(4, 8);
-        }
-      }, 0);
+      } else {
+        setBranchData({
+          code: "",
+          name: "",
+          circleCode: "",
+          state: "",
+          city: "",
+          address: "",
+          pinCode: "",
+          phoneNumber: "",
+          emailId: `${eprefix}${emailDomain}`,
+          nmrCode: "",
+          status: "Active",
+          openDate: dayjs(),
+          closeDate: null,
+          mergeDate: null,
+          mergedWithBranch: null,
+          cpcFlag: false,
+          foodCreditFlag: false,
+          currChestFlag: false,
+          branchType: "A",
+        });
+        setOriginalData(null);
+        setIsDataSame(false);
+      }
+      setErrors({});
+      setMwb([]);
     }
-  }
-}}
+  }, [open, editingId, initialData]);
+
+  // --- Change Detection ---
+  useEffect(() => {
+    if (editingId && originalData) {
+      const isSame =
+        JSON.stringify(branchData) === JSON.stringify(originalData);
+      setIsDataSame(isSame);
+    }
+  }, [branchData, originalData, editingId]);
+
+  // --- Auto Logic: Branch Type Switching ---
+  useEffect(() => {
+    if (editingId) {
+      const hasManualTriggers =
+        branchData.status === "InActive" ||
+        !!branchData.closeDate ||
+        !!branchData.mergeDate ||
+        !!branchData.mergedWithBranch;
+
+      if (hasManualTriggers && branchData.branchType !== "M") {
+        setBranchData((prev) => ({ ...prev, branchType: "M" }));
+      } else if (!hasManualTriggers && branchData.branchType !== "A") {
+        setBranchData((prev) => ({ ...prev, branchType: "A" }));
+      }
+    }
+  }, [
+    branchData.status,
+    branchData.closeDate,
+    branchData.mergeDate,
+    branchData.mergedWithBranch,
+    editingId,
+  ]);
+
+  // --- Auto Logic: Clear Dependent Data ---
+  useEffect(() => {
+    if (branchData.status === "Active") {
+      setBranchData((prev) => {
+        // Only update if needed to avoid loops
+        if (prev.mergedWithBranch || prev.mergeDate || prev.closeDate) {
+          return {
+            ...prev,
+            mergedWithBranch: null,
+            mergeDate: null,
+            closeDate: null,
+          };
+        }
+        return prev;
+      });
+      // Clear errors related to these
+      setErrors((prev) => ({
+        ...prev,
+        closeDate: "",
+        mergeDate: "",
+        mergedWithBranch: "",
+      }));
+    }
+  }, [branchData.status]);
+
+  // --- Validation ---
+  const validateField = (name, value, allData = branchData) => {
+    switch (name) {
+      case "code":
+        if (!value) return "Branch Code is required";
+        if (!reDigits.test(value)) return "Only digits allowed";
+        if (value.length !== 5) return "Must be 5 digits";
+        if (/^0+$/.test(value)) return "All zeros not allowed";
+        break;
+      case "name":
+        if (!value) return "Name required";
+        if (!reDesc.test(value)) return "Invalid characters";
+        if (value.length < 3) return "Min 3 characters";
+        break;
+      case "pinCode":
+        if (value && !reDigits.test(value)) return "Digits only";
+        if (value && value.length !== 6) return "Must be 6 digits";
+        if (value && /^0/.test(value)) return "Cannot start with zero";
+        break;
+      case "phoneNumber":
+        if (value && !reDigits.test(value)) return "Digits only";
+        if (value && value.length !== 10) return "Must be 10 digits";
+        if (value && /^0/.test(value)) return "Cannot start with zero";
+        break;
+      case "nmrCode":
+        if (value && !reDigits.test(value)) return "Digits only";
+        if (value && value.length !== 9) return "Must be 9 digits";
+        break;
+
+      case "openDate":
+        if (!value || !dayjs(value).isValid()) return "Invalid Date";
+        break;
+
+      case "closeDate":
+        if (value && !dayjs(value).isValid()) return "Invalid Date";
+        if (allData.status === "InActive" && !value)
+          return "Required when status is Closed";
+        if (value && dayjs(value).isValid()) {
+          if (
+            allData.openDate &&
+            dayjs(value).isBefore(dayjs(allData.openDate), "day")
+          ) {
+            return "Close Date cannot be before Open Date";
+          }
+          if (dayjs(value).isAfter(dayjs(), "day")) {
+            return "Close Date cannot be in future";
+          }
+        }
+        break;
+
+      case "mergeDate":
+        if (value && !dayjs(value).isValid()) return "Invalid Date";
+        if (allData.mergedWithBranch && !value) return "Required when merged";
+        if (value && dayjs(value).isValid()) {
+          if (!dayjs(value).isSame(dayjs(), "month"))
+            return "Merge Date must be in current month";
+          if (dayjs(value).isAfter(dayjs(), "day"))
+            return "Merge Date cannot be in future";
+        }
+        break;
+      case "mergedWithBranch":
+        if (value?.code === allData.code) return "Cannot merge with itself";
+        break;
+      default:
+        break;
+    }
+    return "";
+  };
+
+  // --- Handlers ---
+  const handleChange = useCallback(
+    (e) => {
+      const { name, value } = e.target;
+
+      // Immediate Validation / Snackbar logic
+      if (name === "code" && !reDigits.test(value)) {
+        notifyOnce("Digits only");
+        return;
+      }
+      if (name === "code" && value.length > 5) {
+        notifyOnce("Max 5 digits");
+        return;
+      }
+
+      if (
+        ["pinCode", "phoneNumber", "nmrCode"].includes(name) &&
+        !reDigits.test(value)
+      ) {
+        notifyOnce("Digits only");
+        return;
+      }
+      if (
+        ["name", "city", "address"].includes(name) &&
+        value !== "" &&
+        !reDesc.test(value)
+      ) {
+        notifyOnce("Invalid special characters");
+        return;
+      }
+
+      setBranchData((prev) => {
+        const updated = { ...prev, [name]: value };
+        if (name === "code")
+          updated.emailId = `${eprefix}${value}${emailDomain}`;
+        // Logic: Status Logic handled in useEffect, but clear closeDate immediately if made active
+        if (name === "status" && value === "Active") updated.closeDate = null;
+        if (name === "status" && (value === "InActive" || value === "Closed"))
+          updated.mergeDate = null;
+        return updated;
+      });
+
+      if (name === "code" && value.length === 5 && !editingId) {
+        checkBranchCodeExists(value);
+      }
+
+      setErrors((prev) => ({
+        ...prev,
+        [name]: validateField(name, value, branchData),
+      }));
+    },
+    [editingId, branchData, notifyOnce]
+  );
+
+  const checkBranchCodeExists = async (code) => {
+    try {
+      const url =
+        "/CM/common-master/branches-code-name-only?q=" +
+        encodeURIComponent(code);
+      const res = await callApi(url, null, "GET");
+      if (res?.data?.some((b) => b.code === code)) {
+        setErrors((prev) => ({ ...prev, code: "Branch Code already exists" }));
+        notifyOnce("Branch Code already exists", "error");
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDateChange = useCallback((name, newValue) => {
+    setBranchData((prev) => {
+      const updated = { ...prev, [name]: newValue };
+      const errorMsg = validateField(name, newValue, updated);
+      setErrors((prevErr) => ({ ...prevErr, [name]: errorMsg }));
+      return updated;
+    });
+  }, []);
+
+  const handleAutoCompleteChange = useCallback((name, value) => {
+    setBranchData((prev) => ({ ...prev, [name]: value }));
+    setErrors((prev) => ({ ...prev, [name]: "" }));
+  }, []);
+
+  // --- Auto Logic: Status Dependencies (CRITICAL FIX) ---
+  useEffect(() => {
+    if (branchData.status === "InActive" || branchData.status === "Closed") {
+      // If Closed: Clear Merge Data
+      setBranchData((prev) => {
+        if (prev.mergedWithBranch || prev.mergeDate) {
+          return { ...prev, mergedWithBranch: null, mergeDate: null };
+        }
+        return prev;
+      });
+      setMwbInputValue(""); // Clear the text input
+      setErrors((prev) => ({ ...prev, mergedWithBranch: "", mergeDate: "" }));
+    } else {
+      // If Active: Clear Close Date
+      setBranchData((prev) => {
+        if (prev.closeDate) {
+          return { ...prev, closeDate: null };
+        }
+        return prev;
+      });
+      setErrors((prev) => ({ ...prev, closeDate: "" }));
+    }
+  }, [branchData.status]);
+
+  // --- Auto Logic: merge Dependencies ---
+  useEffect(() => {
+    if (!branchData.mergedWithBranch) {
+      // If Closed: Clear Merge Data
+      setBranchData((prev) => {
+        if (prev.mergeDate) {
+          return { ...prev, mergeDate: null };
+        }
+        return prev;
+      });
+      setErrors((prev) => ({ ...prev, mergeDate: "" }));
+    }
+  }, [branchData.mergedWithBranch]);
+
+  // 1. Create the Debounced API Fetch (Memoized)
+  const fetchMwb = useMemo(
+    () =>
+      debounce(async (val) => {
+        if (!val || val.length < 3) {
+          setMwb([]);
+          setMwbLoading(false);
+          return;
+        }
+
+        setMwbLoading(true);
+        try {
+          // Verify this URL matches your backend requirement
+          const url =
+            "/CM/common-master/branches-code-name-only?q=" +
+            encodeURIComponent(val);
+          const res = await callApi(url, null, "GET");
+          setMwb(res?.data || []);
+        } catch (e) {
+          console.error(e);
+          setMwb([]); // Clear on error to be safe
+        } finally {
+          setMwbLoading(false);
+        }
+      }, 400),
+    [callApi]
+  );
+
+  // 2. Create the Handler for Input Change (Instant UI Update)
+  const handleMwbInputChange = useCallback(
+    (event, newInputValue) => {
+      // Update state IMMEDIATELY so user sees what they type
+      setMwbInputValue(newInputValue);
+
+      // Trigger the debounced API call
+      fetchMwb(newInputValue);
+    },
+    [fetchMwb]
+  );
+
+  // Form Validity Check for Button
+  const isFormValid = useMemo(() => {
+    // 1. Check for explicit error strings
+    const hasErrors = Object.values(errors).some((e) => e);
+    if (hasErrors) return false;
+
+    // 2. Check for empty mandatory fields
+    const {
+      code,
+      name,
+      circleCode,
+      state,
+      city,
+      address,
+      pinCode,
+      phoneNumber,
+      nmrCode,
+      status,
+    } = branchData;
+    if (
+      !code ||
+      !name ||
+      !circleCode ||
+      !state ||
+      !city ||
+      !address ||
+      !pinCode ||
+      !phoneNumber ||
+      !nmrCode ||
+      !status
+    )
+      return false;
+
+    return true;
+  }, [errors, branchData]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    const allErrors = {};
+    Object.keys(branchData).forEach((key) => {
+      const msg = validateField(key, branchData[key]);
+      if (msg) allErrors[key] = msg;
+    });
+
+    if (branchData.status === "InActive" && !branchData.closeDate)
+      allErrors.closeDate = "Required";
+    if (branchData.mergedWithBranch && !branchData.mergeDate)
+      allErrors.mergeDate = "Required";
+
+    if (Object.keys(allErrors).length > 0) {
+      setErrors(allErrors);
+      notifyOnce("Please fix validation errors", "error");
+      return;
+    }
+
+    if (editingId && isDataSame) {
+      notifyOnce("No changes detected", "warning");
+      return;
+    }
+
+    const payloadData = {
+      requestType: "BRANCH",
+      changeType: editingId ? "UPDATE" : "ADD",
+      targetId: branchData.code,
+      payload: {
+        code: branchData.code.trim(),
+        name: branchData.name.trim(),
+        circleCode: branchData.circleCode,
+        circleName:
+          circles.find((c) => c.circleCode === branchData.circleCode)
+            ?.circleName || "",
+        state: branchData.state,
+        stateName:
+          states.find((s) => s.stateCode === branchData.state)?.stateName || "",
+        city: branchData.city.trim(),
+        address: branchData.address.trim(),
+        pinCode: branchData.pinCode,
+        phoneNumber: branchData.phoneNumber,
+        emailId: branchData.emailId,
+        nmrCode: branchData.nmrCode,
+        status: branchData.status === "Active",
+        cpcFlag: branchData.cpcFlag,
+        foodCreditFlag: branchData.foodCreditFlag,
+        currChestFlag: branchData.currChestFlag,
+        branchType: branchData.branchType,
+        openDate: branchData.openDate
+          ? dayjs(branchData.openDate).format("DD/MM/YYYY")
+          : null,
+        ...(editingId && {
+          mergedWithBranch: branchData.mergedWithBranch?.code || null,
+          closeDate: branchData.closeDate
+            ? dayjs(branchData.closeDate).format("DD/MM/YYYY")
+            : null,
+          mergeDate: branchData.mergeDate
+            ? dayjs(branchData.mergeDate).format("DD/MM/YYYY")
+            : null,
+        }),
+      },
+    };
+
+    try {
+      const response = await callApi("/CR/create-request", payloadData, "POST");
+      if (response) {
+        snackbar(
+          `Request submitted successfully. ID: ${response?.data?.id}`,
+          "success"
+        );
+        handleClose();
+        fetchBranches();
+      }
+    } catch (err) {
+      snackbar(err?.message || "Request failed", "error");
+    }
+  };
+
+  return (
+    <Dialog open={open} maxWidth="md" fullWidth onClose={handleClose}>
+      <DialogTitleStyle>
+        {editingId ? "Edit Branch" : "Add New Branch"}
+        <IconButtonStyle onClick={handleClose}>
+          <CloseIcon />
+        </IconButtonStyle>
+      </DialogTitleStyle>
+
+      <DialogContent dividers>
+        <BranchForm
+          branchData={branchData}
+          errors={errors}
+          circles={circles}
+          states={states}
+          mwb={mwb}
+          mwbLoading={mwbLoading}
+          mwbInputValue={mwbInputValue}
+          editingId={editingId}
+          handleChange={handleChange}
+          handleDateChange={handleDateChange}
+          handleAutoCompleteChange={handleAutoCompleteChange}
+          handleMwbInputChange={handleMwbInputChange}
+        />
+      </DialogContent>
+
+      <DialogActions>
+        <Button
+          onClick={handleSubmit}
+          variant="contained"
+          startIcon={editingId ? <EditIcon /> : <AddIcon />}
+          disabled={!isFormValid || (editingId && isDataSame)}
+        >
+          {editingId ? "Update" : "Add"}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
