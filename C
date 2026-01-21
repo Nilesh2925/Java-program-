@@ -1001,3 +1001,54 @@ guide data cgl
     "Verify all entered details and click Save to submit the CGL request for approval."
   ],
 },
+
+
+
+"Circle Management": {
+  title: "Circle Management",
+  steps: [
+    "Navigate to Circle Management from the main menu.",
+    "Choose one of the available options: Management Circle or Circle Requests.",
+    "In Management Circle, view all approved and active circles available in the system.",
+    "Use the Create button in Management Circle to initiate a new circle creation request.",
+    "Enter mandatory details such as Circle Code and Circle Name.",
+    "Verify the entered circle details before submitting the request.",
+    "Submit the circle creation request for approval.",
+    "In Circle Requests, review circle creation requests raised by other users.",
+    "Approve or reject circle requests based on authorization.",
+    "Track the status of circles created by you through the request workflow."
+  ],
+},
+"Segment Management": {
+  title: "Segment Management",
+  steps: [
+    "Navigate to Segment Management from the main menu.",
+    "Select one of the available options: Management Segment or Segment Requests.",
+    "In Management Segment, view all approved and active segments.",
+    "Click the Create button to raise a new segment creation request.",
+    "Enter required segment details such as Segment Code and Segment Name.",
+    "Review the entered segment information carefully.",
+    "Submit the segment creation request for approval.",
+    "In Segment Requests, review segment requests raised by other users.",
+    "Approve or reject segment requests based on assigned roles and permissions.",
+    "Monitor the status of your segment requests through the workflow."
+  ],
+},
+
+
+"Branch Management": {
+  title: "Branch Management",
+  steps: [
+    "Navigate to Branch Management from the main menu.",
+    "Choose one of the available options: View Branch Details, Management Branch, or Branch Requests.",
+    "In View Branch Details, search for a branch to view complete branch information.",
+    "Review branch details such as Branch Code, Branch Name, Address, and Circle mapping.",
+    "In Management Branch, view all approved and active branches.",
+    "Click the Create button to initiate a new branch creation request.",
+    "Enter mandatory branch details including Branch Code, Branch Name, Address, and Circle.",
+    "Verify all entered branch information before submission.",
+    "Submit the branch creation request for approval.",
+    "In Branch Requests, review branch creation requests raised by other users and approve or reject them.",
+    "Track the status of branch requests created by you through the workflow."
+  ],
+},
