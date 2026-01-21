@@ -983,3 +983,21 @@ export default function UserGuides() {
     </Box>
   );
 }
+
+
+guide data cgl
+"CGL Management": {
+  title: "CGL Management",
+  steps: [
+    "Navigate to CGL Management from the main menu.",
+    "Choose one of the available options: View CGL Details, CGL Requests, or CGL Management.",
+    "In View CGL Details, search for a CGL using the Search CGL option to view complete CGL information.",
+    "In CGL Requests, review pending CGL creation requests raised by other users and approve or reject them.",
+    "In CGL Management, use the Manage CGL tab to view all approved and active CGLs.",
+    "Switch to the My Requests tab to view CGL requests created by you along with their current status.",
+    "Click the Create button to initiate a new CGL creation request.",
+    "Enter all mandatory CGL details such as CGL Code, Description, Account Classification, Comp1, Segment, and Comp2.",
+    "Configure Balance Compare, Manual Posting, and Balance Forward flags as required.",
+    "Verify all entered details and click Save to submit the CGL request for approval."
+  ],
+},
