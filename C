@@ -890,3 +890,96 @@ const cglFaqDummyData = [
       "Yes, changes to an approved CGL must be raised as a new request and approved before the changes take effect.",
   },
 ];
+
+
+
+user guides new
+
+import {
+  Box,
+  Typography,
+  List,
+  ListItemButton,
+  ListItemText,
+  Card,
+  CardContent,
+  Stack,
+  Divider,
+  Chip,
+} from "@mui/material";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import { useState } from "react";
+import { guideData } from "../data/guideData";
+
+export default function UserGuides() {
+  const modules = Object.keys(guideData);
+  const [selectedModule, setSelectedModule] = useState(modules[0]);
+
+  const currentGuide = guideData[selectedModule];
+
+  return (
+    <Box display="flex" gap={3} p={3}>
+      {/* 🔹 LEFT MENU */}
+      <Card sx={{ width: 280, height: "fit-content" }}>
+        <CardContent>
+          <Typography variant="subtitle1" fontWeight={600} mb={1}>
+            Modules
+          </Typography>
+          <Divider sx={{ mb: 1 }} />
+
+          <List disablePadding>
+            {modules.map((module) => (
+              <ListItemButton
+                key={module}
+                selected={selectedModule === module}
+                onClick={() => setSelectedModule(module)}
+                sx={{
+                  borderRadius: 1,
+                  mb: 0.5,
+                }}
+              >
+                <ListItemText primary={module} />
+              </ListItemButton>
+            ))}
+          </List>
+        </CardContent>
+      </Card>
+
+      {/* 🔹 RIGHT CONTENT */}
+      <Card sx={{ flex: 1 }}>
+        <CardContent>
+          <Stack spacing={2}>
+            <Typography variant="h6" fontWeight={600}>
+              {currentGuide.title}
+            </Typography>
+
+            <Divider />
+
+            {/* 🔹 STEPS */}
+            {currentGuide.steps.map((step, index) => (
+              <Card
+                key={index}
+                variant="outlined"
+                sx={{
+                  backgroundColor: "grey.50",
+                }}
+              >
+                <CardContent>
+                  <Stack direction="row" spacing={2} alignItems="flex-start">
+                    <Chip
+                      icon={<CheckCircleOutlineIcon />}
+                      label={`Step ${index + 1}`}
+                      color="primary"
+                      size="small"
+                    />
+                    <Typography variant="body2">{step}</Typography>
+                  </Stack>
+                </CardContent>
+              </Card>
+            ))}
+          </Stack>
+        </CardContent>
+      </Card>
+    </Box>
+  );
+}
