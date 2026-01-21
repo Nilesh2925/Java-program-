@@ -820,3 +820,73 @@ export const guideData = {
     ],
   },
 };
+
+
+
+
+cgl dummy data.
+
+
+
+const cglFaqDummyData = [
+  {
+    id: 1,
+    question: "What is CGL Management used for in Fincore?",
+    answer:
+      "CGL Management is used to create, view, manage, and process Central General Ledger (CGL) accounts, including approval and maintenance of CGL-related requests.",
+  },
+  {
+    id: 2,
+    question: "What options are available under CGL Management?",
+    answer:
+      "CGL Management provides three options: View CGL Details, CGL Requests, and CGL Management.",
+  },
+  {
+    id: 3,
+    question: "How can I view CGL details?",
+    answer:
+      "You can view CGL details by using the Search CGL option. After selecting a CGL, the system displays all related information.",
+  },
+  {
+    id: 4,
+    question: "What information is shown in View CGL Details?",
+    answer:
+      "The screen displays CGL Number, Description, Account Classification, Comp1, Segment, Comp2, Balance Compare flag, Manual Posting flag, Balance Forward flag, and Open Date.",
+  },
+  {
+    id: 5,
+    question: "What is the purpose of the CGL Requests screen?",
+    answer:
+      "The CGL Requests screen is used to approve or reject CGL creation requests raised by other users.",
+  },
+  {
+    id: 6,
+    question: "What is the difference between Manage CGL and My Requests?",
+    answer:
+      "Manage CGL shows all approved and active CGLs, while My Requests displays CGL requests created by the logged-in user along with their current status.",
+  },
+  {
+    id: 7,
+    question: "How do I create a new CGL?",
+    answer:
+      "Click on the Create button in the CGL Management screen, enter all mandatory CGL details, and submit the request for approval.",
+  },
+  {
+    id: 8,
+    question: "Can a CGL be created without approval?",
+    answer:
+      "No, all CGL creation requests must be approved by an authorized user before the CGL becomes active.",
+  },
+  {
+    id: 9,
+    question: "How can I track the status of my CGL request?",
+    answer:
+      "The status of your CGL request can be tracked in the My Requests tab, where the current approval status is displayed.",
+  },
+  {
+    id: 10,
+    question: "Can an approved CGL be modified later?",
+    answer:
+      "Yes, changes to an approved CGL must be raised as a new request and approved before the changes take effect.",
+  },
+];
