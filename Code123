@@ -576,3 +576,208 @@ import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import dayjs from "dayjs";
 import useApi from "../../hooks/useApi";
 import { useSelector } from "react-redux";
+
+
+export default function BranchWiseReports() {
+  const { callApi } = useApi();
+  const user = useSelector((state) => state.auth.user);
+
+  const [countryType, setCountryType] = useState("INDIAN");
+
+  const [zoneList, setZoneList] = useState([]);
+  const [circleList, setCircleList] = useState([]);
+  const [branchList, setBranchList] = useState([]);
+  const [reportList, setReportList] = useState([]);
+
+  const [zone, setZone] = useState(null);
+  const [circle, setCircle] = useState(null);
+  const [branch, setBranch] = useState(null);
+  const [report, setReport] = useState(null);
+  const [reportDate, setReportDate] = useState(null);
+
+  /* ---------------- ZONE (POST + payload) ---------------- */
+
+  const fetchZones = debounce(async (value) => {
+    if (!value || value.length < 2) {
+      setZoneList([]);
+      return;
+    }
+
+    const res = await callApi(
+      "/CM/common-master/zones",
+      { q: value },
+      "POST"
+    );
+
+    let data = res?.data || [];
+
+    // Zone-4 logic
+    data =
+      countryType === "FOREIGN"
+        ? data.filter((z) => z.zoneCode === "4")
+        : data.filter((z) => z.zoneCode !== "4");
+
+    setZoneList(data);
+  }, 400);
+
+  /* ---------------- CIRCLE (POST + payload) ---------------- */
+
+  const fetchCircles = async (zoneCode) => {
+    const res = await callApi(
+      "/CM/common-master/circles",
+      { zoneCode },
+      "POST"
+    );
+    setCircleList(res?.data || []);
+  };
+
+  /* ---------------- BRANCH (GET like your code) ---------------- */
+
+  const fetchBranches = debounce(async (value) => {
+    if (!value || value.length < 3 || !circle) {
+      setBranchList([]);
+      return;
+    }
+
+    const res = await callApi(
+      `/CM/common-master/branches-code-name-only?q=${encodeURIComponent(value)}`,
+      null,
+      "GET"
+    );
+
+    setBranchList(res?.data || []);
+  }, 400);
+
+  /* ---------------- REPORT TYPES ---------------- */
+
+  const fetchReports = async () => {
+    const res = await callApi(
+      "/RS/reports/types",
+      { roleId: user.role },
+      "POST"
+    );
+    setReportList(res?.data || []);
+  };
+
+  /* ---------------- DOWNLOAD ---------------- */
+
+  const handleDownload = () => {
+    const payload = {
+      countryType,
+      zoneCode: zone?.zoneCode,
+      circleCode: circle?.circleCode,
+      branchCode: branch?.branchCode,
+      reportId: report?.id,
+      reportDate: reportDate?.format("YYYY-MM-DD"),
+    };
+
+    console.log("DOWNLOAD PAYLOAD:", payload);
+  };
+
+  return (
+    <Box
+      display="flex"
+      justifyContent="center"
+      alignItems="center"
+      minHeight="80vh"
+    >
+      <Card sx={{ p: 4, width: 560 }}>
+        <Stack spacing={3}>
+          {/* RADIO */}
+          <RadioGroup
+            row
+            value={countryType}
+            onChange={(e) => {
+              setCountryType(e.target.value);
+              setZone(null);
+              setCircle(null);
+              setBranch(null);
+            }}
+          >
+            <FormControlLabel value="INDIAN" control={<Radio />} label="Indian" />
+            <FormControlLabel value="FOREIGN" control={<Radio />} label="Foreign" />
+          </RadioGroup>
+
+          {/* ZONE */}
+          {countryType === "INDIAN" && (
+            <Autocomplete
+              value={zone}
+              options={zoneList}
+              getOptionLabel={(o) => `${o.zoneCode} - ${o.zoneName}`}
+              onInputChange={(e, v) => fetchZones(v)}
+              onChange={(e, v) => {
+                setZone(v);
+                setCircle(null);
+                setBranch(null);
+                if (v) fetchCircles(v.zoneCode);
+              }}
+              renderInput={(params) => (
+                <TextField {...params} label="Zone Code" />
+              )}
+            />
+          )}
+
+          {/* CIRCLE */}
+          <Autocomplete
+            value={circle}
+            options={circleList}
+            disabled={countryType === "INDIAN" && !zone}
+            getOptionLabel={(o) => `${o.circleCode} - ${o.circleName}`}
+            onChange={(e, v) => {
+              setCircle(v);
+              setBranch(null);
+            }}
+            renderInput={(params) => (
+              <TextField {...params} label="Circle Code" />
+            )}
+          />
+
+          {/* BRANCH */}
+          <Autocomplete
+            value={branch}
+            options={branchList}
+            disabled={!circle}
+            getOptionLabel={(o) => `${o.branchCode} - ${o.branchName}`}
+            onInputChange={(e, v) => fetchBranches(v)}
+            onChange={(e, v) => setBranch(v)}
+            renderInput={(params) => (
+              <TextField {...params} label="Branch Code" />
+            )}
+          />
+
+          {/* REPORT NAME */}
+          <Autocomplete
+            value={report}
+            options={reportList}
+            onOpen={fetchReports}
+            getOptionLabel={(o) => o.reportName}
+            onChange={(e, v) => setReport(v)}
+            renderInput={(params) => (
+              <TextField {...params} label="Report Name" />
+            )}
+          />
+
+          {/* DATE */}
+          <LocalizationProvider dateAdapter={AdapterDayjs}>
+            <DatePicker
+              label="Report Date"
+              value={reportDate}
+              maxDate={dayjs()}
+              onChange={(v) => setReportDate(v)}
+            />
+          </LocalizationProvider>
+
+          {/* DOWNLOAD */}
+          <Button
+            variant="contained"
+            size="large"
+            disabled={!branch || !report || !reportDate}
+            onClick={handleDownload}
+          >
+            Fetch & Download
+          </Button>
+        </Stack>
+      </Card>
+    </Box>
+  );
+}
