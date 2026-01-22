@@ -1,560 +1,3 @@
-yhelp and support 
-
-router 
-import HelpSupportHome from "./features/helpSupport/pages/HelpSupportHome";
-import Faqs from "./features/helpSupport/pages/Faqs";
-import UserGuides from "./features/helpSupport/pages/UserGuides";
-
-<Route path="/help-support" element={<HelpSupportHome />} />
-<Route path="/help-support/faqs" element={<Faqs />} />
-<Route path="/help-support/user-guides" element={<UserGuides />} />
-
-HELP & SUPPORT HOME
-import { Box, Card, CardActionArea, Grid, Typography } from "@mui/material";
-import { useNavigate } from "react-router-dom";
-
-export default function HelpSupportHome() {
-  const navigate = useNavigate();
-
-  return (
-    <Box p={4}>
-      <Typography variant="h5" mb={3}>
-        Help & Support
-      </Typography>
-
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={3}>
-          <Card>
-            <CardActionArea onClick={() => navigate("/help-support/faqs")}>
-              <Box p={4} textAlign="center">
-                <Typography variant="h6">FAQs</Typography>
-              </Box>
-            </CardActionArea>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} md={3}>
-          <Card>
-            <CardActionArea
-              onClick={() => navigate("/help-support/user-guides")}
-            >
-              <Box p={4} textAlign="center">
-                <Typography variant="h6">User Guides</Typography>
-              </Box>
-            </CardActionArea>
-          </Card>
-        </Grid>
-      </Grid>
-    </Box>
-  );
-}
-
-
-
-FAQ DATA
-
-export const faqList = [
-  {
-    question: "ADS ID is required for Auditors?",
-    answer: "Yes, to login to CRS all users must have AD ID."
-  },
-  {
-    question: "Can an auditor sign reports from another branch?",
-    answer:
-      "Yes, only if the auditor logs in with AD ID mapped to the respective branch."
-  },
-  {
-    question: "Do I need to install CRS Digital Signer again?",
-    answer: "No, installation is required only once on the system."
-  },
-  {
-    question: "Will CRS work on Windows 11?",
-    answer: "Yes, CRS is compatible with Windows 11."
-  }
-];
-
-
-
-faq.jsx
-
-import {
-  Accordion,
-  AccordionDetails,
-  AccordionSummary,
-  Box,
-  Typography
-} from "@mui/material";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import { faqList } from "../data/faqData";
-import { useNavigate } from "react-router-dom";
-
-export default function Faqs() {
-  const navigate = useNavigate();
-
-  return (
-    <Box p={4}>
-      <Typography
-        variant="h6"
-        mb={2}
-        sx={{ cursor: "pointer" }}
-        onClick={() => navigate("/help-support")}
-      >
-        ← Frequently Asked Questions
-      </Typography>
-
-      {faqList.map((faq, index) => (
-        <Accordion key={index}>
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Typography>{faq.question}</Typography>
-          </AccordionSummary>
-          <AccordionDetails>
-            <Typography>{faq.answer}</Typography>
-          </AccordionDetails>
-        </Accordion>
-      ))}
-    </Box>
-  );
-}
-
-
-guidedata js
-
-
-export const guideData = {
-  "Circle Management": {
-    title: "Circle Management",
-    steps: [
-      "Navigate to Circle Management screen",
-      "Click on Add Circle",
-      "Enter Circle Name and Code",
-      "Save the record"
-    ]
-  },
-  "Branch Management": {
-    title: "Branch Management",
-    steps: [
-      "Open Branch Master",
-      "Select Circle",
-      "Enter Branch details",
-      "Submit the form"
-    ]
-  },
-  "User Management": {
-    title: "User Management",
-    steps: [
-      "Navigate to User Management",
-      "Click Add User",
-      "Assign role and branch",
-      "Save user"
-    ]
-  }
-};
-
-
-userguide.jsx
-import {
-  Box,
-  Divider,
-  List,
-  ListItemButton,
-  Typography
-} from "@mui/material";
-import { useState } from "react";
-import { guideData } from "../data/guideData";
-import { useNavigate } from "react-router-dom";
-
-export default function UserGuides() {
-  const navigate = useNavigate();
-  const menuItems = Object.keys(guideData);
-  const [selected, setSelected] = useState(menuItems[0]);
-
-  return (
-    <Box p={4}>
-      <Typography
-        variant="h6"
-        mb={2}
-        sx={{ cursor: "pointer" }}
-        onClick={() => navigate("/help-support")}
-      >
-        ← User Guide
-      </Typography>
-
-      <Box display="flex" border="1px solid #ddd">
-        {/* LEFT MENU */}
-        <Box width="25%" borderRight="1px solid #ddd">
-          <List>
-            {menuItems.map((item) => (
-              <ListItemButton
-                key={item}
-                selected={selected === item}
-                onClick={() => setSelected(item)}
-              >
-                {item}
-              </ListItemButton>
-            ))}
-          </List>
-        </Box>
-
-        {/* RIGHT CONTENT */}
-        <Box width="75%" p={3}>
-          <Typography variant="h6">
-            {guideData[selected].title}
-          </Typography>
-
-          <Divider sx={{ my: 2 }} />
-
-          {guideData[selected].steps.map((step, index) => (
-            <Typography key={index} mb={1}>
-              {index + 1}. {step}
-            </Typography>
-          ))}
-        </Box>
-      </Box>
-    </Box>
-  );
-}
-
-
-
-faqs updated
-
-import {
-  Box,
-  Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
-  CircularProgress,
-} from "@mui/material";
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import axios from "@/config/axiosConfig"; // same axios you use elsewhere
-
-export default function Faqs() {
-  const navigate = useNavigate();
-
-  const [faqList, setFaqList] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  // 🔹 Fetch FAQs from DB
-  useEffect(() => {
-    fetchFaqs();
-  }, []);
-
-  const fetchFaqs = async () => {
-    try {
-      setLoading(true);
-      setError("");
-
-      // 🔴 CHANGE API URL IF REQUIRED
-      const response = await axios.get("/api/faqs");
-
-      setFaqList(response.data || []);
-    } catch (err) {
-      setError("Unable to load FAQs");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <Box p={4}>
-      {/* 🔹 Back Navigation */}
-      <Typography
-        variant="h6"
-        mb={2}
-        sx={{ cursor: "pointer" }}
-        onClick={() => navigate("/help-support")}
-      >
-        ← Frequently Asked Questions
-      </Typography>
-
-      {/* 🔹 Loader */}
-      {loading && (
-        <Box display="flex" justifyContent="center" mt={4}>
-          <CircularProgress />
-        </Box>
-      )}
-
-      {/* 🔹 Error */}
-      {error && (
-        <Typography color="error" mt={2}>
-          {error}
-        </Typography>
-      )}
-
-      {/* 🔹 FAQ TABLE */}
-      {!loading && !error && (
-        <TableContainer component={Paper}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell width="5%"><b>#</b></TableCell>
-                <TableCell width="40%"><b>Question</b></TableCell>
-                <TableCell width="55%"><b>Answer</b></TableCell>
-              </TableRow>
-            </TableHead>
-
-            <TableBody>
-              {faqList.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={3} align="center">
-                    No FAQs available
-                  </TableCell>
-                </TableRow>
-              )}
-
-              {faqList.map((faq, index) => (
-                <TableRow key={faq.id || index}>
-                  <TableCell>{index + 1}</TableCell>
-                  <TableCell>{faq.question}</TableCell>
-                  <TableCell>{faq.answer}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
-    </Box>
-  );
-}
-
-
-
-
-neww.     import {
-  Box,
-  Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
-  CircularProgress,
-} from "@mui/material";
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { callApi } from "@/utils/callApi"; // ✅ SAME utility used elsewhere
-
-export default function Faqs() {
-  const navigate = useNavigate();
-
-  const [faqList, setFaqList] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    fetchFaqs();
-  }, []);
-
-  const fetchFaqs = async () => {
-    try {
-      setLoading(true);
-      setError("");
-
-      // 🔴 CHANGE API URL AS PER BACKEND
-      const response = await callApi(
-        "/CM/common-master/faqs",
-        null,
-        "GET"
-      );
-
-      setFaqList(response?.data ?? []);
-    } catch (err) {
-      console.error(err);
-      setError("Failed to fetch FAQs");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <Box p={4}>
-      {/* 🔹 Back Navigation */}
-      <Typography
-        variant="h6"
-        mb={2}
-        sx={{ cursor: "pointer" }}
-        onClick={() => navigate("/help-support")}
-      >
-        ← Frequently Asked Questions
-      </Typography>
-
-      {/* 🔹 Loader */}
-      {loading && (
-        <Box display="flex" justifyContent="center" mt={4}>
-          <CircularProgress />
-        </Box>
-      )}
-
-      {/* 🔹 Error */}
-      {error && (
-        <Typography color="error" mt={2}>
-          {error}
-        </Typography>
-      )}
-
-      {/* 🔹 FAQ TABLE */}
-      {!loading && !error && (
-        <TableContainer component={Paper}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell width="5%"><b>#</b></TableCell>
-                <TableCell width="40%"><b>Question</b></TableCell>
-                <TableCell width="55%"><b>Answer</b></TableCell>
-              </TableRow>
-            </TableHead>
-
-            <TableBody>
-              {faqList.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={3} align="center">
-                    No FAQs available
-                  </TableCell>
-                </TableRow>
-              )}
-
-              {faqList.map((faq, index) => (
-                <TableRow key={faq.id || index}>
-                  <TableCell>{index + 1}</TableCell>
-                  <TableCell>{faq.question}</TableCell>
-                  <TableCell>{faq.answer}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
-    </Box>
-  );
-}
-
-
-
-
-faq code with dummy data
-
-
-import {
-  Box,
-  Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
-} from "@mui/material";
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-
-export default function Faqs() {
-  const navigate = useNavigate();
-
-  const [faqList, setFaqList] = useState([]);
-
-  // 🔹 Dummy FAQ data (TEMPORARY)
-  useEffect(() => {
-    const dummyFaqs = [
-      {
-        id: 1,
-        question: "Is ADS ID mandatory for all users?",
-        answer: "Yes, ADS ID is mandatory for all CRS users to login.",
-      },
-      {
-        id: 2,
-        question: "Can an auditor sign reports from another branch?",
-        answer:
-          "Yes, provided the auditor’s AD ID is mapped to the respective branch.",
-      },
-      {
-        id: 3,
-        question: "Do I need to reinstall CRS Digital Signer?",
-        answer:
-          "No, CRS Digital Signer installation is required only once per system.",
-      },
-      {
-        id: 4,
-        question: "Will CRS work on Windows 11?",
-        answer: "Yes, CRS is fully compatible with Windows 11.",
-      },
-      {
-        id: 5,
-        question: "Which browser is recommended for CRS?",
-        answer: "Google Chrome is recommended for best performance.",
-      },
-    ];
-
-    setFaqList(dummyFaqs);
-  }, []);
-
-  return (
-    <Box p={4}>
-      {/* 🔹 Back Navigation */}
-      <Typography
-        variant="h6"
-        mb={2}
-        sx={{ cursor: "pointer" }}
-        onClick={() => navigate("/help-support")}
-      >
-        ← Frequently Asked Questions
-      </Typography>
-
-      {/* 🔹 FAQ TABLE */}
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell width="5%">
-                <b>#</b>
-              </TableCell>
-              <TableCell width="40%">
-                <b>Question</b>
-              </TableCell>
-              <TableCell width="55%">
-                <b>Answer</b>
-              </TableCell>
-            </TableRow>
-          </TableHead>
-
-          <TableBody>
-            {faqList.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={3} align="center">
-                  No FAQs available
-                </TableCell>
-              </TableRow>
-            )}
-
-            {faqList.map((faq, index) => (
-              <TableRow key={faq.id}>
-                <TableCell>{index + 1}</TableCell>
-                <TableCell>{faq.question}</TableCell>
-                <TableCell>{faq.answer}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-    </Box>
-  );
-}
-
-
-
-
-with dummy data but updated
-
-
 import {
   Box,
   Typography,
@@ -567,41 +10,49 @@ import {
   Paper,
   IconButton,
   Collapse,
+  Stack,
 } from "@mui/material";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 
-export default function Faqs() {
-  const navigate = useNavigate();
+export default function Faqs({ setFaqOpen }) {
   const [openRow, setOpenRow] = useState(null);
   const [faqList, setFaqList] = useState([]);
 
-  // 🔹 Dummy data (temporary)
+  /* 🔹 TEMP DUMMY DATA (replace with API later) */
   useEffect(() => {
     setFaqList([
       {
         id: 1,
-        question: "Is ADS ID mandatory for all users?",
-        answer: "Yes, ADS ID is mandatory for all CRS users to login.",
+        question: "What is CGL Management used for in Fincore?",
+        answer:
+          "CGL Management is used to create, view, manage, and process Central General Ledger (CGL) accounts, including approval and maintenance of CGL-related requests.",
       },
       {
         id: 2,
-        question: "Can an auditor sign reports from another branch?",
+        question: "What options are available under CGL Management?",
         answer:
-          "Yes, provided the auditor’s AD ID is mapped to the respective branch.",
+          "CGL Management provides three options: View CGL Details, CGL Requests, and CGL Management.",
       },
       {
         id: 3,
-        question: "Do I need to reinstall CRS Digital Signer?",
+        question: "How can I view CGL details?",
         answer:
-          "No, CRS Digital Signer installation is required only once per system.",
+          "You can view CGL details by using the Search CGL option. After selecting a CGL, the system displays complete CGL information.",
       },
       {
         id: 4,
-        question: "Will CRS work on Windows 11?",
-        answer: "Yes, CRS is fully compatible with Windows 11.",
+        question: "What information is shown in View CGL Details?",
+        answer:
+          "The screen displays CGL Number, Description, Account Classification, Comp1, Segment, Comp2, Balance Compare flag, Manual Posting flag, Balance Forward flag, and Open Date.",
+      },
+      {
+        id: 5,
+        question: "How can I track the status of my CGL request?",
+        answer:
+          "You can track the status of your CGL request in the My Requests tab, where the approval status is displayed.",
       },
     ]);
   }, []);
@@ -611,290 +62,106 @@ export default function Faqs() {
   };
 
   return (
-    <Box p={4}>
-      {/* 🔹 Back Navigation */}
-      <Typography
-        variant="h6"
-        mb={2}
-        sx={{ cursor: "pointer" }}
-        onClick={() => navigate("/help-support")}
+    <Box
+      p={3}
+      height="calc(100vh - 120px)"
+      overflow="hidden"
+    >
+      {/* 🔹 HEADER (Same style as User Guides) */}
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Stack direction="row" alignItems="center" spacing={1}>
+          <IconButton
+            onClick={setFaqOpen}
+            sx={{
+              "&:hover": { backgroundColor: "grey.200" },
+            }}
+          >
+            <ArrowBackIcon />
+          </IconButton>
+
+          <Typography variant="h6" fontWeight={600}>
+            Frequently Asked Questions
+          </Typography>
+        </Stack>
+      </Paper>
+
+      {/* 🔹 CONTENT */}
+      <Paper
+        sx={{
+          height: "100%",
+          overflowY: "auto",
+        }}
       >
-        ← Frequently Asked Questions
-      </Typography>
-
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell width="5%" />
-              <TableCell>
-                <b>Question</b>
-              </TableCell>
-            </TableRow>
-          </TableHead>
-
-          <TableBody>
-            {faqList.map((faq) => (
-              <>
-                {/* QUESTION ROW */}
-                <TableRow
-                  key={faq.id}
-                  hover
-                  sx={{ cursor: "pointer" }}
-                  onClick={() => handleToggle(faq.id)}
-                >
-                  <TableCell>
-                    <IconButton size="small">
-                      {openRow === faq.id ? (
-                        <KeyboardArrowUpIcon />
-                      ) : (
-                        <KeyboardArrowDownIcon />
-                      )}
-                    </IconButton>
-                  </TableCell>
-                  <TableCell>{faq.question}</TableCell>
-                </TableRow>
-
-                {/* ANSWER ROW */}
-                <TableRow>
-                  <TableCell
-                    style={{ paddingBottom: 0, paddingTop: 0 }}
-                    colSpan={2}
-                  >
-                    <Collapse
-                      in={openRow === faq.id}
-                      timeout="auto"
-                      unmountOnExit
-                    >
-                      <Box m={2}>
-                        <Typography variant="body2">
-                          {faq.answer}
-                        </Typography>
-                      </Box>
-                    </Collapse>
-                  </TableCell>
-                </TableRow>
-              </>
-            ))}
-
-            {faqList.length === 0 && (
+        <TableContainer>
+          <Table>
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={2} align="center">
-                  No FAQs available
+                <TableCell width="5%" />
+                <TableCell>
+                  <b>Question</b>
                 </TableCell>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+            </TableHead>
+
+            <TableBody>
+              {faqList.map((faq) => (
+                <>
+                  {/* QUESTION ROW */}
+                  <TableRow
+                    key={faq.id}
+                    hover
+                    sx={{ cursor: "pointer" }}
+                    onClick={() => handleToggle(faq.id)}
+                  >
+                    <TableCell>
+                      <IconButton size="small">
+                        {openRow === faq.id ? (
+                          <KeyboardArrowUpIcon />
+                        ) : (
+                          <KeyboardArrowDownIcon />
+                        )}
+                      </IconButton>
+                    </TableCell>
+                    <TableCell>{faq.question}</TableCell>
+                  </TableRow>
+
+                  {/* ANSWER ROW */}
+                  <TableRow>
+                    <TableCell colSpan={2} sx={{ p: 0 }}>
+                      <Collapse
+                        in={openRow === faq.id}
+                        timeout="auto"
+                        unmountOnExit
+                      >
+                        <Box p={2} bgcolor="grey.50">
+                          <Typography variant="body2">
+                            {faq.answer}
+                          </Typography>
+                        </Box>
+                      </Collapse>
+                    </TableCell>
+                  </TableRow>
+                </>
+              ))}
+
+              {faqList.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={2} align="center">
+                    No FAQs available
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Paper>
     </Box>
   );
 }
 
 
 
-arrow update 
-
-<Stack
-  direction="row"
-  alignItems="center"
-  spacing={1}
-  mb={2}
->
-  <IconButton
-    onClick={() => navigate("/help-support")}
-    sx={{
-      backgroundColor: "grey.100",
-      "&:hover": {
-        backgroundColor: "grey.200",
-      },
-    }}
-  >
-    <ArrowBackIcon sx={{ fontSize: 28 }} />
-  </IconButton>
-
-  <Typography variant="h6">
-    Frequently Asked Questions
-  </Typography>
-</Stack>
-
-
-
-guide.js
-
-
-export const guideData = {
-  "CGL Management": {
-    title: "CGL Management",
-    steps: [
-      "Navigate to CGL Management from the main menu",
-      "Click on the Add CGL button",
-      "Enter CGL Code and CGL Description",
-      "Select the applicable segment",
-      "Verify entered details",
-      "Click Save to create the CGL"
-    ],
-  },
-
-  "Segment Management": {
-    title: "Segment Management",
-    steps: [
-      "Go to Segment Management screen",
-      "Click on Add Segment",
-      "Enter Segment Code and Segment Name",
-      "Choose applicable configuration options",
-      "Review the entered details",
-      "Click Save to add the segment"
-    ],
-  },
-
-  "Calendar Configuration": {
-    title: "Calendar Configuration",
-    steps: [
-      "Open Calendar Configuration module",
-      "Select the required year",
-      "Mark holidays and working days",
-      "Configure special non-working days if any",
-      "Review the calendar setup",
-      "Save the calendar configuration"
-    ],
-  },
-
-  "Circle Management": {
-    title: "Circle Management",
-    steps: [
-      "Navigate to Circle Management screen",
-      "Click on Add Circle",
-      "Enter Circle Name and Circle Code",
-      "Assign applicable regions or parameters",
-      "Verify the circle details",
-      "Click Save to create the circle"
-    ],
-  },
-
-  "Branch Management": {
-    title: "Branch Management",
-    steps: [
-      "Open Branch Management module",
-      "Select the Circle to which the branch belongs",
-      "Click on Add Branch",
-      "Enter Branch Code, Name, and Address",
-      "Validate the branch information",
-      "Save the branch details"
-    ],
-  },
-
-  "Currency Management": {
-    title: "Currency Management",
-    steps: [
-      "Navigate to Currency Management screen",
-      "Click on Add Currency",
-      "Enter Currency Code and Currency Name",
-      "Configure decimal and conversion settings",
-      "Verify currency information",
-      "Save the currency configuration"
-    ],
-  },
-
-  "User Management": {
-    title: "User Management",
-    steps: [
-      "Open User Management module",
-      "Click on Add User",
-      "Enter user details such as Name and AD ID",
-      "Assign Role, Circle, and Branch",
-      "Review user permissions",
-      "Save the user profile"
-    ],
-  },
-
-  "Reports": {
-    title: "Reports",
-    steps: [
-      "Navigate to Reports section",
-      "Select the required report type",
-      "Choose date range and filters",
-      "Click Generate Report",
-      "Review the generated report",
-      "Download or export the report if required"
-    ],
-  },
-};
-
-
-
-
-cgl dummy data.
-
-
-
-const cglFaqDummyData = [
-  {
-    id: 1,
-    question: "What is CGL Management used for in Fincore?",
-    answer:
-      "CGL Management is used to create, view, manage, and process Central General Ledger (CGL) accounts, including approval and maintenance of CGL-related requests.",
-  },
-  {
-    id: 2,
-    question: "What options are available under CGL Management?",
-    answer:
-      "CGL Management provides three options: View CGL Details, CGL Requests, and CGL Management.",
-  },
-  {
-    id: 3,
-    question: "How can I view CGL details?",
-    answer:
-      "You can view CGL details by using the Search CGL option. After selecting a CGL, the system displays all related information.",
-  },
-  {
-    id: 4,
-    question: "What information is shown in View CGL Details?",
-    answer:
-      "The screen displays CGL Number, Description, Account Classification, Comp1, Segment, Comp2, Balance Compare flag, Manual Posting flag, Balance Forward flag, and Open Date.",
-  },
-  {
-    id: 5,
-    question: "What is the purpose of the CGL Requests screen?",
-    answer:
-      "The CGL Requests screen is used to approve or reject CGL creation requests raised by other users.",
-  },
-  {
-    id: 6,
-    question: "What is the difference between Manage CGL and My Requests?",
-    answer:
-      "Manage CGL shows all approved and active CGLs, while My Requests displays CGL requests created by the logged-in user along with their current status.",
-  },
-  {
-    id: 7,
-    question: "How do I create a new CGL?",
-    answer:
-      "Click on the Create button in the CGL Management screen, enter all mandatory CGL details, and submit the request for approval.",
-  },
-  {
-    id: 8,
-    question: "Can a CGL be created without approval?",
-    answer:
-      "No, all CGL creation requests must be approved by an authorized user before the CGL becomes active.",
-  },
-  {
-    id: 9,
-    question: "How can I track the status of my CGL request?",
-    answer:
-      "The status of your CGL request can be tracked in the My Requests tab, where the current approval status is displayed.",
-  },
-  {
-    id: 10,
-    question: "Can an approved CGL be modified later?",
-    answer:
-      "Yes, changes to an approved CGL must be raised as a new request and approved before the changes take effect.",
-  },
-];
-
-
-
-user guides new
-
+user guides 
 import {
   Box,
   Typography,
@@ -906,71 +173,130 @@ import {
   Stack,
   Divider,
   Chip,
+  IconButton,
+  Paper,
 } from "@mui/material";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
-import { useState } from "react";
-import { guideData } from "../data/guideData";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import { useEffect, useState } from "react";
 
-export default function UserGuides() {
-  const modules = Object.keys(guideData);
-  const [selectedModule, setSelectedModule] = useState(modules[0]);
+export default function UserGuides({ setUserGuideOpen }) {
+  const [modules, setModules] = useState([]);
+  const [selectedModule, setSelectedModule] = useState(null);
 
-  const currentGuide = guideData[selectedModule];
+  // 🔹 TEMP DUMMY DATA (later replace with API)
+  useEffect(() => {
+    const dummyGuideData = [
+      {
+        module: "CGL Management",
+        steps: [
+          "Navigate to CGL Management from the main menu.",
+          "Choose View CGL Details, CGL Requests, or CGL Management.",
+          "Search and view complete CGL details.",
+          "Approve or reject CGL requests raised by other users.",
+          "Create a new CGL by entering all mandatory fields.",
+          "Track request status in My Requests tab.",
+        ],
+      },
+      {
+        module: "Circle Management",
+        steps: [
+          "Open Circle Management from the menu.",
+          "View all approved circles in Management Circle.",
+          "Create a new circle using the Create button.",
+          "Submit circle request for approval.",
+          "Approve or reject circle requests.",
+        ],
+      },
+      {
+        module: "Branch Management",
+        steps: [
+          "Navigate to Branch Management.",
+          "View branch details using search option.",
+          "Create new branch with mandatory details.",
+          "Submit branch request for approval.",
+          "Track branch status in request section.",
+        ],
+      },
+    ];
+
+    setModules(dummyGuideData);
+    setSelectedModule(dummyGuideData[0]);
+  }, []);
 
   return (
-    <Box display="flex" gap={3} p={3}>
-      {/* 🔹 LEFT MENU */}
-      <Card sx={{ width: 280, height: "fit-content" }}>
+    <Box
+      display="flex"
+      gap={3}
+      p={3}
+      height="calc(100vh - 120px)"
+      overflow="hidden"
+    >
+      {/* 🔹 LEFT PANEL */}
+      <Paper sx={{ width: 280, height: "100%" }}>
         <CardContent>
-          <Typography variant="subtitle1" fontWeight={600} mb={1}>
-            Modules
-          </Typography>
+          <Stack direction="row" alignItems="center" spacing={1} mb={1}>
+            <IconButton onClick={setUserGuideOpen}>
+              <ArrowBackIcon />
+            </IconButton>
+            <Typography fontWeight={600}>Modules</Typography>
+          </Stack>
+
           <Divider sx={{ mb: 1 }} />
 
           <List disablePadding>
-            {modules.map((module) => (
+            {modules.map((item) => (
               <ListItemButton
-                key={module}
-                selected={selectedModule === module}
-                onClick={() => setSelectedModule(module)}
-                sx={{
-                  borderRadius: 1,
-                  mb: 0.5,
-                }}
+                key={item.module}
+                selected={selectedModule?.module === item.module}
+                onClick={() => setSelectedModule(item)}
+                sx={{ borderRadius: 1, mb: 0.5 }}
               >
-                <ListItemText primary={module} />
+                <ListItemText primary={item.module} />
               </ListItemButton>
             ))}
           </List>
         </CardContent>
-      </Card>
+      </Paper>
 
-      {/* 🔹 RIGHT CONTENT */}
-      <Card sx={{ flex: 1 }}>
-        <CardContent>
+      {/* 🔹 RIGHT PANEL */}
+      <Paper
+        sx={{
+          flex: 1,
+          maxWidth: 900,
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        {/* 🔹 Sticky Header */}
+        <Box
+          sx={{
+            position: "sticky",
+            top: 0,
+            zIndex: 1,
+            backgroundColor: "#fff",
+            p: 2,
+            borderBottom: "1px solid #ddd",
+          }}
+        >
+          <Typography variant="h6" fontWeight={600}>
+            {selectedModule?.module}
+          </Typography>
+        </Box>
+
+        {/* 🔹 Scrollable Content */}
+        <CardContent sx={{ overflowY: "auto" }}>
           <Stack spacing={2}>
-            <Typography variant="h6" fontWeight={600}>
-              {currentGuide.title}
-            </Typography>
-
-            <Divider />
-
-            {/* 🔹 STEPS */}
-            {currentGuide.steps.map((step, index) => (
-              <Card
-                key={index}
-                variant="outlined"
-                sx={{
-                  backgroundColor: "grey.50",
-                }}
-              >
+            {selectedModule?.steps.map((step, index) => (
+              <Card key={index} variant="outlined">
                 <CardContent>
-                  <Stack direction="row" spacing={2} alignItems="flex-start">
+                  <Stack direction="row" spacing={2}>
                     <Chip
                       icon={<CheckCircleOutlineIcon />}
                       label={`Step ${index + 1}`}
-                      color="primary"
                       size="small"
+                      color="primary"
                     />
                     <Typography variant="body2">{step}</Typography>
                   </Stack>
@@ -979,76 +305,7 @@ export default function UserGuides() {
             ))}
           </Stack>
         </CardContent>
-      </Card>
+      </Paper>
     </Box>
   );
 }
-
-
-guide data cgl
-"CGL Management": {
-  title: "CGL Management",
-  steps: [
-    "Navigate to CGL Management from the main menu.",
-    "Choose one of the available options: View CGL Details, CGL Requests, or CGL Management.",
-    "In View CGL Details, search for a CGL using the Search CGL option to view complete CGL information.",
-    "In CGL Requests, review pending CGL creation requests raised by other users and approve or reject them.",
-    "In CGL Management, use the Manage CGL tab to view all approved and active CGLs.",
-    "Switch to the My Requests tab to view CGL requests created by you along with their current status.",
-    "Click the Create button to initiate a new CGL creation request.",
-    "Enter all mandatory CGL details such as CGL Code, Description, Account Classification, Comp1, Segment, and Comp2.",
-    "Configure Balance Compare, Manual Posting, and Balance Forward flags as required.",
-    "Verify all entered details and click Save to submit the CGL request for approval."
-  ],
-},
-
-
-
-"Circle Management": {
-  title: "Circle Management",
-  steps: [
-    "Navigate to Circle Management from the main menu.",
-    "Choose one of the available options: Management Circle or Circle Requests.",
-    "In Management Circle, view all approved and active circles available in the system.",
-    "Use the Create button in Management Circle to initiate a new circle creation request.",
-    "Enter mandatory details such as Circle Code and Circle Name.",
-    "Verify the entered circle details before submitting the request.",
-    "Submit the circle creation request for approval.",
-    "In Circle Requests, review circle creation requests raised by other users.",
-    "Approve or reject circle requests based on authorization.",
-    "Track the status of circles created by you through the request workflow."
-  ],
-},
-"Segment Management": {
-  title: "Segment Management",
-  steps: [
-    "Navigate to Segment Management from the main menu.",
-    "Select one of the available options: Management Segment or Segment Requests.",
-    "In Management Segment, view all approved and active segments.",
-    "Click the Create button to raise a new segment creation request.",
-    "Enter required segment details such as Segment Code and Segment Name.",
-    "Review the entered segment information carefully.",
-    "Submit the segment creation request for approval.",
-    "In Segment Requests, review segment requests raised by other users.",
-    "Approve or reject segment requests based on assigned roles and permissions.",
-    "Monitor the status of your segment requests through the workflow."
-  ],
-},
-
-
-"Branch Management": {
-  title: "Branch Management",
-  steps: [
-    "Navigate to Branch Management from the main menu.",
-    "Choose one of the available options: View Branch Details, Management Branch, or Branch Requests.",
-    "In View Branch Details, search for a branch to view complete branch information.",
-    "Review branch details such as Branch Code, Branch Name, Address, and Circle mapping.",
-    "In Management Branch, view all approved and active branches.",
-    "Click the Create button to initiate a new branch creation request.",
-    "Enter mandatory branch details including Branch Code, Branch Name, Address, and Circle.",
-    "Verify all entered branch information before submission.",
-    "Submit the branch creation request for approval.",
-    "In Branch Requests, review branch creation requests raised by other users and approve or reject them.",
-    "Track the status of branch requests created by you through the workflow."
-  ],
-},
