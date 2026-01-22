@@ -489,3 +489,186 @@ export default function AiAssistant({ setAiOpen }) {
     </Box>
   );
 }
+
+
+
+
+
+ai assistant update 
+
+
+import {
+  Box,
+  Card,
+  CardContent,
+  Typography,
+  IconButton,
+  TextField,
+  Stack,
+  Chip,
+  Divider,
+  Paper,
+} from "@mui/material";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import SendIcon from "@mui/icons-material/Send";
+import SmartToyIcon from "@mui/icons-material/SmartToy";
+import PersonIcon from "@mui/icons-material/Person";
+import { useState } from "react";
+
+export default function AiAssistant({ setAiOpen }) {
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState([
+    {
+      type: "bot",
+      text: "Hi 👋 I’m your FinCore Assistant. Ask me anything about the application.",
+    },
+  ]);
+
+  /* 🔹 Dummy Question Bank (Replace with BE later) */
+  const questionBank = [
+    {
+      keywords: ["cgl", "ledger"],
+      question: "How do I create a new CGL?",
+    },
+    {
+      keywords: ["cgl", "approve"],
+      question: "How can I approve a CGL request?",
+    },
+    {
+      keywords: ["circle"],
+      question: "How do I manage circles in the system?",
+    },
+    {
+      keywords: ["branch"],
+      question: "How can I view branch details?",
+    },
+    {
+      keywords: ["user", "role"],
+      question: "How do I assign roles to users?",
+    },
+    {
+      keywords: ["report"],
+      question: "Where can I download reports?",
+    },
+  ];
+
+  /* 🔹 Keyword-based suggestion logic */
+  const suggestions = input
+    ? questionBank.filter((q) =>
+        q.keywords.some((k) =>
+          input.toLowerCase().includes(k.toLowerCase())
+        )
+      )
+    : [];
+
+  const handleSend = (text) => {
+    if (!text.trim()) return;
+
+    setMessages((prev) => [
+      ...prev,
+      { type: "user", text },
+      {
+        type: "bot",
+        text:
+          "Thanks for your question. This answer will come from backend once API is integrated.",
+      },
+    ]);
+
+    setInput("");
+  };
+
+  return (
+    <Box p={3}>
+      {/* 🔹 HEADER */}
+      <Stack direction="row" alignItems="center" spacing={1} mb={2}>
+        <IconButton
+          onClick={setAiOpen}
+          sx={{ "&:hover": { backgroundColor: "grey.200" } }}
+        >
+          <ArrowBackIcon />
+        </IconButton>
+        <Typography variant="h6" fontWeight={600}>
+          AI Assistant
+        </Typography>
+      </Stack>
+
+      <Card
+        sx={{
+          height: "75vh",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        {/* 🔹 CHAT AREA */}
+        <CardContent sx={{ flex: 1, overflowY: "auto" }}>
+          <Stack spacing={2}>
+            {messages.map((msg, index) => (
+              <Stack
+                key={index}
+                direction="row"
+                spacing={1}
+                justifyContent={msg.type === "user" ? "flex-end" : "flex-start"}
+              >
+                {msg.type === "bot" && <SmartToyIcon color="primary" />}
+                <Paper
+                  sx={{
+                    p: 1.5,
+                    maxWidth: "70%",
+                    backgroundColor:
+                      msg.type === "user" ? "primary.main" : "grey.100",
+                    color: msg.type === "user" ? "#fff" : "#000",
+                  }}
+                >
+                  <Typography variant="body2">{msg.text}</Typography>
+                </Paper>
+                {msg.type === "user" && <PersonIcon />}
+              </Stack>
+            ))}
+          </Stack>
+        </CardContent>
+
+        <Divider />
+
+        {/* 🔹 SUGGESTIONS */}
+        {suggestions.length > 0 && (
+          <Box px={2} py={1}>
+            <Typography variant="caption" color="text.secondary">
+              Suggested questions
+            </Typography>
+            <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
+              {suggestions.map((s, i) => (
+                <Chip
+                  key={i}
+                  label={s.question}
+                  onClick={() => handleSend(s.question)}
+                  variant="outlined"
+                  sx={{ mb: 1 }}
+                />
+              ))}
+            </Stack>
+          </Box>
+        )}
+
+        {/* 🔹 INPUT */}
+        <Box p={2}>
+          <Stack direction="row" spacing={1}>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="Type your question here..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSend(input)}
+            />
+            <IconButton
+              color="primary"
+              onClick={() => handleSend(input)}
+            >
+              <SendIcon />
+            </IconButton>
+          </Stack>
+        </Box>
+      </Card>
+    </Box>
+  );
+}
