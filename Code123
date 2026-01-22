@@ -1,546 +1,301 @@
-import React, {
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-  useMemo,
-} from "react";
-import {
-  Dialog,
-  DialogActions,
-  DialogContent,
-  Button,
-  debounce,
+
+       import {
+  Box,
+  Typography,
+  List,
+  ListItemButton,
+  ListItemText,
+  Card,
+  CardContent,
+  Stack,
+  Divider,
+  Chip,
+  IconButton,
 } from "@mui/material";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import { useState } from "react";
+import { guideData } from "../data/guideData";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+export default function UserGuides({ setUserGuideOpen }) {
+  const modules = Object.keys(guideData);
+  const [selectedModule, setSelectedModule] = useState(modules[0]);
+
+  const currentGuide = guideData[selectedModule];
+
+  return (
+    <Box display="flex" gap={3} p={3} overflow="hidden">
+      {/* left card */}
+      <Card sx={{ width: 280, height: "fit-content" }}>
+        <CardContent>
+          <IconButton
+            onClick={setUserGuideOpen}
+            sx={{
+              // backgroundColor: "none",
+              "&:hover": {
+                backgroundColor: "grey.200",
+              },
+            }}
+          >
+            <ArrowBackIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+          <Typography variant="subtitle" fontWeight={700} mb={1}>
+            Modules
+          </Typography>
+          <Divider sx={{ mb: 1 }} />
+
+          <List disablePadding>
+            {modules.map((module) => (
+              <ListItemButton
+                key={module}
+                selected={selectedModule === module}
+                onClick={() => setSelectedModule(module)}
+                sx={{
+                  borderRadius: 1,
+                  mb: 0.5,
+                }}
+              >
+                <ListItemText primary={module} />
+              </ListItemButton>
+            ))}
+          </List>
+        </CardContent>
+      </Card>
+
+      {/* right card */}
+      <Box>
+        <Box
+          sx={{
+            position: "sticky",
+            top: 0,
+            zIndex: 1,
+            pb: 1,
+            //backgroundColor: "#ebcece",
+          }}
+        >
+          <Typography variant="h6" fontWeight={500}>
+            {currentGuide.title}
+          </Typography>
+        </Box>
+        <Card
+          sx={{
+            flex: 1,
+            height: "75vh",
+            maxWidth: 900,
+            width: 900,
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <CardContent sx={{ overflowY: "auto" }}>
+            <Stack spacing={1.5}>
+              <Divider />
+
+              {currentGuide.steps.map((step, index) => (
+                <Card
+                  key={index}
+                  variant="outlined"
+                  sx={{
+                    backgroundColor: "grey.100",
+                  }}
+                >
+                  <CardContent>
+                    <Stack direction="row" spacing={2} alignItems="flex-start">
+                      <Chip
+                        icon={<CheckCircleOutlineIcon />}
+                        label={`Step ${index + 1}`}
+                        //color="primary"
+                        size="small"
+                      />
+                      <Typography variant="body2">{step}</Typography>
+                    </Stack>
+                  </CardContent>
+                </Card>
+              ))}
+            </Stack>
+          </CardContent>
+        </Card>
+      </Box>
+    </Box>
+  );
+}
 import {
-  Add as AddIcon,
-  Close as CloseIcon,
-  Edit as EditIcon,
-} from "@mui/icons-material";
-import dayjs from "dayjs";
+  Box,
+  Typography,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  IconButton,
+  Collapse,
+  Stack,
+} from "@mui/material";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
+import { useState, useEffect } from "react";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+export default function Faqs({ setFaqOpen }) {
+  const [openRow, setOpenRow] = useState(null);
+  const [faqList, setFaqList] = useState([]);
 
-import { DialogTitleStyle, IconButtonStyle } from "./BranchMasterStyle";
-import useApi from "../../../hooks/useApi";
-import useCustomSnackbar from "../../../utils/useCustomSnackbar";
-import BranchForm from "./BranchForm";
+  // 🔹 Dummy data (temporary)
 
-const reDigits = /^[0-9]*$/;
-const reDesc = /^[a-zA-Z0-9\s/&,-.()]*$/;
-const eprefix = "sbi.";
-const emailDomain = "@sbi.co.in";
-
-export default function BranchDialog({
-  open,
-  handleClose,
-  editingId,
-  initialData,
-  fetchBranches,
-  circles,
-  states,
-}) {
-  const { callApi, cancelAllRequests } = useApi();
-  const snackbar = useCustomSnackbar();
-
-  // Throttle Snackbars
-  const snackGateRef = useRef(true);
-  const notifyOnce = useCallback(
-    (msg, variant = "warning") => {
-      if (!snackGateRef.current) return;
-      snackGateRef.current = false;
-      snackbar(msg, variant);
-      setTimeout(() => (snackGateRef.current = true), 800);
+  const cglFaqDummyData = [
+    {
+      id: 1,
+      question: "What is CGL Management used for in Fincore?",
+      answer:
+        "CGL Management is used to create, view, manage, and process Central General Ledger (CGL) accounts, including approval and maintenance of CGL-related requests.",
     },
-    [snackbar]
-  );
-
-  const [branchData, setBranchData] = useState({});
-  const [errors, setErrors] = useState({});
-  const [mwb, setMwb] = useState([]);
-  const [mwbLoading, setMwbLoading] = useState(false);
-  const [mwbInputValue, setMwbInputValue] = useState("");
-  const [isDataSame, setIsDataSame] = useState(true);
-  const [originalData, setOriginalData] = useState(null);
-
-  // --- Initialization ---
-  useEffect(() => {
-    if (open) {
-      if (editingId && initialData) {
-        const init = { ...initialData };
-        setBranchData(init);
-        setOriginalData(init);
-        setIsDataSame(true);
-        if (init.mergedWithBranch) {
-          setMwb([init.mergedWithBranch]);
-        }
-      } else {
-        setBranchData({
-          code: "",
-          name: "",
-          circleCode: "",
-          state: "",
-          city: "",
-          address: "",
-          pinCode: "",
-          phoneNumber: "",
-          emailId: `${eprefix}${emailDomain}`,
-          nmrCode: "",
-          status: "Active",
-          openDate: dayjs(),
-          closeDate: null,
-          mergeDate: null,
-          mergedWithBranch: null,
-          cpcFlag: false,
-          foodCreditFlag: false,
-          currChestFlag: false,
-          branchType: "A",
-        });
-        setOriginalData(null);
-        setIsDataSame(false);
-      }
-      setErrors({});
-      setMwb([]);
-    }
-  }, [open, editingId, initialData]);
-
-  // --- Change Detection ---
-  useEffect(() => {
-    if (editingId && originalData) {
-      const isSame =
-        JSON.stringify(branchData) === JSON.stringify(originalData);
-      setIsDataSame(isSame);
-    }
-  }, [branchData, originalData, editingId]);
-
-  // --- Auto Logic: Branch Type Switching ---
-  useEffect(() => {
-    if (editingId) {
-      const hasManualTriggers =
-        branchData.status === "InActive" ||
-        !!branchData.closeDate ||
-        !!branchData.mergeDate ||
-        !!branchData.mergedWithBranch;
-
-      if (hasManualTriggers && branchData.branchType !== "M") {
-        setBranchData((prev) => ({ ...prev, branchType: "M" }));
-      } else if (!hasManualTriggers && branchData.branchType !== "A") {
-        setBranchData((prev) => ({ ...prev, branchType: "A" }));
-      }
-    }
-  }, [
-    branchData.status,
-    branchData.closeDate,
-    branchData.mergeDate,
-    branchData.mergedWithBranch,
-    editingId,
-  ]);
-
-  // --- Auto Logic: Clear Dependent Data ---
-  useEffect(() => {
-    if (branchData.status === "Active") {
-      setBranchData((prev) => {
-        // Only update if needed to avoid loops
-        if (prev.mergedWithBranch || prev.mergeDate || prev.closeDate) {
-          return {
-            ...prev,
-            mergedWithBranch: null,
-            mergeDate: null,
-            closeDate: null,
-          };
-        }
-        return prev;
-      });
-      // Clear errors related to these
-      setErrors((prev) => ({
-        ...prev,
-        closeDate: "",
-        mergeDate: "",
-        mergedWithBranch: "",
-      }));
-    }
-  }, [branchData.status]);
-
-  // --- Validation ---
-  const validateField = (name, value, allData = branchData) => {
-    switch (name) {
-      case "code":
-        if (!value) return "Branch Code is required";
-        if (!reDigits.test(value)) return "Only digits allowed";
-        if (value.length !== 5) return "Must be 5 digits";
-        if (/^0+$/.test(value)) return "All zeros not allowed";
-        break;
-      case "name":
-        if (!value) return "Name required";
-        if (!reDesc.test(value)) return "Invalid characters";
-        if (value.length < 3) return "Min 3 characters";
-        break;
-      case "pinCode":
-        if (value && !reDigits.test(value)) return "Digits only";
-        if (value && value.length !== 6) return "Must be 6 digits";
-        if (value && /^0/.test(value)) return "Cannot start with zero";
-        break;
-      case "phoneNumber":
-        if (value && !reDigits.test(value)) return "Digits only";
-        if (value && value.length !== 10) return "Must be 10 digits";
-        if (value && /^0/.test(value)) return "Cannot start with zero";
-        break;
-      case "nmrCode":
-        if (value && !reDigits.test(value)) return "Digits only";
-        if (value && value.length !== 9) return "Must be 9 digits";
-        break;
-
-      case "openDate":
-        if (!value || !dayjs(value).isValid()) return "Invalid Date";
-        break;
-
-      case "closeDate":
-        if (value && !dayjs(value).isValid()) return "Invalid Date";
-        if (allData.status === "InActive" && !value)
-          return "Required when status is Closed";
-        if (value && dayjs(value).isValid()) {
-          if (
-            allData.openDate &&
-            dayjs(value).isBefore(dayjs(allData.openDate), "day")
-          ) {
-            return "Close Date cannot be before Open Date";
-          }
-          if (dayjs(value).isAfter(dayjs(), "day")) {
-            return "Close Date cannot be in future";
-          }
-        }
-        break;
-
-      case "mergeDate":
-        if (value && !dayjs(value).isValid()) return "Invalid Date";
-        if (allData.mergedWithBranch && !value) return "Required when merged";
-        if (value && dayjs(value).isValid()) {
-          if (!dayjs(value).isSame(dayjs(), "month"))
-            return "Merge Date must be in current month";
-          if (dayjs(value).isAfter(dayjs(), "day"))
-            return "Merge Date cannot be in future";
-        }
-        break;
-      case "mergedWithBranch":
-        if (value?.code === allData.code) return "Cannot merge with itself";
-        break;
-      default:
-        break;
-    }
-    return "";
-  };
-
-  // --- Handlers ---
-  const handleChange = useCallback(
-    (e) => {
-      const { name, value } = e.target;
-
-      // Immediate Validation / Snackbar logic
-      if (name === "code" && !reDigits.test(value)) {
-        notifyOnce("Digits only");
-        return;
-      }
-      if (name === "code" && value.length > 5) {
-        notifyOnce("Max 5 digits");
-        return;
-      }
-
-      if (
-        ["pinCode", "phoneNumber", "nmrCode"].includes(name) &&
-        !reDigits.test(value)
-      ) {
-        notifyOnce("Digits only");
-        return;
-      }
-      if (
-        ["name", "city", "address"].includes(name) &&
-        value !== "" &&
-        !reDesc.test(value)
-      ) {
-        notifyOnce("Invalid special characters");
-        return;
-      }
-
-      setBranchData((prev) => {
-        const updated = { ...prev, [name]: value };
-        if (name === "code")
-          updated.emailId = `${eprefix}${value}${emailDomain}`;
-        // Logic: Status Logic handled in useEffect, but clear closeDate immediately if made active
-        if (name === "status" && value === "Active") updated.closeDate = null;
-        if (name === "status" && (value === "InActive" || value === "Closed"))
-          updated.mergeDate = null;
-        return updated;
-      });
-
-      if (name === "code" && value.length === 5 && !editingId) {
-        checkBranchCodeExists(value);
-      }
-
-      setErrors((prev) => ({
-        ...prev,
-        [name]: validateField(name, value, branchData),
-      }));
+    {
+      id: 2,
+      question: "What options are available under CGL Management?",
+      answer:
+        "CGL Management provides three options: View CGL Details, CGL Requests, and CGL Management.",
     },
-    [editingId, branchData, notifyOnce]
-  );
-
-  const checkBranchCodeExists = async (code) => {
-    try {
-      const url =
-        "/CM/common-master/branches-code-name-only?q=" +
-        encodeURIComponent(code);
-      const res = await callApi(url, null, "GET");
-      if (res?.data?.some((b) => b.code === code)) {
-        setErrors((prev) => ({ ...prev, code: "Branch Code already exists" }));
-        notifyOnce("Branch Code already exists", "error");
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleDateChange = useCallback((name, newValue) => {
-    setBranchData((prev) => {
-      const updated = { ...prev, [name]: newValue };
-      const errorMsg = validateField(name, newValue, updated);
-      setErrors((prevErr) => ({ ...prevErr, [name]: errorMsg }));
-      return updated;
-    });
+    {
+      id: 3,
+      question: "How can I view CGL details?",
+      answer:
+        "You can view CGL details by using the Search CGL option. After selecting a CGL, the system displays all related information.",
+    },
+    {
+      id: 4,
+      question: "What information is shown in View CGL Details?",
+      answer:
+        "The screen displays CGL Number, Description, Account Classification, Comp1, Segment, Comp2, Balance Compare flag, Manual Posting flag, Balance Forward flag, and Open Date.",
+    },
+    {
+      id: 5,
+      question: "What is the purpose of the CGL Requests screen?",
+      answer:
+        "The CGL Requests screen is used to approve or reject CGL creation requests raised by other users.",
+    },
+    {
+      id: 6,
+      question: "What is the difference between Manage CGL and My Requests?",
+      answer:
+        "Manage CGL shows all approved and active CGLs, while My Requests displays CGL requests created by the logged-in user along with their current status.",
+    },
+    {
+      id: 7,
+      question: "How do I create a new CGL?",
+      answer:
+        "Click on the Create button in the CGL Management screen, enter all mandatory CGL details, and submit the request for approval.",
+    },
+    {
+      id: 8,
+      question: "Can a CGL be created without approval?",
+      answer:
+        "No, all CGL creation requests must be approved by an authorized user before the CGL becomes active.",
+    },
+    {
+      id: 9,
+      question: "How can I track the status of my CGL request?",
+      answer:
+        "The status of your CGL request can be tracked in the My Requests tab, where the current approval status is displayed.",
+    },
+    {
+      id: 10,
+      question: "Can an approved CGL be modified later?",
+      answer:
+        "Yes, changes to an approved CGL must be raised as a new request and approved before the changes take effect.",
+    },
+  ];
+  useEffect(() => {
+    setFaqList(cglFaqDummyData);
   }, []);
 
-  const handleAutoCompleteChange = useCallback((name, value) => {
-    setBranchData((prev) => ({ ...prev, [name]: value }));
-    setErrors((prev) => ({ ...prev, [name]: "" }));
-  }, []);
-
-  // --- Auto Logic: Status Dependencies (CRITICAL FIX) ---
-  useEffect(() => {
-    if (branchData.status === "InActive" || branchData.status === "Closed") {
-      // If Closed: Clear Merge Data
-      setBranchData((prev) => {
-        if (prev.mergedWithBranch || prev.mergeDate) {
-          return { ...prev, mergedWithBranch: null, mergeDate: null };
-        }
-        return prev;
-      });
-      setMwbInputValue(""); // Clear the text input
-      setErrors((prev) => ({ ...prev, mergedWithBranch: "", mergeDate: "" }));
-    } else {
-      // If Active: Clear Close Date
-      setBranchData((prev) => {
-        if (prev.closeDate) {
-          return { ...prev, closeDate: null };
-        }
-        return prev;
-      });
-      setErrors((prev) => ({ ...prev, closeDate: "" }));
-    }
-  }, [branchData.status]);
-
-  // --- Auto Logic: merge Dependencies ---
-  useEffect(() => {
-    if (!branchData.mergedWithBranch) {
-      // If Closed: Clear Merge Data
-      setBranchData((prev) => {
-        if (prev.mergeDate) {
-          return { ...prev, mergeDate: null };
-        }
-        return prev;
-      });
-      setErrors((prev) => ({ ...prev, mergeDate: "" }));
-    }
-  }, [branchData.mergedWithBranch]);
-
-  // 1. Create the Debounced API Fetch (Memoized)
-  const fetchMwb = useMemo(
-    () =>
-      debounce(async (val) => {
-        if (!val || val.length < 3) {
-          setMwb([]);
-          setMwbLoading(false);
-          return;
-        }
-
-        setMwbLoading(true);
-        try {
-          // Verify this URL matches your backend requirement
-          const url =
-            "/CM/common-master/branches-code-name-only?q=" +
-            encodeURIComponent(val);
-          const res = await callApi(url, null, "GET");
-          setMwb(res?.data || []);
-        } catch (e) {
-          console.error(e);
-          setMwb([]); // Clear on error to be safe
-        } finally {
-          setMwbLoading(false);
-        }
-      }, 400),
-    [callApi]
-  );
-
-  // 2. Create the Handler for Input Change (Instant UI Update)
-  const handleMwbInputChange = useCallback(
-    (event, newInputValue) => {
-      // Update state IMMEDIATELY so user sees what they type
-      setMwbInputValue(newInputValue);
-
-      // Trigger the debounced API call
-      fetchMwb(newInputValue);
-    },
-    [fetchMwb]
-  );
-
-  // Form Validity Check for Button
-  const isFormValid = useMemo(() => {
-    // 1. Check for explicit error strings
-    const hasErrors = Object.values(errors).some((e) => e);
-    if (hasErrors) return false;
-
-    // 2. Check for empty mandatory fields
-    const {
-      code,
-      name,
-      circleCode,
-      state,
-      city,
-      address,
-      pinCode,
-      phoneNumber,
-      nmrCode,
-      status,
-    } = branchData;
-    if (
-      !code ||
-      !name ||
-      !circleCode ||
-      !state ||
-      !city ||
-      !address ||
-      !pinCode ||
-      !phoneNumber ||
-      !nmrCode ||
-      !status
-    )
-      return false;
-
-    return true;
-  }, [errors, branchData]);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    const allErrors = {};
-    Object.keys(branchData).forEach((key) => {
-      const msg = validateField(key, branchData[key]);
-      if (msg) allErrors[key] = msg;
-    });
-
-    if (branchData.status === "InActive" && !branchData.closeDate)
-      allErrors.closeDate = "Required";
-    if (branchData.mergedWithBranch && !branchData.mergeDate)
-      allErrors.mergeDate = "Required";
-
-    if (Object.keys(allErrors).length > 0) {
-      setErrors(allErrors);
-      notifyOnce("Please fix validation errors", "error");
-      return;
-    }
-
-    if (editingId && isDataSame) {
-      notifyOnce("No changes detected", "warning");
-      return;
-    }
-
-    const payloadData = {
-      requestType: "BRANCH",
-      changeType: editingId ? "UPDATE" : "ADD",
-      targetId: branchData.code,
-      payload: {
-        code: branchData.code.trim(),
-        name: branchData.name.trim(),
-        circleCode: branchData.circleCode,
-        circleName:
-          circles.find((c) => c.circleCode === branchData.circleCode)
-            ?.circleName || "",
-        state: branchData.state,
-        stateName:
-          states.find((s) => s.stateCode === branchData.state)?.stateName || "",
-        city: branchData.city.trim(),
-        address: branchData.address.trim(),
-        pinCode: branchData.pinCode,
-        phoneNumber: branchData.phoneNumber,
-        emailId: branchData.emailId,
-        nmrCode: branchData.nmrCode,
-        status: branchData.status === "Active",
-        cpcFlag: branchData.cpcFlag,
-        foodCreditFlag: branchData.foodCreditFlag,
-        currChestFlag: branchData.currChestFlag,
-        branchType: branchData.branchType,
-        openDate: branchData.openDate
-          ? dayjs(branchData.openDate).format("DD/MM/YYYY")
-          : null,
-        ...(editingId && {
-          mergedWithBranch: branchData.mergedWithBranch?.code || null,
-          closeDate: branchData.closeDate
-            ? dayjs(branchData.closeDate).format("DD/MM/YYYY")
-            : null,
-          mergeDate: branchData.mergeDate
-            ? dayjs(branchData.mergeDate).format("DD/MM/YYYY")
-            : null,
-        }),
-      },
-    };
-
-    try {
-      const response = await callApi("/CR/create-request", payloadData, "POST");
-      if (response) {
-        snackbar(
-          `Request submitted successfully. ID: ${response?.data?.id}`,
-          "success"
-        );
-        handleClose();
-        fetchBranches();
-      }
-    } catch (err) {
-      snackbar(err?.message || "Request failed", "error");
-    }
+  const handleToggle = (id) => {
+    setOpenRow(openRow === id ? null : id);
   };
 
   return (
-    <Dialog open={open} maxWidth="md" fullWidth onClose={handleClose}>
-      <DialogTitleStyle>
-        {editingId ? "Edit Branch" : "Add New Branch"}
-        <IconButtonStyle onClick={handleClose}>
-          <CloseIcon />
-        </IconButtonStyle>
-      </DialogTitleStyle>
-
-      <DialogContent dividers>
-        <BranchForm
-          branchData={branchData}
-          errors={errors}
-          circles={circles}
-          states={states}
-          mwb={mwb}
-          mwbLoading={mwbLoading}
-          mwbInputValue={mwbInputValue}
-          editingId={editingId}
-          handleChange={handleChange}
-          handleDateChange={handleDateChange}
-          handleAutoCompleteChange={handleAutoCompleteChange}
-          handleMwbInputChange={handleMwbInputChange}
-        />
-      </DialogContent>
-
-      <DialogActions>
-        <Button
-          onClick={handleSubmit}
-          variant="contained"
-          startIcon={editingId ? <EditIcon /> : <AddIcon />}
-          disabled={!isFormValid || (editingId && isDataSame)}
+    <Box p={4}>
+      {/* 🔹 Back Navigation */}
+      <Stack direction="row" alignItems="center" spacing={1} mb={2}>
+        <IconButton
+          onClick={setFaqOpen}
+          sx={{
+            //backgroundColor: "grey.100",
+            "&:hover": {
+              backgroundColor: "grey.200",
+            },
+          }}
         >
-          {editingId ? "Update" : "Add"}
-        </Button>
-      </DialogActions>
-    </Dialog>
+          <ArrowBackIcon sx={{ fontSize: 20 }} />
+        </IconButton>
+
+        <Typography variant="h6" fontWeight={500}>
+          Frequently Asked Questions
+        </Typography>
+      </Stack>
+
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell width="5%" />
+              <TableCell>
+                <b>Question</b>
+              </TableCell>
+            </TableRow>
+          </TableHead>
+
+          <TableBody>
+            {faqList.map((faq) => (
+              <>
+                {/* QUESTION ROW */}
+                <TableRow
+                  key={faq.id}
+                  hover
+                  sx={{ cursor: "pointer" }}
+                  onClick={() => handleToggle(faq.id)}
+                >
+                  <TableCell>
+                    <IconButton size="small">
+                      {openRow === faq.id ? (
+                        <KeyboardArrowUpIcon />
+                      ) : (
+                        <KeyboardArrowDownIcon />
+                      )}
+                    </IconButton>
+                  </TableCell>
+                  <TableCell>{faq.question}</TableCell>
+                </TableRow>
+
+                {/* ANSWER ROW */}
+                <TableRow>
+                  <TableCell
+                    style={{ paddingBottom: 0, paddingTop: 0 }}
+                    colSpan={2}
+                  >
+                    <Collapse
+                      in={openRow === faq.id}
+                      timeout="auto"
+                      unmountOnExit
+                    >
+                      <Box m={2}>
+                        <Typography variant="body2">{faq.answer}</Typography>
+                      </Box>
+                    </Collapse>
+                  </TableCell>
+                </TableRow>
+              </>
+            ))}
+
+            {faqList.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={2} align="center">
+                  No FAQs available
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </Box>
   );
 }
