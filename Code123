@@ -299,3 +299,45 @@ export default function Faqs({ setFaqOpen }) {
     </Box>
   );
 }
+
+
+
+import { Box, Card, CardActionArea, Grid, Typography } from "@mui/material";
+import QuizIcon from "@mui/icons-material/Quiz";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
+export default function HelpSupportHome({ setFaqOpen, setUserGuideOpen }) {
+  return (
+    <>
+      <Box p={3}>
+        <Grid
+          container
+          spacing={3}
+          justifyContent={"center"}
+          alignItems={"center"}
+        >
+          <Grid item xs={12} md={3}>
+            <Card>
+              <CardActionArea onClick={setFaqOpen}>
+                <Box p={4} textAlign="center">
+                  <QuizIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
+                  <Typography variant="h6">FAQs</Typography>
+                </Box>
+              </CardActionArea>
+            </Card>
+          </Grid>
+
+          <Grid item xs={12} md={3}>
+            <Card>
+              <CardActionArea onClick={setUserGuideOpen}>
+                <Box p={4} textAlign="center">
+                  <MenuBookIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
+                  <Typography variant="h6">User Guides</Typography>
+                </Box>
+              </CardActionArea>
+            </Card>
+          </Grid>
+        </Grid>
+      </Box>
+    </>
+  );
+}
