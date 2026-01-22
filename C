@@ -309,3 +309,183 @@ export default function UserGuides({ setUserGuideOpen }) {
     </Box>
   );
 }
+
+
+
+ai assistant 
+
+
+import {
+  Box,
+  Typography,
+  Paper,
+  Stack,
+  Chip,
+  Button,
+  Divider,
+  IconButton,
+} from "@mui/material";
+import SmartToyIcon from "@mui/icons-material/SmartToy";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import { useEffect, useState } from "react";
+
+export default function AiAssistant({ setAiOpen }) {
+  const [messages, setMessages] = useState([]);
+  const [suggestedQuestions, setSuggestedQuestions] = useState([]);
+
+  /* =====================================================
+     🔹 DUMMY DATA (TEMP – FRONTEND ONLY)
+     ===================================================== */
+
+  const initialQuestions = [
+    { id: 1, text: "How do I create a CGL?" },
+    { id: 2, text: "How can I approve a circle request?" },
+    { id: 3, text: "How do I view branch details?" },
+  ];
+
+  const answerMap = {
+    1: {
+      answer:
+        "To create a CGL, navigate to CGL Management, click on Create, enter all mandatory details, and submit the request for approval.",
+      followUps: [
+        { id: 4, text: "What are the mandatory fields for CGL creation?" },
+        { id: 5, text: "Who can approve a CGL request?" },
+      ],
+    },
+    2: {
+      answer:
+        "Circle requests can be approved from the Circle Requests screen by authorized users.",
+      followUps: [
+        { id: 6, text: "Where can I see pending circle requests?" },
+      ],
+    },
+    3: {
+      answer:
+        "You can view branch details by navigating to Branch Management and using the View Branch Details option.",
+      followUps: [
+        { id: 7, text: "What information is shown in branch details?" },
+      ],
+    },
+  };
+
+  /* =====================================================
+     🔹 INITIAL BOT MESSAGE
+     ===================================================== */
+  useEffect(() => {
+    setMessages([
+      {
+        type: "bot",
+        text: "👋 Hi! I’m your FinCore Assistant. How can I help you today?",
+      },
+    ]);
+    setSuggestedQuestions(initialQuestions);
+  }, []);
+
+  /* =====================================================
+     🔹 HANDLE QUESTION CLICK
+     ===================================================== */
+  const handleQuestionClick = (question) => {
+    // Add user message
+    setMessages((prev) => [
+      ...prev,
+      { type: "user", text: question.text },
+    ]);
+
+    // Simulate backend response
+    const response = answerMap[question.id];
+
+    if (response) {
+      setTimeout(() => {
+        setMessages((prev) => [
+          ...prev,
+          { type: "bot", text: response.answer },
+        ]);
+        setSuggestedQuestions(response.followUps || []);
+      }, 500);
+    }
+  };
+
+  return (
+    <Box
+      p={3}
+      height="calc(100vh - 120px)"
+      display="flex"
+      flexDirection="column"
+      overflow="hidden"
+    >
+      {/* ================= HEADER ================= */}
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Stack direction="row" alignItems="center" spacing={1}>
+          <IconButton
+            onClick={setAiOpen}
+            sx={{ "&:hover": { backgroundColor: "grey.200" } }}
+          >
+            <ArrowBackIcon />
+          </IconButton>
+
+          <SmartToyIcon color="primary" />
+
+          <Box>
+            <Typography variant="h6" fontWeight={600}>
+              FinCore Assistant
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Always here to help
+            </Typography>
+          </Box>
+        </Stack>
+      </Paper>
+
+      {/* ================= CHAT AREA ================= */}
+      <Paper
+        sx={{
+          flex: 1,
+          p: 2,
+          overflowY: "auto",
+          mb: 2,
+          backgroundColor: "grey.50",
+        }}
+      >
+        <Stack spacing={2}>
+          {messages.map((msg, index) => (
+            <Box
+              key={index}
+              alignSelf={msg.type === "user" ? "flex-end" : "flex-start"}
+              maxWidth="70%"
+            >
+              <Paper
+                sx={{
+                  p: 1.5,
+                  backgroundColor:
+                    msg.type === "user" ? "primary.main" : "white",
+                  color: msg.type === "user" ? "white" : "text.primary",
+                }}
+              >
+                <Typography variant="body2">{msg.text}</Typography>
+              </Paper>
+            </Box>
+          ))}
+        </Stack>
+      </Paper>
+
+      {/* ================= SUGGESTED QUESTIONS ================= */}
+      {suggestedQuestions.length > 0 && (
+        <>
+          <Divider sx={{ mb: 1 }} />
+          <Stack direction="row" spacing={1} flexWrap="wrap">
+            {suggestedQuestions.map((q) => (
+              <Chip
+                key={q.id}
+                label={q.text}
+                onClick={() => handleQuestionClick(q)}
+                clickable
+                color="primary"
+                variant="outlined"
+              />
+            ))}
+          </Stack>
+        </>
+      )}
+    </Box>
+  );
+}
