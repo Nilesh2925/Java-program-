@@ -830,3 +830,50 @@ export default function AiAssistantDrawer({ open, onClose }) {
     </Drawer>
   );
 }
+
+
+
+
+.<IconButton
+  color="inherit"
+  onClick={() => setNotificationDrawerOpen(true)}
+>
+  {unreadCount > 0 ? (
+    <Badge badgeContent={unreadCount || ""} color="error">
+      <Notifications />
+    </Badge>
+  ) : (
+    <Notifications />
+  )}
+</IconButton>
+
+{/* 🤖 AI ASSISTANT ICON */}
+<IconButton
+  color="inherit"
+  onClick={() => setAiDrawerOpen(true)}
+  sx={{ ml: 0.5 }}
+>
+  <SmartToyIcon />
+</IconButton>
+
+<Avatar
+  onClick={() => setProfileDrawerOpen(true)}
+  sx={{
+    width: 32,
+    height: 32,
+    color: "primary.contrastText",
+    backgroundColor: "primary.main",
+    cursor: "pointer",
+    ml: 1,
+  }}
+>
+  {userAvatarCreator(user)}
+</Avatar>
+
+
+
+<AiAssistantDrawer
+  open={aiDrawerOpen}
+  onClose={() => setAiDrawerOpen(false)}
+/>
+
