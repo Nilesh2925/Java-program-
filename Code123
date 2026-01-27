@@ -781,3 +781,52 @@ export default function BranchWiseReports() {
     </Box>
   );
 }
+
+
+
+
+ai assistant header
+
+
+
+import { Drawer, Box, IconButton, Typography, Divider } from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
+import AiAssistant from "./AiAssistant";
+
+export default function AiAssistantDrawer({ open, onClose }) {
+  return (
+    <Drawer
+      anchor="right"
+      open={open}
+      onClose={onClose}
+      PaperProps={{
+        sx: {
+          width: 420,
+          maxWidth: "100%",
+        },
+      }}
+    >
+      {/* HEADER */}
+      <Box
+        sx={{
+          p: 2,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <Typography fontWeight={600}>AI Assistant</Typography>
+        <IconButton onClick={onClose}>
+          <CloseIcon />
+        </IconButton>
+      </Box>
+
+      <Divider />
+
+      {/* BODY */}
+      <Box sx={{ height: "100%" }}>
+        <AiAssistant isDrawer />
+      </Box>
+    </Drawer>
+  );
+}
