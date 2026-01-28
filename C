@@ -672,3 +672,519 @@ export default function AiAssistant({ setAiOpen }) {
     </Box>
   );
 }
+
+
+
+
+import React,{ useEffect, useState, forwardRef } from "react";
+import {
+  Box,
+  Card,
+  Stack,
+  RadioGroup,
+  FormControlLabel,
+  Radio,
+  TextField,
+  Button,
+  CircularProgress,
+} from "@mui/material";
+import Autocomplete from "@mui/material/Autocomplete";
+import { LocalizationProvider, DatePicker } from "@mui/x-date-pickers";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import dayjs from "dayjs";
+import useApi from "../../hooks/useApi";
+import useCustomSnackbar from "../../utils/useCustomSnackbar";
+import { useSelector} from "react-redux";
+
+const moduleType="BRANCH_WISE";
+
+export default function BranchWiseReports() {
+  const user=useSelector((state)=> state.auth.user);
+  const { callApi } = useApi();
+  const showSnackBar = useCustomSnackbar();
+
+  const [minDate, setMinDate] = useState(dayjs("2020-01-01"));
+
+
+  /* ---------------- RADIO ---------------- */
+  const [countryType, setCountryType] = useState("INDIAN");
+
+  /* ---------------- MASTER DATA ---------------- */
+  const [zoneList, setZoneList] = useState([]);
+  const [circleList, setCircleList] = useState([]);
+  const [branchList, setBranchList] = useState([]);
+  const [reportList, setReportList] = useState([]);
+
+  /* ---------------- SELECTED VALUES ---------------- */
+  const [zone, setZone] = useState(null);
+  const [circle, setCircle] = useState(null);
+  const [branch, setBranch] = useState(null);
+  const [report, setReport] = useState(null);
+  const [reportDate, setReportDate] = useState(null);
+
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const [circleLoading,setCircleLoading]=useState(false);
+  const [branchLoading,setBranchLoading]=useState(false);
+  const [reportLoading,setReportLoading]=useState(false);
+
+  const [branchHasMore, setBranchHasMore]=useState(true);
+
+  const [dateError,setDateError]=useState(null);
+
+  const [branchSize,setBranchSize]=useState(20);
+
+  const listboxRef=React.useRef(null);
+  const scrollTopRef=React.useReducer(0);
+  
+
+  /* ---------------- INITIAL LOAD ---------------- */
+  useEffect(() => {
+    fetchZones();
+  }, []);
+
+  
+
+  /* ---------------- RADIO CHANGE ---------------- */
+  const handleCountryChange = (e) => {
+    const value = e.target.value;
+    setCountryType(value);
+    setZone(null);
+    setCircle(null);
+    setBranch(null);
+    setCircleList([]);
+    setBranchList([]);
+    setReport(null);
+    setReportList([]);
+    setReportDate(null);
+
+    if (value === "FOREIGN") {
+      setZone({ zoneCode: 4, zoneDesc: "Foreign Office" });
+    }
+  };
+
+  /* ---------------- API CALLS ---------------- */
+
+  const fetchZones = async () => {
+      try{
+        const res = await callApi("/CM/common-master/indian-zones", {}, "GET");
+      setZoneList(res?.data || []);
+      }
+      catch{
+        setZoneList([]);
+      }
+  };
+
+  useEffect(() => {
+    if(!zone?.zoneCode) return;
+
+    setCircle(null);
+    setBranch(null);
+    setCircleList([]);
+    setBranchList([]);
+    setReport(null);
+    setReportList([]);
+    setReportDate(null);
+
+    fetchCircles(zone);
+    
+  }, [zone, countryType]);
+
+
+
+  const fetchCircles = async (zone) => {
+    try {
+      setCircleLoading(true);
+      const bankType =
+        countryType === "Foreign" ? "Foreign Office" : "Indian";
+      const res = await callApi(
+        `/CM/common-master/indian-foreign-circles?bankType=${encodeURIComponent(
+          bankType
+        )}&zoneCode=${zone.zoneCode}`,
+        null,
+        "GET"
+      );
+      setCircleList(res?.data || []);
+    }
+    catch 
+    {
+      setCircleList([]);
+    }
+    finally
+    {
+      setCircleLoading(false);
+    }
+  };
+
+
+  useEffect(()=>{
+    if(!circle?.circleCode)return;
+    setBranch(null);
+    setBranchList([]);
+    setBranchSize(20);
+    setBranchHasMore(true);
+    fetchBranches(circle,20);
+  },[circle]);
+
+
+const fetchBranches = async (circle, size = 20) => {
+  if (!circle?.circleCode || branchLoading) return;
+
+  try {
+    setBranchLoading(true);
+
+    const res = await callApi(
+      `/CM/common-master/indian-foreign-branches?circleCode=${circle.circleCode}&size=${size}`,
+      null,
+      "GET"
+    );
+
+    // const branches=res?.data?.data?.data || res?.data?.data || [];
+    //     setBranchList(branches);
+    //     setBranchHasMore(branches.length === size);
+    //     setBranchSize(size);
+
+    // const newbranches=res?.data?.data?.data || res?.data?.data || [];
+    // setBranchList((prev)=>{
+    //   const map=new Map(prev.map(b=>[b.branchCode,b]));
+    //   newbranches.forEach(b=> map.set(b.branchCode,b));
+    //   return Array.from(map.values());
+    // });
+    // setBranchHasMore(newbranches.length === size);
+    // setBranchSize(size);
+
+    // setTimeout(()=>{
+    //   if(listboxRef.current){
+    //     listboxRef.current.scrollTop=scrollTopRef.current;
+    //   }
+    // },0);
+
+    const branches=res?.data?.data?.data || res?.data?.data || [];
+        setBranchList(prev=>{
+if(size<=prev.length)return prev;
+return branches.slice(0,size);
+        });
+        setBranchHasMore(branches.length === size);
+        setBranchSize(size);
+
+      } catch (e) {
+        console.error(e);
+        setBranchList([]);
+      } finally {
+        setBranchLoading(false);
+      }
+};
+
+ useEffect(()=>{
+    if(!branch?.branchCode) return;
+     
+      setReportList([]);
+      setReport(null);
+      setReportDate(null);
+      fetchReports(branch);
+  },[branch]);
+
+const fetchReports = async (branch) => {
+     try {
+      setReportLoading(true);
+    const res = await callApi(
+      "/RS/reports/types", {
+      moduleType:moduleType,
+      countryType,
+      zoneId: zone?.zoneCode,
+      circleCode: circle?.circleCode,
+      branchCode: branch?.branchCode,
+      roleId:user.role,
+    },
+   "POST");
+   const reports=res?.data || [];
+      setReportList(reports);
+      if(reports.length>0 && reports[0].selectedDate){
+        setMinDate(dayjs(reports[0].selectedDate).startOf("day"));
+      }
+
+    } catch {
+      setReportList([]);
+    }
+    finally
+    {
+      setReportLoading(false);
+    }
+};
+
+  /* ---------------- DOWNLOAD (FIXED) ---------------- */
+const handleDownload = async () => {
+    if (!report || !reportDate || dateError) return;
+
+    const payload = {
+      moduleType:moduleType,
+      countryType,
+      zoneId: zone?.zoneCode || null,
+      circleCode: circle?.circleCode || null,
+      branchCode: branch?.branchCode || null,
+      fileName: report?.fileName || null,
+      date: reportDate.format("YYYY-MM-DD"),
+      roleId:user.role,
+    };
+
+    try {
+      //startProgressTimer();
+      setIsDownloading(true);
+
+      const response = await callApi(
+        "/RS/reports/download",
+        payload,
+        "POST",
+        "blob",
+        "application/json",
+        {},
+        false
+      );
+
+      if (!response?.data || response.data.size <= 22) {
+        showSnackBar("No reports found for selected criteria", "warning");
+        return;
+      }
+
+      // Extract filename
+      let filename = "report.zip";
+      const contentDisposition =
+        response.headers?.["content-disposition"] ||
+        response.headers?.["Content-Disposition"];
+
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="(.+?)"/);
+        if (match?.[1]) filename = match[1];
+      }
+
+      // Trigger download
+      const url = window.URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      showSnackBar(`Report "${filename}" downloaded successfully`, "success");
+    } catch (error) {
+      if (error instanceof Blob) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const err = JSON.parse(reader.result);
+            showSnackBar(err.message || "Download failed", "error");
+          } catch {
+            showSnackBar("Something went wrong while downloading", "error");
+          }
+        };
+        reader.readAsText(error);
+      } else {
+        showSnackBar("Network error while downloading report", "error");
+      }
+    } finally {
+      setIsDownloading(false);
+    }
+};
+
+const getErrorMessage = (error) => {
+    const minDateStr = minDate?.isValid()
+      ? minDate.format("DD/MM/YYYY")
+      : "Allowed Min Date";
+
+    switch (error) {
+      case "maxDate":
+        return "Date cannot be in the future (Today is max)";
+      case "minDate":
+        return `Date cannot be prior to ${minDateStr}`;
+      case "invalidDate":
+        // This covers cases like 31st Feb or 31st April
+        return "Invalid date (Check day for this month)";
+      default:
+        // When no error, return instructions 
+        return `Allowed Range: ${minDateStr} - Today`;
+    }
+};
+
+
+const branchListBox=React.forwardRef(function
+    branchListBox(
+      props,ref
+    )
+    {
+      const {children,...other}=props;
+      return(
+      // <ul ref={ref} {...other}>
+      //   {children}
+      <ul {...other}
+      ref={(node)=>{
+        listboxRef.current=node;
+        if(typeof ref==='function') ref(node);
+        else if (ref) ref.current=node;
+      }}>
+        {children}
+            
+            {branchHasMore && !branchLoading && (
+              <li
+                style={{
+                  textAlign: "center",
+                  padding: "8px",
+                  cursor: "pointer",
+                  fontWeight: 500,
+                  color: "#1976d2",
+                }}
+                onMouseDown={(e) => e.preventDefault()} 
+                onClick={() =>{
+                  // if(listboxRef.current){
+                  //   scrollTopRef.current=listboxRef.current.scrollTop;
+                  // }
+                  fetchBranches(circle, branchSize + 20)
+                }}
+              >
+                Show more branches...
+              </li>
+        )}
+      </ul>
+  );
+});
+
+  /* ---------------- UI ---------------- */
+  return (
+    <Box minHeight="80vh" display="flex" justifyContent="center" alignItems="center">
+      <Card sx={{ p: 4, width: 580, minHeight:420, display:"flex", flexDirection:"column" }}>
+        <Stack spacing={3} flexGrow={1} sx={{pb:2}}>
+          <RadioGroup row value={countryType} onChange={handleCountryChange} sx={{justifyContent:"center" , gap:10}}>
+            <FormControlLabel value="INDIAN" control={<Radio />} label="Indian" />
+            <FormControlLabel value="FOREIGN" control={<Radio />} label="Foreign" />
+          </RadioGroup>
+
+          {countryType === "INDIAN" && (
+            <Autocomplete
+              value={zone}
+              options={zoneList}
+              getOptionLabel={(o) => o?.zoneDesc || ""}
+              isOptionEqualToValue={(o, v) => o.zoneCode === v.zoneCode}
+              onChange={(e, v) => {
+                setZone(v);
+              }}
+              renderInput={(params) => (
+                <TextField {...params} label="Select a Zone" />
+              )}
+            />
+          )}
+
+          <Autocomplete
+            value={circle}
+            options={circleList}
+            loading={circleLoading}
+            disabled={!zone}
+            getOptionLabel={(o) => `${o.circleCode}-${o.circleName}`}
+            isOptionEqualToValue={(o, v) => o.circleCode === v.circleCode}
+            onChange={(e, v) => {
+              setCircle(v);
+            }}
+            renderInput={(params) => (
+              <TextField {...params} label="Select a Circle" 
+              InputProps={{
+                ...params.InputProps,
+                endAdornment:(
+                  <>
+                  {circleLoading && <CircularProgress  size={20}/>}
+                  {params.InputProps.endAdornment}
+                  </>
+                ),
+              }}/>
+            )}
+          />
+
+        <Autocomplete
+          value={branch}
+          options={Array.isArray(branchList) ? branchList : []}
+          loading={branchLoading}
+          disabled={!circle}
+          ListboxComponent={branchListBox}
+          getOptionLabel={(o) =>
+            o?.branchCode ? `${o.branchCode} - ${o.branchName}` : ""
+          }
+          isOptionEqualToValue={(o, v) =>
+            o?.branchCode === v?.branchCode
+          }
+          onChange={(e, v) => setBranch(v)}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="Select Branch"
+              InputProps={{
+                ...params.InputProps,
+                endAdornment: (
+                  <>
+                    {branchLoading && <CircularProgress size={18} />}
+                    {params.InputProps.endAdornment}
+                  </>
+                ),
+              }}
+            />
+          )}
+        />
+
+
+          {branch && (
+            <>
+              <Autocomplete
+                value={report}
+                options={reportList}
+                loading={reportLoading}
+                getOptionLabel={(o) => o?.reportName || ""}
+                isOptionEqualToValue={(o, v) => o.id === v.id}
+                onChange={(e, v) => setReport(v)}
+                renderInput={(params) => (
+                  <TextField {...params} label="Select a report" 
+                  InputProps={{
+                ...params.InputProps,
+                endAdornment:(
+                  <>
+                  {reportLoading && <CircularProgress  size={20}/>}
+                  {params.InputProps.endAdornment}
+                  </>
+                ),
+              }}/>
+                )}
+              />
+
+              <LocalizationProvider dateAdapter={AdapterDayjs}>
+                <DatePicker
+                  label="Select report date"
+                  format="DD/MM/YYYY"
+                  minDate={minDate}
+                  maxDate={dayjs().endOf("day")}
+                  value={reportDate}
+                  onChange={(v)=>setReportDate(v)}
+                  onError={(err)=>setDateError(err)}
+                  slotProps={{
+                    textField:{
+                      error:!!dateError,
+                      helperText:dateError
+                      ?getErrorMessage(dateError)
+                      :"",
+                    },
+                  }}
+                />
+              </LocalizationProvider>
+            </>
+          )}
+          </Stack>
+        <Stack>
+          <Button
+            variant="contained"
+            size="large"
+            disabled={!circle || !branch || !report || !reportDate || isDownloading}
+            onClick={handleDownload}
+          >
+            {isDownloading ? "Downloading..." : "Fetch & Download"}
+          </Button>
+        </Stack>
+      </Card>
+    </Box>
+  );
+}
