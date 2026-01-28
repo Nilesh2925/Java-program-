@@ -925,3 +925,218 @@ export default function AiAssistantDrawer({ open, onClose }) {
     </Drawer>
   );
 }
+
+
+
+
+
+
+
+import {
+  Box,
+  Card,
+  CardContent,
+  Typography,
+  TextField,
+  Stack,
+  Chip,
+  Divider,
+  Paper,
+} from "@mui/material";
+import SmartToyIcon from "@mui/icons-material/SmartToy";
+import PersonIcon from "@mui/icons-material/Person";
+import { useState } from "react";
+
+/* ================= TYPING DOTS COMPONENT ================= */
+function TypingDots() {
+  return (
+    <Box display="flex" alignItems="center" gap={0.5}>
+      <span className="dot">•</span>
+      <span className="dot">•</span>
+      <span className="dot">•</span>
+
+      <style>
+        {`
+          .dot {
+            font-size: 22px;
+            animation: blink 1.4s infinite both;
+          }
+          .dot:nth-child(1) { animation-delay: 0s; }
+          .dot:nth-child(2) { animation-delay: 0.2s; }
+          .dot:nth-child(3) { animation-delay: 0.4s; }
+
+          @keyframes blink {
+            0% { opacity: 0.2; }
+            20% { opacity: 1; }
+            100% { opacity: 0.2; }
+          }
+        `}
+      </style>
+    </Box>
+  );
+}
+
+export default function AiAssistant() {
+  const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+
+  const [messages, setMessages] = useState([
+    {
+      type: "bot",
+      text: "Hi 👋 I’m your FinCore Assistant. Type to search and select a question to get help.",
+    },
+  ]);
+
+  /* ================= DUMMY DATA (FRONTEND ONLY) ================= */
+
+  const qaData = [
+    {
+      id: 1,
+      keywords: ["circle", "create"],
+      question: "How to create a circle?",
+      answer:
+        "Go to Circle Management → Click Create → Enter details → Submit for approval.",
+    },
+    {
+      id: 2,
+      keywords: ["circle", "approve"],
+      question: "How to approve a circle request?",
+      answer:
+        "Navigate to Circle Requests → Review request → Click Approve or Reject.",
+    },
+    {
+      id: 3,
+      keywords: ["branch", "view"],
+      question: "How can I view branch details?",
+      answer:
+        "Open Branch Management → View Branch Details → Search branch to see details.",
+    },
+    {
+      id: 4,
+      keywords: ["user", "create"],
+      question: "How do I create a user?",
+      answer:
+        "Go to User Management → Click Create User → Fill details → Assign roles → Save.",
+    },
+  ];
+
+  /* ================= SEARCH LOGIC ================= */
+
+  const suggestions = input
+    ? qaData.filter((item) =>
+        item.keywords.some((k) =>
+          input.toLowerCase().includes(k)
+        )
+      )
+    : [];
+
+  /* ================= HANDLE QUESTION SELECTION ================= */
+
+  const handleQuestionSelect = (item) => {
+    // Show user question
+    setMessages((prev) => [
+      ...prev,
+      { type: "user", text: item.question },
+    ]);
+
+    // Show typing dots
+    setIsTyping(true);
+    setInput("");
+
+    // Simulate backend delay
+    setTimeout(() => {
+      setIsTyping(false);
+      setMessages((prev) => [
+        ...prev,
+        { type: "bot", text: item.answer },
+      ]);
+    }, 1200); // 👈 typing delay (adjust if needed)
+  };
+
+  return (
+    <Box p={2}>
+      <Card
+        sx={{
+          height: "75vh",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        {/* ================= CHAT AREA ================= */}
+        <CardContent sx={{ flex: 1, overflowY: "auto" }}>
+          <Stack spacing={2}>
+            {messages.map((msg, index) => (
+              <Stack
+                key={index}
+                direction="row"
+                spacing={1}
+                justifyContent={
+                  msg.type === "user" ? "flex-end" : "flex-start"
+                }
+              >
+                {msg.type === "bot" && <SmartToyIcon color="primary" />}
+                <Paper
+                  sx={{
+                    p: 1.5,
+                    maxWidth: "70%",
+                    backgroundColor:
+                      msg.type === "user"
+                        ? "primary.main"
+                        : "grey.100",
+                    color: msg.type === "user" ? "#fff" : "#000",
+                  }}
+                >
+                  <Typography variant="body2">{msg.text}</Typography>
+                </Paper>
+                {msg.type === "user" && <PersonIcon />}
+              </Stack>
+            ))}
+
+            {/* ================= TYPING INDICATOR ================= */}
+            {isTyping && (
+              <Stack direction="row" spacing={1} alignItems="center">
+                <SmartToyIcon color="primary" />
+                <Paper sx={{ p: 1.5, backgroundColor: "grey.100" }}>
+                  <TypingDots />
+                </Paper>
+              </Stack>
+            )}
+          </Stack>
+        </CardContent>
+
+        <Divider />
+
+        {/* ================= SUGGESTIONS ================= */}
+        {suggestions.length > 0 && (
+          <Box px={2} py={1}>
+            <Typography variant="caption" color="text.secondary">
+              Select a question
+            </Typography>
+            <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
+              {suggestions.map((item) => (
+                <Chip
+                  key={item.id}
+                  label={item.question}
+                  onClick={() => handleQuestionSelect(item)}
+                  variant="outlined"
+                  sx={{ mb: 1 }}
+                />
+              ))}
+            </Stack>
+          </Box>
+        )}
+
+        {/* ================= INPUT (SEARCH ONLY) ================= */}
+        <Box p={2}>
+          <TextField
+            fullWidth
+            size="small"
+            placeholder="Type to search a question..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+          />
+        </Box>
+      </Card>
+    </Box>
+  );
+}
