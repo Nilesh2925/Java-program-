@@ -1188,3 +1188,41 @@ const branchListBox=React.forwardRef(function
     </Box>
   );
 }
+
+
+
+const fetchBranches = async (circle, size = 20) => {
+  if (!circle?.circleCode || branchLoading) return;
+
+  try {
+    setBranchLoading(true);
+
+    const res = await callApi(
+      `/CM/common-master/indian-foreign-branches?circleCode=${circle.circleCode}&size=${size}`,
+      null,
+      "GET"
+    );
+
+    const branches = res?.data?.data?.data || res?.data?.data || [];
+
+    setBranchList(prev => {
+      // If already loaded enough, do nothing
+      if (prev.length >= branches.length) return prev;
+
+      // Append without duplicates
+      const map = new Map(prev.map(b => [b.branchCode, b]));
+      branches.forEach(b => map.set(b.branchCode, b));
+
+      return Array.from(map.values());
+    });
+
+    setBranchHasMore(branches.length === size);
+    setBranchSize(size);
+
+  } catch (e) {
+    console.error(e);
+    setBranchList([]);
+  } finally {
+    setBranchLoading(false);
+  }
+};
