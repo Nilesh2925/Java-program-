@@ -1,1055 +1,203 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { Box, Button } from "@mui/material";
-import FileDownloadIcon from "@mui/icons-material/FileDownload";
-import AddIcon from "@mui/icons-material/Add";
-
-import useApi from "../../../hooks/useApi";
-import useCustomSnackbar from "../../../utils/useCustomSnackbar";
-
-import SearchFilters from "../components/SearchFilters";
-import UsersHeader from "../components/UsersHeader";
-import UsersTable from "../components/UsersTable";
-import UserDialog from "../components/UserDialog";
-import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
-
-const API_URL =
-  import.meta.env?.VITE_USERS_API_URL || "/UM/user/user-details";
-
-export default function UserManagement() {
-  const snackbar = useCustomSnackbar();
-  const { callApi, loading, error: apiError } = useApi();
-
-  // -----------------------------
-  // Local states
-  // -----------------------------
-
-  const [rows, setRows] = useState([]);
-  const [roles, setRoles] = useState([]);
-
-  const [uiError, setUiError] = useState("");
-
-  // server side filters
-  const [reqUserid, setReqUserid] = useState("");
-  const [reqBranch, setReqBranch] = useState("");
-  const [reqRole, setReqRole] = useState("");
-
-  // client filters
-  const [query, setQuery] = useState("");
-  const [filterRole, setFilterRole] = useState("");
-  const [selection, setSelection] = useState([]);
-
-  // dialog states
-  const emptyForm = {
-    id: null,
-    USERID: "",
-    FIRST_NAME: "",
-    MIDDLE_NAME: "",
-    LAST_NAME: "",
-    EMAIL: "",
-    PHONE_NUMBER: "",
-    ROLE_NAME: "",
-    ROLE_ID: "",
-    BRANCH: "",
-  };
-
-  const [form, setForm] = useState(emptyForm);
-  const [openEdit, setOpenEdit] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-
-  // -----------------------------
-  // Helpers
-  // -----------------------------
-
-  const makePayload = useCallback(
-    () => ({
-      id: reqUserid || undefined,
-      branch: reqBranch || undefined,
-      roleId: reqRole || undefined,
-    }),
-    [reqUserid, reqBranch, reqRole]
-  );
-
-  const normalizeUsers = useCallback((users = []) => {
-    return users.map((u, idx) => {
-      const USERID = u?.USERID ?? u?.userId ?? "";
-
-      const first = (u?.FIRST_NAME ?? u?.firstName ?? "").toString().trim();
-      const last = (u?.LAST_NAME ?? u?.lastName ?? "").toString().trim();
-      const name = [first, last].filter(Boolean).join(" ");
-
-      const roleIdRaw = u?.ROLE_ID ?? u?.roleId ?? "";
-      const parsedRoleId = isNaN(Number(roleIdRaw))
-        ? null
-        : Number(roleIdRaw);
-
-      return {
-        id: USERID || String(idx + 1),
-        USERID,
-        FIRST_NAME: first,
-        LAST_NAME: last,
-        EMAIL: (u?.EMAIL ?? u?.email ?? "").toString(),
-        PHONE_NUMBER: (u?.PHONE_NUMBER ?? u?.phone ?? "").toString(),
-        ROLE_NAME: (u?.ROLE_NAME ?? u?.roleName ?? "").toString().trim(),
-        ROLE_ID: parsedRoleId,
-        BRANCH: (u?.BRANCH ?? u?.branch ?? "").toString(),
-        _name: name || USERID || "(unknown)",
-        ACCOUNT_STATUS: u?.ACCOUNT_STATUS,
-      };
-    });
-  }, []);
-
-  // -----------------------------
-  // API Calls
-  // -----------------------------
-
-  const fetchUsers = useCallback(async () => {
-    setUiError("");
-    try {
-      const data = await callApi(API_URL, makePayload(), "GET");
-      const users = data?.result?.users ?? [];
-      setRows(normalizeUsers(users));
-    } catch (e) {
-      console.error(e);
-      setRows([]);
-      setUiError("Failed to fetch users.");
-    }
-  }, [callApi, makePayload, normalizeUsers]);
-
-  const fetchRoles = useCallback(async () => {
-    try {
-      const data = await callApi(
-        "/UM/role/get-roles",
-        { permissions: false },
-        "GET"
-      );
-      const raw = data?.result?.roles ?? [];
-      setRoles(
-        raw.map((r) => ({
-          id: r?.roleId,
-          name: (r?.roleName ?? "").trim(),
-          description: r?.description ?? "",
-        }))
-      );
-    } catch (e) {
-      console.error("Error fetching roles", e);
-    }
-  }, [callApi]);
-
-  const findRole = useCallback(
-    (id) => roles.find((r) => String(r.id) === String(id)),
-    [roles]
-  );
-
-  useEffect(() => {
-    fetchUsers();
-    fetchRoles();
-  }, [fetchUsers, fetchRoles]);
-
-  // -----------------------------
-  // Client-side filtered rows
-  // -----------------------------
-
-  const filteredRows = useMemo(() => {
-    const q = query.trim().toLowerCase();
-
-    return rows.filter((r) => {
-      const okQ =
-        r._name.toLowerCase().includes(q) ||
-        r.EMAIL.toLowerCase().includes(q) ||
-        String(r.USERID).toLowerCase().includes(q) ||
-        String(r.PHONE_NUMBER).toLowerCase().includes(q);
-
-      const okRole =
-        !filterRole ||
-        String(r.ROLE_ID) === String(filterRole) ||
-        r.ROLE_NAME === (findRole(filterRole)?.name ?? "");
-
-      return okQ && okRole;
-    });
-  }, [rows, query, filterRole, findRole]);
-
-  // -----------------------------
-  // CSV Export
-  // -----------------------------
-
-  const csvEscape = (v) => {
-    const s = (v ?? "").toString();
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-
-  const exportCSV = useCallback(() => {
-    if (!filteredRows.length) return;
-
-    const header =
-      "USERID,FIRST_NAME,LAST_NAME,EMAIL,PHONE_NUMBER,ROLE_NAME,ROLE_ID,BRANCH";
-
-    const body = filteredRows.map((r) =>
-      [
-        csvEscape(r.USERID),
-        csvEscape(r.FIRST_NAME),
-        csvEscape(r.LAST_NAME),
-        csvEscape(r.EMAIL),
-        csvEscape(r.PHONE_NUMBER),
-        csvEscape(r.ROLE_NAME),
-        csvEscape(r.ROLE_ID),
-        csvEscape(r.BRANCH),
-      ].join(",")
-    );
-
-    const csv = [header, ...body].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "users.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [filteredRows]);
-
-  // -----------------------------
-  // Form rules
-  // -----------------------------
-
-  const canSave =
-    form.FIRST_NAME.trim() &&
-    form.EMAIL.trim() &&
-    form.ROLE_ID !== undefined &&
-    form.ROLE_ID !== null &&
-    form.ROLE_ID !== "";
-
-  const effectiveError =
-    apiError?.response?.data?.message ||
-    apiError?.message ||
-    uiError ||
-    "";
-
-  if (effectiveError) {
-    snackbar(effectiveError, "error");
-  }
-
-  // -----------------------------
-  // Render UI
-  // -----------------------------
-
-  return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
-      {/* ALWAYS visible search + server filters */}
-      <SearchFilters
-        roles={roles}
-        reqUserid={reqUserid}
-        reqBranch={reqBranch}
-        reqRole={reqRole}
-        onChangeUserid={setReqUserid}
-        onChangeBranch={setReqBranch}
-        onChangeRole={setReqRole}
-        loading={loading}
-        errorText={effectiveError}
-        onSearch={fetchUsers}
-      />
-
-      {/* ALWAYS visible header controls */}
-      <UsersHeader
-        roles={roles}
-        filterRole={filterRole}
-        onFilterRoleChange={setFilterRole}
-        query={query}
-        onQueryChange={setQuery}
-        totalCount={rows.length}
-        filteredCount={filteredRows.length}
-        selectionCount={selection.length}
-        onBulkDelete={() =>
-          setRows((prev) => prev.filter((r) => !selection.includes(r.id)))
-        }
-        onExport={exportCSV}
-        onAddUser={() => {
-          setForm({ ...emptyForm });
-          setOpenEdit(true);
-        }}
-        loading={loading}
-        errorText={effectiveError}
-      />
-
-      {/* Users Table */}
-      <UsersTable
-        rows={filteredRows}
-        roles={roles}
-        loading={loading}
-        onSelectionChange={setSelection}
-        onEditRow={(row) => {
-          const matched = findRole(row.ROLE_ID);
-          setForm({
-            ...row,
-            ROLE_ID: matched ? matched.id : row.ROLE_ID,
-            ROLE_NAME: matched ? matched.name : row.ROLE_NAME,
-          });
-          setOpenEdit(true);
-        }}
-        onDeleteRow={(row) => setDeleteTarget(row)}
-        errorText={effectiveError}
-      />
-
-      {/* Add/Edit User Dialog */}
-      <UserDialog
-        open={openEdit}
-        onClose={() => setOpenEdit(false)}
-        roles={roles}
-        form={form}
-        setForm={setForm}
-        canSave={canSave}
-      />
-
-      {/* Delete Dialog */}
-      <DeleteConfirmDialog
-        open={!!deleteTarget}
-        name={deleteTarget?._name || deleteTarget?.USERID}
-        onCancel={() => setDeleteTarget(null)}
-        onConfirm={() => {
-          if (deleteTarget?.id)
-            setRows((prev) =>
-              prev.filter((r) => r.id !== deleteTarget.id)
-            );
-          setDeleteTarget(null);
-        }}
-      />
-    </Box>
-  )
-
-
-
-
-
-
-
-
-
-new new 
-
-colorSchemes: {
-  light: { /* your existing code – unchanged */ },
-
-  dark: {
-    palette: {
-      // your existing dark palette – unchanged
-    },
-  },
-
-  // ⭐ NEW GREEN THEME (leaf) – copy-paste starts here
-  leaf: {
-    palette: {
-      mode: "light",
-
-      primary: {
-        light: "#A5F5B2",  // soft mint
-        main:  "#4EC96F",  // main green
-        dark:  "#1E7C3A",
-        contrastText: "#ffffff",
-      },
-
-      secondary: {
-        light: "#D4FFD6",
-        main:  "#8DE19A",
-        dark:  "#3E8A4E",
-        contrastText: "#003300",
-      },
-
-      success: {
-        light: "#B6F6C0",
-        main:  "#4CAF50",
-        dark:  "#1E7C3A",
-        contrastText: "#ffffff",
-      },
-
-      warning: {
-        light: "#FFE7B5",
-        main:  "#FFC047",
-        dark:  "#B77706",
-        contrastText: "#3B2800",
-      },
-
-      error: {
-        light: "#FFB3B3",
-        main:  "#F44336",
-        dark:  "#AA2017",
-        contrastText: "#ffffff",
-      },
-
-      info: {
-        light: "#B3E5FC",
-        main:  "#29B6F6",
-        dark:  "#0277BD",
-        contrastText: "#ffffff",
-      },
-
-      // use the same grey + alpha helpers you already import
-      grey: {
-        ...grey,
-      },
-
-      background: {
-        // light green base similar to your image
-        default: "#E6FBD9",
-        paper:   "rgba(255,255,255,0.88)",
-        glass:   "rgba(230,251,217,0.7)",   // if you use 'glass' in your layouts
-      },
-
-      text: {
-        primary:   "#103B1B",
-        secondary: alpha("#103B1B", 0.7),
-        disabled:  alpha("#103B1B", 0.4),
-      },
-
-      baseShadow: "0 8px 40px rgba(0, 0, 0, 0.18)",
-    },
-  },
-  // ⭐ NEW GREEN THEME (leaf) – copy-paste ends here
-},
-
-
-
-
-neeeewweeee
-export const inputsCustomizations = {
-  MuiButton: {
-    styleOverrides: {
-      root: ({ theme, ownerState }) => ({
-        borderRadius: 10,
-        fontWeight: 600,
-        boxShadow: "none",
-        transition: "0.3s ease",
-
-        // Hover effect only when NOT disabled
-        "&:hover": {
-          boxShadow: ownerState.disabled
-            ? "none"
-            : "0 4px 15px rgba(93, 63, 211, 0.3)",
-        },
-
-        // ⭐ DISABLED BUTTON STYLE (Matches your UI sample)
-        "&.Mui-disabled": {
-          background: "linear-gradient(90deg, #b8b2d9, #d0caea)", // Light lavender gradient
-          color: "#ffffff",
-          opacity: 0.8,
-          boxShadow: "none",
-          cursor: "not-allowed",
-        },
-      }),
-
-      // PRIMARY BUTTON
-      containedPrimary: ({ theme }) => ({
-        background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${theme.palette.primary.light})`,
-        color: theme.palette.getContrastText(theme.palette.primary.main),
-      }),
-
-      // SECONDARY BUTTON
-      containedSecondary: ({ theme }) => ({
-        background: `linear-gradient(90deg, ${theme.palette.secondary.main}, ${theme.palette.secondary.light})`,
-        color: theme.palette.secondary.contrastText,
-      }),
-    },
-  },
-};
-
-
-
-
-
-
-..........
-
-
-const onSave = async () => {
-  if (saving) return;
-  if (typeof isViewMode !== "undefined" && isViewMode) return;
-
-  // required-field checks (adjust keys if yours differ)
-  if (!form.USERID || !form.FIRST_NAME || !form.LAST_NAME || !form.EMAIL || !form.PHONE_NUMBER || !form.ROLE_ID) {
-    snackbar("Kindly fill all the required fields.", "error");
-    return;
-  }
-
-  setSaving(true);
-
-  try {
-    const payload = makePayload(); // existing helper in file
-    const res = await callApi(API_URL, payload, "POST");
-
-    // determine success - adapt if your API response shape differs
-    const isSuccess =
-      (res && (res.ok === true || res.status === 200)) ||
-      (res && res.result && (res.result.success === true || res.result?.status === "OK")) ||
-      (res && res.data && (res.data.success === true || res.data?.status === "OK")) ||
-      (res && typeof res === "object" && !res.error);
-
-    if (isSuccess) {
-      snackbar("User saved successfully.", "success");
-
-      // close dialog by calling parent's onClose (preferred)
-      if (typeof onClose === "function") {
-        onClose();
-      } else {
-        // fallback: if parent state setters are passed (unlikely) call them
-        if (typeof setOpenEdit === "function") setOpenEdit(false);
-      }
-
-      // optional: reset form to empty template
-      if (typeof emptyForm !== "undefined" && typeof setForm === "function") {
-        setForm(emptyForm);
-      }
-    } else {
-      const errMsg = res?.result?.message || res?.data?.message || res?.message || "Failed to save user.";
-      snackbar(errMsg, "error");
-    }
-  } catch (e) {
-    console.error("onSave error:", e);
-    snackbar("Failed to save user. Check network or server.", "error");
-  } finally {
-    setSaving(false);
-  }
-};
-
-
-
-
-
-branch.   
-
-
-import React from "react";
 import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Grid,
-  TextField,
+  Box,
+  Drawer,
+  Typography,
+  IconButton,
+  Stack,
   Button,
-  Autocomplete
+  Chip,
+  CircularProgress,
+  Divider,
 } from "@mui/material";
-import { LocalizationProvider, DatePicker } from "@mui/x-date-pickers";
-import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import CloseIcon from "@mui/icons-material/Close";
+import SmartToyIcon from "@mui/icons-material/SmartToy";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import { useEffect, useState } from "react";
 
-const BranchDialog = ({
-  open,
-  onClose,
-  editingId,
-  branchData,
-  setBranchData,
-  errors,
-  handleChange,
-  handleSubmit,
-  circleOptions,
-  branchOptions,
-  loading
-}) => {
+/**
+ * PROPS EXPECTED:
+ * open
+ * onClose
+ * userMenus -> response.roleData.rootMenus
+ */
+export default function AiAssistant({ open, onClose, userMenus = [] }) {
+  const [step, setStep] = useState("HOME");
+  const [modules, setModules] = useState([]);
+  const [selectedModule, setSelectedModule] = useState(null);
+  const [questions, setQuestions] = useState([]);
+  const [answer, setAnswer] = useState("");
+  const [typing, setTyping] = useState(false);
+
+  // 🔹 Extract allowed modules from backend response
+  useEffect(() => {
+    const allowed = userMenus
+      .filter((m) => m.hasChildren)
+      .map((m) => m.title);
+    setModules(allowed);
+  }, [userMenus]);
+
+  // 🔹 Dummy questions (replace later with API)
+  const MODULE_QUESTIONS = {
+    "Circle Management": [
+      "How to create a circle?",
+      "How to approve a circle request?",
+      "How to view circle details?",
+    ],
+    "CGL Management": [
+      "How to create a CGL?",
+      "How to approve a CGL request?",
+      "Where can I see CGL details?",
+    ],
+    "Branch Management": [
+      "How to create a branch?",
+      "How to approve branch requests?",
+      "How to view branch details?",
+    ],
+  };
+
+  const MODULE_ANSWERS = {
+    "How to create a circle?":
+      "Navigate to Circle Management, click Create, enter required details, and submit for approval.",
+    "How to approve a circle request?":
+      "Go to Circle Requests screen and approve or reject pending requests.",
+    "How to view circle details?":
+      "Use the search option in View Circle Details to see complete information.",
+    "How to create a CGL?":
+      "Navigate to CGL Management and click Create CGL. Fill mandatory fields and submit.",
+    "How to approve a CGL request?":
+      "Open CGL Requests screen and approve pending CGL creation requests.",
+    "Where can I see CGL details?":
+      "Search CGL from View CGL Details screen.",
+    "How to create a branch?":
+      "Go to Branch Management, click Create, enter branch details, and submit.",
+    "How to approve branch requests?":
+      "Navigate to Branch Requests and approve or reject pending items.",
+    "How to view branch details?":
+      "Use View Branch Details option to search and view branch information.",
+  };
+
+  const handleModuleSelect = (module) => {
+    setSelectedModule(module);
+    setQuestions(MODULE_QUESTIONS[module] || []);
+    setStep("QUESTIONS");
+  };
+
+  const handleQuestionSelect = (q) => {
+    setTyping(true);
+    setAnswer("");
+
+    setTimeout(() => {
+      setTyping(false);
+      setAnswer(MODULE_ANSWERS[q]);
+      setStep("ANSWER");
+    }, 1500);
+  };
+
+  const reset = () => {
+    setStep("HOME");
+    setSelectedModule(null);
+    setQuestions([]);
+    setAnswer("");
+  };
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>
-        {editingId ? "Edit Branch" : "Add New Branch"}
-      </DialogTitle>
+    <Drawer anchor="right" open={open} onClose={onClose}>
+      <Box width={420} height="100vh" display="flex" flexDirection="column">
+        {/* Header */}
+        <Box
+          p={2}
+          display="flex"
+          alignItems="center"
+          justifyContent="space-between"
+          borderBottom="1px solid #eee"
+        >
+          <Stack direction="row" spacing={1} alignItems="center">
+            <SmartToyIcon color="primary" />
+            <Typography fontWeight={600}>FinCore Assistant</Typography>
+          </Stack>
+          <IconButton onClick={onClose}>
+            <CloseIcon />
+          </IconButton>
+        </Box>
 
-      <DialogContent dividers>
-        <Grid container spacing={2}>
-
-          {/* Branch Code */}
-          <Grid item xs={12} sm={6}>
-            <TextField
-              label="Branch Code"
-              name="code"
-              value={branchData.code}
-              onChange={handleChange}
-              error={!!errors.code}
-              helperText={errors.code}
-              fullWidth
-              disabled={!!editingId}
-            />
-          </Grid>
-
-          {/* Branch Name */}
-          <Grid item xs={12} sm={6}>
-            <TextField
-              label="Branch Name"
-              name="name"
-              value={branchData.name}
-              onChange={handleChange}
-              error={!!errors.name}
-              helperText={errors.name}
-              fullWidth
-            />
-          </Grid>
-
-          {/* Circle Code */}
-          <Grid item xs={12} sm={6}>
-            <Autocomplete
-              options={circleOptions}
-              getOptionLabel={(option) => option.label || ""}
-              value={circleOptions.find(
-                (o) => o.code === branchData.circleCode
-              ) || null}
-              onChange={(e, value) =>
-                setBranchData((prev) => ({
-                  ...prev,
-                  circleCode: value?.code || ""
-                }))
-              }
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Circle"
-                  error={!!errors.circleCode}
-                  helperText={errors.circleCode}
-                />
-              )}
-            />
-          </Grid>
-
-          {/* Status */}
-          <Grid item xs={12} sm={6}>
-            <TextField
-              label="Status"
-              name="status"
-              value={branchData.status}
-              onChange={handleChange}
-              fullWidth
-            />
-          </Grid>
-
-          {/* Address */}
-          <Grid item xs={12}>
-            <TextField
-              label="Address"
-              name="address"
-              value={branchData.address}
-              onChange={handleChange}
-              error={!!errors.address}
-              helperText={errors.address}
-              fullWidth
-              multiline
-              rows={2}
-            />
-          </Grid>
-
-          {/* Pincode */}
-          <Grid item xs={12} sm={6}>
-            <TextField
-              label="Pincode"
-              name="pincode"
-              value={branchData.pincode}
-              onChange={handleChange}
-              error={!!errors.pincode}
-              helperText={errors.pincode}
-              fullWidth
-            />
-          </Grid>
-
-          {/* Phone */}
-          <Grid item xs={12} sm={6}>
-            <TextField
-              label="Phone Number"
-              name="phoneNumber"
-              value={branchData.phoneNumber}
-              onChange={handleChange}
-              error={!!errors.phoneNumber}
-              helperText={errors.phoneNumber}
-              fullWidth
-            />
-          </Grid>
-
-          {/* Email */}
-          <Grid item xs={12} sm={6}>
-            <TextField
-              label="Email"
-              name="emailId"
-              value={branchData.emailId}
-              onChange={handleChange}
-              error={!!errors.emailId}
-              helperText={errors.emailId}
-              fullWidth
-            />
-          </Grid>
-
-          {/* Open Date */}
-          <Grid item xs={12} sm={6}>
-            <LocalizationProvider dateAdapter={AdapterDayjs}>
-              <DatePicker
-                label="Open Date"
-                value={branchData.openDate}
-                onChange={(value) =>
-                  setBranchData((prev) => ({
-                    ...prev,
-                    openDate: value
-                  }))
-                }
-                renderInput={(params) => <TextField {...params} fullWidth />}
-              />
-            </LocalizationProvider>
-          </Grid>
-
-          {/* Close Date */}
-          {branchData.status === "Closed" && (
-            <Grid item xs={12} sm={6}>
-              <LocalizationProvider dateAdapter={AdapterDayjs}>
-                <DatePicker
-                  label="Close Date"
-                  value={branchData.closeDate}
-                  onChange={(value) =>
-                    setBranchData((prev) => ({
-                      ...prev,
-                      closeDate: value
-                    }))
-                  }
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      error={!!errors.closeDate}
-                      helperText={errors.closeDate}
-                      fullWidth
-                    />
-                  )}
-                />
-              </LocalizationProvider>
-            </Grid>
+        {/* Content */}
+        <Box p={2} flex={1} overflow="auto">
+          {step === "HOME" && (
+            <Stack spacing={2}>
+              <Typography>Select an option to continue</Typography>
+              <Button
+                variant="contained"
+                onClick={() => setStep("MODULES")}
+              >
+                Select Module
+              </Button>
+            </Stack>
           )}
 
-        </Grid>
-      </DialogContent>
+          {step === "MODULES" && (
+            <Stack spacing={1.5}>
+              <Typography fontWeight={500}>
+                Select a module
+              </Typography>
+              {modules.map((m) => (
+                <Chip
+                  key={m}
+                  label={m}
+                  clickable
+                  onClick={() => handleModuleSelect(m)}
+                  icon={<CheckCircleOutlineIcon />}
+                />
+              ))}
+              <Divider />
+              <Button size="small" onClick={reset}>
+                Back
+              </Button>
+            </Stack>
+          )}
 
-      <DialogActions>
-        <Button onClick={onClose} color="secondary">
-          Cancel
-        </Button>
-        <Button
-          onClick={handleSubmit}
-          variant="contained"
-          disabled={loading}
-        >
-          {editingId ? "Update" : "Create"}
-        </Button>
-      </DialogActions>
-    </Dialog>
+          {step === "QUESTIONS" && (
+            <Stack spacing={1.5}>
+              <Typography fontWeight={500}>
+                {selectedModule} Questions
+              </Typography>
+              {questions.map((q) => (
+                <Chip
+                  key={q}
+                  label={q}
+                  clickable
+                  onClick={() => handleQuestionSelect(q)}
+                />
+              ))}
+              <Divider />
+              <Button size="small" onClick={() => setStep("MODULES")}>
+                Change Module
+              </Button>
+            </Stack>
+          )}
+
+          {step === "ANSWER" && (
+            <Stack spacing={2}>
+              <Typography fontWeight={500}>Answer</Typography>
+
+              {typing ? (
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <CircularProgress size={16} />
+                  <Typography variant="body2">
+                    Assistant is typing...
+                  </Typography>
+                </Stack>
+              ) : (
+                <Typography variant="body2">{answer}</Typography>
+              )}
+
+              <Divider />
+              <Button size="small" onClick={reset}>
+                Start Again
+              </Button>
+            </Stack>
+          )}
+        </Box>
+      </Box>
+    </Drawer>
   );
-};
-
-export default BranchDialog
-
-
-
-
-
-/// axios 
-
-
-api.interceptors.request.use(
-  (config) => {
-    let token;
-
-    // 1️⃣ Try Redux token first
-    if (store) {
-      const state = store.getState();
-      token = state?.auth?.token;
-    }
-
-    // 2️⃣ Fallback to localStorage (CRITICAL FIX)
-    if (!token) {
-      token = localStorage.getItem("token");
-    }
-
-    // 3️⃣ Attach Authorization header
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-
-    // 4️⃣ Ensure X-Request-Type exists
-    if (!config.headers["X-Request-Type"]) {
-      config.headers["X-Request-Type"] = "*";
-    }
-
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
-
-
-
-
-hhjjjjjkk
-
-
-const handleNameChange = (name, value, mandatory) => {
-  // 🔥 STEP 1: sanitize input (fixes EDIT form issue)
-  let sanitizedValue = value.replace(NAME_ALLOWED_CHARS, "");
-
-  // STEP 2: allow clearing
-  if (!sanitizedValue) {
-    setForm((p) => ({ ...p, [name]: "" }));
-    clearFieldError(name);
-    return;
-  }
-
-  // STEP 3: block only dot/space strings
-  if (!NAME_VALIDATION_REGEX.test(sanitizedValue)) {
-    return;
-  }
-
-  // STEP 4: validations
-  if (mandatory && sanitizedValue.trim().length < 3) {
-    setFieldError(name, "Minimum 3 characters required");
-  } else if (sanitizedValue.length > 30) {
-    setFieldError(name, "Maximum 30 characters allowed");
-  } else {
-    clearFieldError(name);
-  }
-
-  // STEP 5: update state
-  setForm((p) => ({ ...p, [name]: sanitizedValue }));
-};
-
-
-
-state
-
-
-<Autocomplete
-  fullWidth
-  options={states}
-  getOptionLabel={(option) =>
-    `${option.stateCode} - ${option.stateName}`
-  }
-  value={
-    states.find((s) => s.stateCode === branchData.state) || null
-  }
-  onChange={(_, value) => {
-    handleChange({
-      target: {
-        name: "state",
-        value: value?.stateCode || "",
-      },
-    });
-  }}
-  renderInput={(params) => (
-    <TextFieldStyle
-      {...params}
-      label="State *"
-      error={!!errors.state}
-      helperText={errors.state}
-    />
-  )}
-/>
-
-
-
-circle code 
-
-<Autocomplete
-  fullWidth
-  options={circles}
-  getOptionLabel={(option) =>
-    `${option.circleCode} - ${option.circleName}`
-  }
-  value={
-    circles.find(
-      (c) => c.circleCode === branchData.circleCode
-    ) || null
-  }
-  onChange={(_, value) => {
-    handleChange({
-      target: {
-        name: "circleCode",
-        value: value?.circleCode || "",
-      },
-    });
-  }}
-  renderInput={(params) => (
-    <TextFieldStyle
-      {...params}
-      label="Circle Code *"
-      error={!!errors.circleCode}
-      helperText={errors.circleCode || ""}
-    />
-  )}
-/>
-
-
-
-
-
-date
-
-<DatePicker1Style
-  label="Close Date"
-  format="DD/MM/YYYY"
-  name="closeDate"
-  disabled={!isClosed}
-
-  /* ✅ Calendar restriction */
-  minDate={
-    branchData.openDate
-      ? dayjs(branchData.openDate).add(1, "day")
-      : undefined
-  }
-  maxDate={dayjs()}   // ✅ restrict future date in calendar
-
-  value={
-    branchData.closeDate
-      ? dayjs(branchData.closeDate)
-      : null
-  }
-
-  /* ✅ Typing + paste restriction */
-  onChange={(newValue) => {
-    if (!newValue) {
-      handleChange({
-        target: {
-          name: "closeDate",
-          value: null,
-        },
-      });
-      return;
-    }
-
-    const open = dayjs(branchData.openDate);
-
-    // ❌ Block future date
-    if (newValue.isAfter(dayjs(), "day")) {
-      return;
-    }
-
-    // ❌ Block closeDate <= openDate
-    if (open.isValid() && newValue.isSameOrBefore(open, "day")) {
-      return;
-    }
-
-    handleChange({
-      target: {
-        name: "closeDate",
-        value: newValue,
-      },
-    });
-  }}
-
-  slotProps={{
-    textField: {
-      fullWidth: true,
-      variant: "outlined",
-    },
-  }}
-/>
-
-
-
-
-new date
-
-
-<DatePicker1Style
-  label="Close Date"
-  format="DD/MM/YYYY"
-  name="closeDate"
-  disabled={!isClosed}
-
-  /* ✅ Calendar restriction */
-  minDate={
-    branchData.openDate
-      ? dayjs(branchData.openDate).startOf("day").add(1, "day")
-      : undefined
-  }
-  maxDate={dayjs().startOf("day")} // ✅ no future dates
-
-  value={
-    branchData.closeDate
-      ? dayjs(branchData.closeDate)
-      : null
-  }
-
-  /* ✅ Typing + paste restriction */
-  onChange={(newValue) => {
-    if (!newValue) {
-      handleChange({
-        target: {
-          name: "closeDate",
-          value: null,
-        },
-      });
-      return;
-    }
-
-    const open = dayjs(branchData.openDate).startOf("day");
-    const close = newValue.startOf("day");
-
-    // ❌ Block future date
-    if (close.isAfter(dayjs().startOf("day"))) {
-      return;
-    }
-
-    // ❌ Block closeDate <= openDate
-    if (branchData.openDate && close.isSameOrBefore(open)) {
-      return;
-    }
-
-    handleChange({
-      target: {
-        name: "closeDate",
-        value: newValue,
-      },
-    });
-  }}
-
-  slotProps={{
-    textField: {
-      fullWidth: true,
-      variant: "outlined",
-    },
-  }}
-/>
-
-
-
-
-nnnnnnn
-
-<DatePicker1Style
-  label="Close Date"
-  format="DD/MM/YYYY"
-  name="closeDate"
-  disabled={!isClosed}
-
-  /* ✅ Calendar restriction */
-  minDate={
-    branchData.openDate
-      ? dayjs(branchData.openDate).add(1, "day")
-      : undefined
-  }
-
-  value={branchData.closeDate || null}
-
-  /* ✅ Typing validation */
-  onChange={(newValue) => {
-    if (!newValue) {
-      handleChange({
-        target: { name: "closeDate", value: null },
-      });
-      return;
-    }
-
-    if (
-      branchData.openDate &&
-      dayjs(newValue).isSameOrBefore(
-        dayjs(branchData.openDate),
-        "day"
-      )
-    ) {
-      return; // ❌ block invalid date
-    }
-
-    handleChange({
-      target: { name: "closeDate", value: newValue },
-    });
-  }}
-
-  slotProps={{
-    textField: {
-      fullWidth: true,
-      variant: "outlined",
-    },
-  }}
-/>
+}
