@@ -201,3 +201,129 @@ export default function AiAssistant({ open, onClose, userMenus = [] }) {
     </Drawer>
   );
 }
+
+
+
+import {
+  Drawer,
+  Box,
+  Typography,
+  IconButton,
+  Divider,
+  Stack,
+  Chip,
+  Button,
+} from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
+import SmartToyIcon from "@mui/icons-material/SmartToy";
+import { useState, useEffect } from "react";
+
+export default function AiAssistant({ open, onClose, userMenus = [] }) {
+  const [step, setStep] = useState("home");
+  const [selectedModule, setSelectedModule] = useState(null);
+
+  // 🔹 Extract allowed modules
+  const allowedModules = userMenus.map((m) => m.title);
+
+  useEffect(() => {
+    console.log("AI Assistant opened");
+    console.log("Allowed modules:", allowedModules);
+  }, [allowedModules]);
+
+  return (
+    <Drawer
+      anchor="right"
+      open={open}
+      onClose={onClose}
+      PaperProps={{
+        sx: {
+          width: 380,               // ⭐ VERY IMPORTANT
+          display: "flex",
+          flexDirection: "column",
+        },
+      }}
+    >
+      {/* HEADER */}
+      <Box p={2} display="flex" alignItems="center" gap={1}>
+        <SmartToyIcon color="primary" />
+        <Typography fontWeight={600} flex={1}>
+          FinCore Assistant
+        </Typography>
+        <IconButton onClick={onClose}>
+          <CloseIcon />
+        </IconButton>
+      </Box>
+
+      <Divider />
+
+      {/* BODY */}
+      <Box p={2} flex={1} overflow="auto">
+        {step === "home" && (
+          <Stack spacing={2}>
+            <Typography variant="body2">
+              How can I help you today?
+            </Typography>
+
+            <Button
+              variant="contained"
+              onClick={() => setStep("module")}
+            >
+              Select Module
+            </Button>
+
+            <Button variant="outlined" disabled>
+              FAQs (Coming Soon)
+            </Button>
+          </Stack>
+        )}
+
+        {step === "module" && (
+          <Stack spacing={1.5}>
+            <Typography fontWeight={600}>
+              Select a module
+            </Typography>
+
+            {allowedModules.length === 0 && (
+              <Typography color="text.secondary">
+                No modules assigned to you.
+              </Typography>
+            )}
+
+            {allowedModules.map((module) => (
+              <Chip
+                key={module}
+                label={module}
+                clickable
+                onClick={() => {
+                  setSelectedModule(module);
+                  setStep("questions");
+                }}
+                sx={{ justifyContent: "flex-start" }}
+              />
+            ))}
+
+            <Button size="small" onClick={() => setStep("home")}>
+              ← Back
+            </Button>
+          </Stack>
+        )}
+
+        {step === "questions" && (
+          <Stack spacing={1.5}>
+            <Typography fontWeight={600}>
+              {selectedModule} – Questions
+            </Typography>
+
+            <Chip label="How to create?" clickable />
+            <Chip label="How to approve requests?" clickable />
+            <Chip label="Where to check status?" clickable />
+
+            <Button size="small" onClick={() => setStep("module")}>
+              ← Back
+            </Button>
+          </Stack>
+        )}
+      </Box>
+    </Drawer>
+  );
+}
