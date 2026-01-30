@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   Box,
   Typography,
@@ -6,29 +6,28 @@ import {
   Paper,
   Chip,
   Button,
-  CircularProgress,
 } from "@mui/material";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
-import useApi from "../../hooks/useApi";
 
 export default function AiAssistant() {
-  const { callApi } = useApi();
-
-  /* ---------------- STATE ---------------- */
   const [messages, setMessages] = useState([]);
   const [modules, setModules] = useState([]);
   const [questions, setQuestions] = useState([]);
   const [selectedModule, setSelectedModule] = useState(null);
   const [showCount, setShowCount] = useState(3);
-  const [typing, setTyping] = useState(false);
+  const [showFollowUp, setShowFollowUp] = useState(false);
+  const [typingDots, setTypingDots] = useState(false);
+
+  // 🔹 AUTO SCROLL REF
+  const messagesEndRef = useRef(null);
+
+  /* ---------------- AUTO SCROLL ---------------- */
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, typingDots]);
 
   /* ---------------- INIT ---------------- */
   useEffect(() => {
-    initChat();
-  }, []);
-
-  const initChat = async () => {
-    // 🔁 Replace later with BE API
     const allowedModules = [
       { code: "CIRCLE", name: "Circle Management" },
       { code: "CGL", name: "CGL Management" },
@@ -36,26 +35,25 @@ export default function AiAssistant() {
     ];
 
     setModules(allowedModules);
-
     setMessages([
       {
         from: "bot",
         text: "👋 Hi, I’m your Fincore Assistant. Please select a module to continue.",
       },
     ]);
-  };
+  }, []);
 
   /* ---------------- MODULE SELECT ---------------- */
-  const handleModuleSelect = async (module) => {
+  const handleModuleSelect = (module) => {
     setSelectedModule(module);
     setShowCount(3);
+    setShowFollowUp(false);
 
     addUserMessage(module.name);
-    setTyping(true);
+    startTyping();
 
-    setTimeout(async () => {
-      // 🔁 Replace later with API
-      const dummyQuestions = {
+    setTimeout(() => {
+      const moduleQuestions = {
         CIRCLE: [
           "How do I create a circle?",
           "Who can approve a circle request?",
@@ -65,7 +63,7 @@ export default function AiAssistant() {
         ],
         CGL: [
           "How do I create a CGL?",
-          "What is CGL approval flow?",
+          "What is the approval flow for CGL?",
           "Where can I view CGL details?",
           "How to track my CGL requests?",
         ],
@@ -76,29 +74,42 @@ export default function AiAssistant() {
         ],
       };
 
-      setQuestions(dummyQuestions[module.code] || []);
-
+      setQuestions(moduleQuestions[module.code] || []);
       addBotMessage(
         `Here are some common questions related to ${module.name}.`
       );
-      setTyping(false);
+      stopTyping();
     }, 1000);
   };
 
   /* ---------------- QUESTION SELECT ---------------- */
-  const handleQuestionSelect = async (question) => {
+  const handleQuestionSelect = (question) => {
     addUserMessage(question);
-    setTyping(true);
+    startTyping();
 
-    setTimeout(async () => {
-      // 🔁 Replace later with BE API
-      const answer =
-        "Please navigate to the respective module, click on Create, fill all mandatory details and submit the request for approval.";
-
-      addBotMessage(answer);
+    setTimeout(() => {
+      addBotMessage(
+        "Please navigate to the respective module, click on Create, fill all mandatory details, and submit the request for approval."
+      );
       addBotMessage("Would you like to ask another question?");
-      setTyping(false);
+      setShowFollowUp(true);
+      stopTyping();
     }, 1200);
+  };
+
+  /* ---------------- FOLLOW-UP ---------------- */
+  const handleFollowUp = (answer) => {
+    addUserMessage(answer);
+    setShowFollowUp(false);
+
+    if (answer === "Yes") {
+      addBotMessage("Sure 🙂 Please select another question.");
+    } else {
+      addBotMessage(
+        "Thank you for using Fincore Assistant. If you need help again, feel free to reopen me anytime. Have a great day! 👋"
+      );
+      setQuestions([]);
+    }
   };
 
   /* ---------------- HELPERS ---------------- */
@@ -109,6 +120,9 @@ export default function AiAssistant() {
   const addBotMessage = (text) => {
     setMessages((prev) => [...prev, { from: "bot", text }]);
   };
+
+  const startTyping = () => setTypingDots(true);
+  const stopTyping = () => setTypingDots(false);
 
   /* ---------------- UI ---------------- */
   return (
@@ -143,19 +157,20 @@ export default function AiAssistant() {
             </Stack>
           ))}
 
-          {typing && (
+          {typingDots && (
             <Stack direction="row" spacing={1} alignItems="center">
               <SmartToyIcon fontSize="small" />
-              <Typography variant="body2">Typing</Typography>
-              <CircularProgress size={14} />
+              <Typography variant="body2">( ... )</Typography>
             </Stack>
           )}
+
+          {/* 🔹 SCROLL TARGET */}
+          <div ref={messagesEndRef} />
         </Stack>
       </Box>
 
       {/* ACTION AREA */}
       <Box sx={{ p: 2, borderTop: "1px solid #ddd", bgcolor: "#fff" }}>
-        {/* MODULES */}
         {!selectedModule && (
           <Stack direction="row" spacing={1} flexWrap="wrap">
             {modules.map((m) => (
@@ -170,8 +185,7 @@ export default function AiAssistant() {
           </Stack>
         )}
 
-        {/* QUESTIONS */}
-        {selectedModule && questions.length > 0 && (
+        {selectedModule && questions.length > 0 && !showFollowUp && (
           <Stack spacing={1}>
             {questions.slice(0, showCount).map((q, i) => (
               <Button
@@ -185,13 +199,27 @@ export default function AiAssistant() {
             ))}
 
             {questions.length > showCount && (
-              <Button
-                size="small"
-                onClick={() => setShowCount(showCount + 3)}
-              >
+              <Button size="small" onClick={() => setShowCount(showCount + 3)}>
                 Show more
               </Button>
             )}
+          </Stack>
+        )}
+
+        {showFollowUp && (
+          <Stack direction="row" spacing={2}>
+            <Button
+              variant="contained"
+              onClick={() => handleFollowUp("Yes")}
+            >
+              Yes
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => handleFollowUp("No")}
+            >
+              No
+            </Button>
           </Stack>
         )}
       </Box>
