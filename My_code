@@ -1,578 +1,198 @@
+import { useEffect, useState } from "react";
 import {
-  Drawer,
   Box,
   Typography,
-  IconButton,
-  Divider,
   Stack,
+  Paper,
+  Chip,
   Button,
-  Chip,
   CircularProgress,
 } from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
-import { useEffect, useState } from "react";
-
-export default function AiAssistant({
-  open,
-  onClose,
-  userMenus = [],
-}) {
-  const [step, setStep] = useState("HOME");
-  const [selectedModule, setSelectedModule] = useState("");
-  const [typing, setTyping] = useState(false);
-  const [answer, setAnswer] = useState("");
-
-  /* ---------------- ALLOWED MODULES ---------------- */
-
-  // userMenus MUST be an array like response.roleData.rootMenus
-  const allowedModules = Array.isArray(userMenus)
-    ? userMenus
-        .filter((m) => m.hasChildren)
-        .map((m) => m.title)
-    : [];
-
-  /* ---------------- DUMMY QUESTIONS ---------------- */
-
-  const MODULE_QUESTIONS = {
-    "Circle Management": [
-      "How to create a circle?",
-      "How to approve a circle request?",
-      "How to view circle details?",
-    ],
-    "CGL Management": [
-      "How to create a CGL?",
-      "How to approve a CGL request?",
-      "Where can I view CGL details?",
-    ],
-    "Branch Management": [
-      "How to create a branch?",
-      "How to approve branch request?",
-      "How to view branch details?",
-    ],
-  };
-
-  const ANSWERS = {
-    "How to create a circle?":
-      "Go to Circle Management → Click Create → Enter details → Submit for approval.",
-    "How to approve a circle request?":
-      "Navigate to Circle Requests → Review → Approve or Reject.",
-    "How to view circle details?":
-      "Use View Circle Details screen and search the circle.",
-    "How to create a CGL?":
-      "Go to CGL Management → Create CGL → Fill details → Submit.",
-    "How to approve a CGL request?":
-      "Navigate to CGL Requests and approve pending requests.",
-    "Where can I view CGL details?":
-      "Use View CGL Details option and search the CGL.",
-    "How to create a branch?":
-      "Go to Branch Management → Create → Fill branch details → Submit.",
-    "How to approve branch request?":
-      "Navigate to Branch Requests and approve or reject.",
-    "How to view branch details?":
-      "Use View Branch Details option to search and view branch info.",
-  };
-
-  /* ---------------- HANDLERS ---------------- */
-
-  const handleModuleSelect = (module) => {
-    setSelectedModule(module);
-    setStep("QUESTIONS");
-  };
-
-  const handleQuestionSelect = (question) => {
-    setTyping(true);
-    setAnswer("");
-    setStep("ANSWER");
-
-    // simulate backend delay
-    setTimeout(() => {
-      setTyping(false);
-      setAnswer(ANSWERS[question]);
-    }, 1200);
-  };
-
-  const reset = () => {
-    setStep("HOME");
-    setSelectedModule("");
-    setAnswer("");
-    setTyping(false);
-  };
-
-  /* ---------------- RENDER ---------------- */
-
-  return (
-    <Drawer
-      anchor="right"
-      open={open}
-      onClose={onClose}
-      PaperProps={{
-        sx: {
-          width: 420,
-          display: "flex",
-          flexDirection: "column",
-        },
-      }}
-    >
-      {/* HEADER */}
-      <Box
-        sx={{
-          p: 2,
-          display: "flex",
-          alignItems: "center",
-          gap: 1,
-        }}
-      >
-        <SmartToyIcon color="primary" />
-        <Typography fontWeight={600} flex={1}>
-          FinCore Assistant
-        </Typography>
-        <IconButton onClick={onClose}>
-          <CloseIcon />
-        </IconButton>
-      </Box>
-
-      <Divider />
-
-      {/* BODY */}
-      <Box sx={{ flex: 1, p: 2, overflowY: "auto" }}>
-        {/* HOME */}
-        {step === "HOME" && (
-          <Stack spacing={2}>
-            <Typography>How can I help you?</Typography>
-            <Button
-              variant="contained"
-              onClick={() => setStep("MODULES")}
-            >
-              Select Module
-            </Button>
-            <Button variant="outlined" disabled>
-              FAQs (Coming Soon)
-            </Button>
-          </Stack>
-        )}
-
-        {/* MODULES */}
-        {step === "MODULES" && (
-          <Stack spacing={1.5}>
-            <Typography fontWeight={600}>
-              Select a module
-            </Typography>
-
-            {allowedModules.length === 0 && (
-              <Typography color="error">
-                No modules available for this user
-              </Typography>
-            )}
-
-            {allowedModules.map((m) => (
-              <Chip
-                key={m}
-                label={m}
-                clickable
-                onClick={() => handleModuleSelect(m)}
-              />
-            ))}
-
-            <Button size="small" onClick={reset}>
-              ← Back
-            </Button>
-          </Stack>
-        )}
-
-        {/* QUESTIONS */}
-        {step === "QUESTIONS" && (
-          <Stack spacing={1.5}>
-            <Typography fontWeight={600}>
-              {selectedModule}
-            </Typography>
-
-            {(MODULE_QUESTIONS[selectedModule] || []).map(
-              (q) => (
-                <Chip
-                  key={q}
-                  label={q}
-                  clickable
-                  onClick={() =>
-                    handleQuestionSelect(q)
-                  }
-                />
-              )
-            )}
-
-            <Button
-              size="small"
-              onClick={() => setStep("MODULES")}
-            >
-              ← Change Module
-            </Button>
-          </Stack>
-        )}
-
-        {/* ANSWER */}
-        {step === "ANSWER" && (
-          <Stack spacing={2}>
-            {typing ? (
-              <Stack direction="row" spacing={1}>
-                <CircularProgress size={18} />
-                <Typography variant="body2">
-                  Assistant is typing…
-                </Typography>
-              </Stack>
-            ) : (
-              <Typography variant="body2">
-                {answer}
-              </Typography>
-            )}
-
-            <Button size="small" onClick={reset}>
-              Start Again
-            </Button>
-          </Stack>
-        )}
-      </Box>
-    </Drawer>
-  );
-}
-
-
-
-
-
-import { useState } from "react";
-import {
-  Box,
-  Typography,
-  TextField,
-  Chip,
-  Stack,
-  Paper,
-  Divider,
-  CircularProgress,
-} from "@mui/material";
-
-/**
- * Dummy QA data (frontend only)
- * Later: replace with API response
- */
-const QA_DATA = [
-  {
-    module: "Circle Management",
-    question: "How do I create a new circle?",
-    answer:
-      "Navigate to Circle Management → Click Create → Enter circle details → Submit for approval.",
-  },
-  {
-    module: "Circle Management",
-    question: "Who can approve a circle request?",
-    answer:
-      "Only authorized users with approval rights can approve or reject circle requests.",
-  },
-  {
-    module: "CGL Management",
-    question: "How can I track my CGL request status?",
-    answer:
-      "Go to CGL Management → My Requests tab to track the current status.",
-  },
-];
-
-export default function AiAssistant() {
-  const [input, setInput] = useState("");
-  const [selectedQA, setSelectedQA] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  // Filter suggestions based on keyword
-  const suggestions = QA_DATA.filter((qa) =>
-    qa.question.toLowerCase().includes(input.toLowerCase())
-  );
-
-  const handleSelectQuestion = (qa) => {
-    setSelectedQA(null);
-    setLoading(true);
-
-    // Simulate backend delay
-    setTimeout(() => {
-      setSelectedQA(qa);
-      setLoading(false);
-    }, 1200);
-  };
-
-  return (
-    <Box
-      sx={{
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        p: 2,
-        bgcolor: "grey.50",
-      }}
-    >
-      {/* INPUT */}
-      <TextField
-        fullWidth
-        size="small"
-        placeholder="Type keywords to get suggestions…"
-        value={input}
-        onChange={(e) => {
-          setInput(e.target.value);
-          setSelectedQA(null);
-        }}
-      />
-
-      {/* SUGGESTIONS */}
-      {input && (
-        <Stack spacing={1} mt={2}>
-          {suggestions.length === 0 && (
-            <Typography variant="body2" color="text.secondary">
-              No suggestions found
-            </Typography>
-          )}
-
-          {suggestions.map((qa, index) => (
-            <Chip
-              key={index}
-              label={qa.question}
-              onClick={() => handleSelectQuestion(qa)}
-              sx={{ justifyContent: "flex-start" }}
-            />
-          ))}
-        </Stack>
-      )}
-
-      <Divider sx={{ my: 2 }} />
-
-      {/* ANSWER AREA */}
-      <Box sx={{ flex: 1 }}>
-        {loading && (
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <CircularProgress size={18} />
-            <Typography variant="body2" color="text.secondary">
-              Fincore Assistant is typing…
-            </Typography>
-          </Stack>
-        )}
-
-        {selectedQA && !loading && (
-          <Paper
-            elevation={0}
-            sx={{
-              p: 2,
-              bgcolor: "white",
-              borderRadius: 2,
-            }}
-          >
-            <Typography fontWeight={600} mb={1}>
-              {selectedQA.question}
-            </Typography>
-            <Typography variant="body2">
-              {selectedQA.answer}
-            </Typography>
-          </Paper>
-        )}
-
-        {!input && !selectedQA && !loading && (
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{ mt: 2 }}
-          >
-            Start by typing keywords to get help-related questions.
-          </Typography>
-        )}
-      </Box>
-    </Box>
-  );
-}
-
-
-
-
-
-import { useEffect, useState } from "react";
-import {
-  Box,
-  Typography,
-  TextField,
-  Chip,
-  Stack,
-  Paper,
-  Divider,
-  CircularProgress,
-  MenuItem,
-} from "@mui/material";
 import useApi from "../../hooks/useApi";
 
 export default function AiAssistant() {
   const { callApi } = useApi();
 
+  /* ---------------- STATE ---------------- */
+  const [messages, setMessages] = useState([]);
   const [modules, setModules] = useState([]);
-  const [selectedModule, setSelectedModule] = useState("");
   const [questions, setQuestions] = useState([]);
-  const [selectedQA, setSelectedQA] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [selectedModule, setSelectedModule] = useState(null);
+  const [showCount, setShowCount] = useState(3);
+  const [typing, setTyping] = useState(false);
 
-  /* -------------------------------
-     1️⃣ Fetch allowed modules
-  --------------------------------*/
+  /* ---------------- INIT ---------------- */
   useEffect(() => {
-    fetchModules();
+    initChat();
   }, []);
 
-  const fetchModules = async () => {
-    try {
-      // 🔁 Replace with real API
-      // const res = await callApi("/assistant/modules", null, "GET");
+  const initChat = async () => {
+    // 🔁 Replace later with BE API
+    const allowedModules = [
+      { code: "CIRCLE", name: "Circle Management" },
+      { code: "CGL", name: "CGL Management" },
+      { code: "BRANCH", name: "Branch Management" },
+    ];
 
-      // Dummy fallback
-      const res = {
-        data: [
-          { code: "CGL", name: "CGL Management" },
-          { code: "CIRCLE", name: "Circle Management" },
-          { code: "BRANCH", name: "Branch Management" },
-        ],
-      };
+    setModules(allowedModules);
 
-      setModules(res.data);
-    } catch (err) {
-      console.error(err);
-    }
+    setMessages([
+      {
+        from: "bot",
+        text: "👋 Hi, I’m your Fincore Assistant. Please select a module to continue.",
+      },
+    ]);
   };
 
-  /* -------------------------------
-     2️⃣ Fetch questions by module
-  --------------------------------*/
-  const fetchQuestions = async (moduleCode) => {
-    setSelectedQA(null);
-    setQuestions([]);
+  /* ---------------- MODULE SELECT ---------------- */
+  const handleModuleSelect = async (module) => {
+    setSelectedModule(module);
+    setShowCount(3);
 
-    try {
-      // 🔁 Replace with real API
-      // const res = await callApi(
-      //   `/assistant/questions?module=${moduleCode}`,
-      //   null,
-      //   "GET"
-      // );
+    addUserMessage(module.name);
+    setTyping(true);
 
-      // Dummy fallback
-      const dummy = {
+    setTimeout(async () => {
+      // 🔁 Replace later with API
+      const dummyQuestions = {
         CIRCLE: [
-          { id: 1, question: "How do I create a circle?" },
-          { id: 2, question: "Who can approve a circle request?" },
+          "How do I create a circle?",
+          "Who can approve a circle request?",
+          "Where can I view circle details?",
+          "Can I edit an approved circle?",
+          "How to track circle request status?",
         ],
         CGL: [
-          { id: 3, question: "How to create a CGL?" },
-          { id: 4, question: "Where can I see my CGL requests?" },
+          "How do I create a CGL?",
+          "What is CGL approval flow?",
+          "Where can I view CGL details?",
+          "How to track my CGL requests?",
+        ],
+        BRANCH: [
+          "How do I create a branch?",
+          "Who approves branch requests?",
+          "Where can I view branch details?",
         ],
       };
 
-      setQuestions(dummy[moduleCode] || []);
-    } catch (err) {
-      console.error(err);
-    }
+      setQuestions(dummyQuestions[module.code] || []);
+
+      addBotMessage(
+        `Here are some common questions related to ${module.name}.`
+      );
+      setTyping(false);
+    }, 1000);
   };
 
-  /* -------------------------------
-     3️⃣ Fetch answer
-  --------------------------------*/
-  const fetchAnswer = async (question) => {
-    setLoading(true);
-    setSelectedQA(null);
+  /* ---------------- QUESTION SELECT ---------------- */
+  const handleQuestionSelect = async (question) => {
+    addUserMessage(question);
+    setTyping(true);
 
-    try {
-      // 🔁 Replace with real API
-      // const res = await callApi(
-      //   `/assistant/answer?questionId=${question.id}`,
-      //   null,
-      //   "GET"
-      // );
+    setTimeout(async () => {
+      // 🔁 Replace later with BE API
+      const answer =
+        "Please navigate to the respective module, click on Create, fill all mandatory details and submit the request for approval.";
 
-      // Dummy fallback
-      const res = {
-        data: {
-          answer:
-            "Navigate to the respective module, click Create, fill details and submit for approval.",
-        },
-      };
-
-      setTimeout(() => {
-        setSelectedQA({
-          question: question.question,
-          answer: res.data.answer,
-        });
-        setLoading(false);
-      }, 1200);
-    } catch (err) {
-      console.error(err);
-      setLoading(false);
-    }
+      addBotMessage(answer);
+      addBotMessage("Would you like to ask another question?");
+      setTyping(false);
+    }, 1200);
   };
 
+  /* ---------------- HELPERS ---------------- */
+  const addUserMessage = (text) => {
+    setMessages((prev) => [...prev, { from: "user", text }]);
+  };
+
+  const addBotMessage = (text) => {
+    setMessages((prev) => [...prev, { from: "bot", text }]);
+  };
+
+  /* ---------------- UI ---------------- */
   return (
     <Box
       sx={{
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        p: 2,
-        bgcolor: "grey.50",
+        bgcolor: "#f5f7fb",
       }}
     >
-      {/* MODULE SELECT */}
-      <TextField
-        select
-        label="Select Module"
-        size="small"
-        value={selectedModule}
-        onChange={(e) => {
-          setSelectedModule(e.target.value);
-          fetchQuestions(e.target.value);
-        }}
-      >
-        {modules.map((m) => (
-          <MenuItem key={m.code} value={m.code}>
-            {m.name}
-          </MenuItem>
-        ))}
-      </TextField>
-
-      <Divider sx={{ my: 2 }} />
-
-      {/* QUESTIONS */}
-      {questions.length > 0 && (
-        <Stack spacing={1}>
-          {questions.map((q) => (
-            <Chip
-              key={q.id}
-              label={q.question}
-              onClick={() => fetchAnswer(q)}
-              sx={{ justifyContent: "flex-start" }}
-            />
+      {/* CHAT AREA */}
+      <Box sx={{ flex: 1, overflowY: "auto", p: 2 }}>
+        <Stack spacing={2}>
+          {messages.map((msg, index) => (
+            <Stack
+              key={index}
+              direction="row"
+              justifyContent={msg.from === "user" ? "flex-end" : "flex-start"}
+            >
+              <Paper
+                sx={{
+                  p: 1.5,
+                  maxWidth: "75%",
+                  bgcolor:
+                    msg.from === "user" ? "primary.main" : "grey.200",
+                  color: msg.from === "user" ? "#fff" : "#000",
+                }}
+              >
+                <Typography variant="body2">{msg.text}</Typography>
+              </Paper>
+            </Stack>
           ))}
+
+          {typing && (
+            <Stack direction="row" spacing={1} alignItems="center">
+              <SmartToyIcon fontSize="small" />
+              <Typography variant="body2">Typing</Typography>
+              <CircularProgress size={14} />
+            </Stack>
+          )}
         </Stack>
-      )}
+      </Box>
 
-      <Divider sx={{ my: 2 }} />
-
-      {/* ANSWER */}
-      <Box sx={{ flex: 1 }}>
-        {loading && (
-          <Stack direction="row" spacing={1} alignItems="center">
-            <CircularProgress size={18} />
-            <Typography variant="body2">
-              Fincore Assistant is typing…
-            </Typography>
+      {/* ACTION AREA */}
+      <Box sx={{ p: 2, borderTop: "1px solid #ddd", bgcolor: "#fff" }}>
+        {/* MODULES */}
+        {!selectedModule && (
+          <Stack direction="row" spacing={1} flexWrap="wrap">
+            {modules.map((m) => (
+              <Chip
+                key={m.code}
+                label={m.name}
+                onClick={() => handleModuleSelect(m)}
+                color="primary"
+                variant="outlined"
+              />
+            ))}
           </Stack>
         )}
 
-        {selectedQA && !loading && (
-          <Paper sx={{ p: 2 }}>
-            <Typography fontWeight={600} mb={1}>
-              {selectedQA.question}
-            </Typography>
-            <Typography variant="body2">
-              {selectedQA.answer}
-            </Typography>
-          </Paper>
+        {/* QUESTIONS */}
+        {selectedModule && questions.length > 0 && (
+          <Stack spacing={1}>
+            {questions.slice(0, showCount).map((q, i) => (
+              <Button
+                key={i}
+                variant="outlined"
+                onClick={() => handleQuestionSelect(q)}
+                sx={{ justifyContent: "flex-start" }}
+              >
+                {q}
+              </Button>
+            ))}
+
+            {questions.length > showCount && (
+              <Button
+                size="small"
+                onClick={() => setShowCount(showCount + 3)}
+              >
+                Show more
+              </Button>
+            )}
+          </Stack>
         )}
       </Box>
     </Box>
