@@ -383,3 +383,198 @@ export default function AiAssistant() {
     </Box>
   );
 }
+
+
+
+
+
+import { useEffect, useState } from "react";
+import {
+  Box,
+  Typography,
+  TextField,
+  Chip,
+  Stack,
+  Paper,
+  Divider,
+  CircularProgress,
+  MenuItem,
+} from "@mui/material";
+import useApi from "../../hooks/useApi";
+
+export default function AiAssistant() {
+  const { callApi } = useApi();
+
+  const [modules, setModules] = useState([]);
+  const [selectedModule, setSelectedModule] = useState("");
+  const [questions, setQuestions] = useState([]);
+  const [selectedQA, setSelectedQA] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  /* -------------------------------
+     1️⃣ Fetch allowed modules
+  --------------------------------*/
+  useEffect(() => {
+    fetchModules();
+  }, []);
+
+  const fetchModules = async () => {
+    try {
+      // 🔁 Replace with real API
+      // const res = await callApi("/assistant/modules", null, "GET");
+
+      // Dummy fallback
+      const res = {
+        data: [
+          { code: "CGL", name: "CGL Management" },
+          { code: "CIRCLE", name: "Circle Management" },
+          { code: "BRANCH", name: "Branch Management" },
+        ],
+      };
+
+      setModules(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  /* -------------------------------
+     2️⃣ Fetch questions by module
+  --------------------------------*/
+  const fetchQuestions = async (moduleCode) => {
+    setSelectedQA(null);
+    setQuestions([]);
+
+    try {
+      // 🔁 Replace with real API
+      // const res = await callApi(
+      //   `/assistant/questions?module=${moduleCode}`,
+      //   null,
+      //   "GET"
+      // );
+
+      // Dummy fallback
+      const dummy = {
+        CIRCLE: [
+          { id: 1, question: "How do I create a circle?" },
+          { id: 2, question: "Who can approve a circle request?" },
+        ],
+        CGL: [
+          { id: 3, question: "How to create a CGL?" },
+          { id: 4, question: "Where can I see my CGL requests?" },
+        ],
+      };
+
+      setQuestions(dummy[moduleCode] || []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  /* -------------------------------
+     3️⃣ Fetch answer
+  --------------------------------*/
+  const fetchAnswer = async (question) => {
+    setLoading(true);
+    setSelectedQA(null);
+
+    try {
+      // 🔁 Replace with real API
+      // const res = await callApi(
+      //   `/assistant/answer?questionId=${question.id}`,
+      //   null,
+      //   "GET"
+      // );
+
+      // Dummy fallback
+      const res = {
+        data: {
+          answer:
+            "Navigate to the respective module, click Create, fill details and submit for approval.",
+        },
+      };
+
+      setTimeout(() => {
+        setSelectedQA({
+          question: question.question,
+          answer: res.data.answer,
+        });
+        setLoading(false);
+      }, 1200);
+    } catch (err) {
+      console.error(err);
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Box
+      sx={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        p: 2,
+        bgcolor: "grey.50",
+      }}
+    >
+      {/* MODULE SELECT */}
+      <TextField
+        select
+        label="Select Module"
+        size="small"
+        value={selectedModule}
+        onChange={(e) => {
+          setSelectedModule(e.target.value);
+          fetchQuestions(e.target.value);
+        }}
+      >
+        {modules.map((m) => (
+          <MenuItem key={m.code} value={m.code}>
+            {m.name}
+          </MenuItem>
+        ))}
+      </TextField>
+
+      <Divider sx={{ my: 2 }} />
+
+      {/* QUESTIONS */}
+      {questions.length > 0 && (
+        <Stack spacing={1}>
+          {questions.map((q) => (
+            <Chip
+              key={q.id}
+              label={q.question}
+              onClick={() => fetchAnswer(q)}
+              sx={{ justifyContent: "flex-start" }}
+            />
+          ))}
+        </Stack>
+      )}
+
+      <Divider sx={{ my: 2 }} />
+
+      {/* ANSWER */}
+      <Box sx={{ flex: 1 }}>
+        {loading && (
+          <Stack direction="row" spacing={1} alignItems="center">
+            <CircularProgress size={18} />
+            <Typography variant="body2">
+              Fincore Assistant is typing…
+            </Typography>
+          </Stack>
+        )}
+
+        {selectedQA && !loading && (
+          <Paper sx={{ p: 2 }}>
+            <Typography fontWeight={600} mb={1}>
+              {selectedQA.question}
+            </Typography>
+            <Typography variant="body2">
+              {selectedQA.answer}
+            </Typography>
+          </Paper>
+        )}
+      </Box>
+    </Box>
+  );
+}
