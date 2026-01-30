@@ -1,33 +1,29 @@
 import {
   Box,
   Typography,
-  Chip,
-  Stack,
   Paper,
-  Divider,
+  Stack,
   Button,
+  TextField,
+  useTheme,
 } from "@mui/material";
-import { useSelector } from "react-redux";
 import { useEffect, useRef, useState } from "react";
+import { useSelector } from "react-redux";
 
-/* ------------------ DUMMY QUESTIONS (REPLACE WITH API LATER) ------------------ */
+/* ================= TEMP DATA (REPLACE WITH BE LATER) ================= */
 const QUESTION_BANK = {
   "Circle Management": [
     {
       q: "What is Circle Management?",
-      a: "Circle Management is used to create and manage operational circles within the system.",
+      a: "Circle Management allows you to create and manage operational circles in FinCore.",
     },
     {
       q: "How do I create a circle?",
-      a: "Go to Circle Management → Create → Enter details → Submit for approval.",
+      a: "Navigate to Circle Management, click Create, fill required details, and submit for approval.",
     },
     {
       q: "Who can approve circle requests?",
-      a: "Only authorized users with approval rights can approve or reject requests.",
-    },
-    {
-      q: "Can I edit an approved circle?",
-      a: "Yes, but changes must be raised as a new request.",
+      a: "Only authorized users can approve or reject circle requests.",
     },
   ],
   "CGL Management": [
@@ -37,195 +33,244 @@ const QUESTION_BANK = {
     },
     {
       q: "How do I create a CGL?",
-      a: "Navigate to CGL Management → Create → Fill required fields → Submit.",
-    },
-    {
-      q: "Where can I see my CGL requests?",
-      a: "You can view them under the My Requests tab.",
+      a: "Go to CGL Management, click Create, fill details and submit.",
     },
   ],
 };
 
-/* ------------------ TYPING DOTS ------------------ */
+/* ================= TYPING DOTS ================= */
 const TypingDots = () => (
-  <Typography variant="body2" sx={{ fontStyle: "italic" }}>
-    <span className="dot">.</span>
-    <span className="dot">.</span>
-    <span className="dot">.</span>
-  </Typography>
+  <Box sx={{ display: "flex", gap: 0.5 }}>
+    {[1, 2, 3].map((i) => (
+      <Box
+        key={i}
+        sx={{
+          width: 6,
+          height: 6,
+          borderRadius: "50%",
+          backgroundColor: "grey.500",
+          animation: "blink 1.4s infinite both",
+          animationDelay: `${i * 0.2}s`,
+        }}
+      />
+    ))}
+    <style>
+      {`
+        @keyframes blink {
+          0% { opacity: .2 }
+          20% { opacity: 1 }
+          100% { opacity: .2 }
+        }
+      `}
+    </style>
+  </Box>
 );
 
-/* ------------------ MAIN COMPONENT ------------------ */
 export default function AiAssistant() {
-  const allowedMenus = useSelector((state) => state.menus.menus);
+  const theme = useTheme();
+  const scrollRef = useRef(null);
 
-  const [chat, setChat] = useState([]);
+  /* Redux menus */
+  const menus = useSelector((state) => state.menus?.menus || []);
+  const allowedModules = menus.map((m) => m.title);
+
+  /* Chat state */
+  const [chat, setChat] = useState([
+    { from: "bot", text: "Hello 👋 I’m FinCore Assistant. How can I help you?" },
+  ]);
+
+  const [stage, setStage] = useState("HOME"); // HOME | MODULES | QUESTIONS
   const [selectedModule, setSelectedModule] = useState(null);
-  const [showAllQuestions, setShowAllQuestions] = useState(false);
-  const [isTyping, setIsTyping] = useState(false);
-  const [askAgain, setAskAgain] = useState(false);
+  const [questions, setQuestions] = useState([]);
+  const [typing, setTyping] = useState(false);
 
-  const bottomRef = useRef(null);
+  /* Search (NEW – independent) */
+  const [search, setSearch] = useState("");
 
-  /* Auto scroll */
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chat, isTyping]);
+    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chat, typing]);
 
-  /* Handle module select */
+  const botReply = (text, delay = 900) => {
+    setTyping(true);
+    setTimeout(() => {
+      setTyping(false);
+      setChat((p) => [...p, { from: "bot", text }]);
+    }, delay);
+  };
+
+  /* ================= EXISTING FLOW ================= */
+
+  const handleSelectModuleClick = () => {
+    setChat((p) => [...p, { from: "user", text: "Select Module" }]);
+    setStage("MODULES");
+  };
+
   const handleModuleSelect = (module) => {
     setSelectedModule(module);
-    setShowAllQuestions(false);
-    setAskAgain(false);
-    setChat([
-      {
-        from: "bot",
-        text: `You selected ${module}. Please choose a question.`,
-      },
-    ]);
+    setChat((p) => [...p, { from: "user", text: module }]);
+    const qs = QUESTION_BANK[module] || [];
+    setQuestions(qs);
+    setStage("QUESTIONS");
+    botReply(`Here are some common questions related to ${module}.`);
   };
 
-  /* Handle question click */
-  const handleQuestionClick = (item) => {
-    setChat((prev) => [...prev, { from: "user", text: item.q }]);
-    setIsTyping(true);
-
+  const handleQuestionClick = (qObj) => {
+    setChat((p) => [...p, { from: "user", text: qObj.q }]);
+    botReply(qObj.a, 1200);
     setTimeout(() => {
-      setIsTyping(false);
-      setChat((prev) => [
-        ...prev,
-        { from: "bot", text: item.a },
-        {
-          from: "bot",
-          text: "Would you like to ask another question?",
-          action: "yesno",
-        },
-      ]);
-      setAskAgain(true);
-    }, 1200);
+      botReply("Would you like to ask another question?");
+    }, 2300);
   };
 
-  const questions =
-    selectedModule && QUESTION_BANK[selectedModule]
-      ? QUESTION_BANK[selectedModule]
+  const handleYesNo = (yes) => {
+    setChat((p) => [...p, { from: "user", text: yes ? "Yes" : "No" }]);
+    yes
+      ? botReply("Please select another question.")
+      : botReply("Thank you for using FinCore Assistant.");
+  };
+
+  /* ================= SEARCH (ADDITIONAL) ================= */
+
+  const allQuestions = Object.values(QUESTION_BANK).flat();
+  const searchResults =
+    search.trim().length > 0
+      ? allQuestions.filter((q) =>
+          q.q.toLowerCase().includes(search.toLowerCase())
+        )
       : [];
 
+  /* ================= UI ================= */
+
   return (
-    <Box sx={{ height: "100%", p: 2, overflowY: "auto" }}>
-      {/* BOT WELCOME */}
-      {chat.length === 0 && (
-        <Typography variant="body1" mb={2}>
-          👋 Hi, I’m your FinCore Assistant. Please select a module.
-        </Typography>
-      )}
-
-      {/* MODULE SELECTION */}
-      {!selectedModule && (
-        <Stack direction="row" spacing={1} flexWrap="wrap">
-          {allowedMenus.map((m) => (
-            <Chip
-              key={m.id}
-              label={m.title}
-              clickable
-              color="primary"
-              onClick={() => handleModuleSelect(m.title)}
-            />
-          ))}
-        </Stack>
-      )}
-
-      {/* CHAT MESSAGES */}
-      <Stack spacing={1} mt={2}>
-        {chat.map((msg, idx) => (
+    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", p: 2 }}>
+      {/* CHAT AREA */}
+      <Stack spacing={1.5} sx={{ flex: 1, overflowY: "auto" }}>
+        {chat.map((msg, i) => (
           <Box
-            key={idx}
-            alignSelf={msg.from === "user" ? "flex-end" : "flex-start"}
+            key={i}
             sx={{
-              backgroundColor:
-                msg.from === "user" ? "primary.main" : "grey.200",
-              color: msg.from === "user" ? "white" : "black",
-              px: 2,
-              py: 1,
-              borderRadius: 2,
-              maxWidth: "80%",
+              display: "flex",
+              justifyContent: msg.from === "user" ? "flex-end" : "flex-start",
             }}
           >
-            <Typography variant="body2">{msg.text}</Typography>
-
-            {msg.action === "yesno" && (
-              <Stack direction="row" spacing={1} mt={1}>
-                <Button
-                  size="small"
-                  variant="contained"
-                  onClick={() => {
-                    setAskAgain(false);
-                    setChat((prev) => [
-                      ...prev,
-                      {
-                        from: "bot",
-                        text: "Please select another question.",
-                      },
-                    ]);
-                  }}
-                >
-                  Yes
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => {
-                    setAskAgain(false);
-                    setChat((prev) => [
-                      ...prev,
-                      {
-                        from: "bot",
-                        text:
-                          "Thank you for using FinCore Assistant. Have a great day!",
-                      },
-                    ]);
-                  }}
-                >
-                  No
-                </Button>
-              </Stack>
-            )}
+            <Paper
+              sx={{
+                p: 1.5,
+                maxWidth: "75%",
+                backgroundColor:
+                  msg.from === "user"
+                    ? theme.palette.primary.light
+                    : theme.palette.grey[100],
+              }}
+            >
+              <Typography variant="body2">{msg.text}</Typography>
+            </Paper>
           </Box>
         ))}
 
-        {isTyping && <TypingDots />}
-        <div ref={bottomRef} />
+        {typing && (
+          <Paper sx={{ p: 1.5, width: "fit-content" }}>
+            <TypingDots />
+          </Paper>
+        )}
+
+        {/* HOME OPTIONS */}
+        {stage === "HOME" && (
+          <Paper sx={{ p: 2 }}>
+            <Stack spacing={1}>
+              <Button variant="outlined" onClick={handleSelectModuleClick}>
+                Select Module
+              </Button>
+              <Button variant="outlined">FAQs</Button>
+            </Stack>
+          </Paper>
+        )}
+
+        {/* MODULES */}
+        {stage === "MODULES" && (
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Select a module
+            </Typography>
+            <Stack direction="row" flexWrap="wrap" gap={1}>
+              {allowedModules.map((m) => (
+                <Button
+                  key={m}
+                  size="small"
+                  variant="outlined"
+                  onClick={() => handleModuleSelect(m)}
+                >
+                  {m}
+                </Button>
+              ))}
+            </Stack>
+          </Paper>
+        )}
+
+        {/* QUESTIONS (MODULE FLOW – SAME AS BEFORE) */}
+        {stage === "QUESTIONS" && (
+          <Paper sx={{ p: 2 }}>
+            <Stack spacing={1}>
+              {questions.map((q, i) => (
+                <Button
+                  key={i}
+                  variant="text"
+                  onClick={() => handleQuestionClick(q)}
+                >
+                  {q.q}
+                </Button>
+              ))}
+            </Stack>
+          </Paper>
+        )}
+
+        {/* YES / NO */}
+        {chat.at(-1)?.text ===
+          "Would you like to ask another question?" && (
+          <Stack direction="row" spacing={1}>
+            <Button variant="outlined" onClick={() => handleYesNo(true)}>
+              Yes
+            </Button>
+            <Button variant="outlined" onClick={() => handleYesNo(false)}>
+              No
+            </Button>
+          </Stack>
+        )}
+
+        <div ref={scrollRef} />
       </Stack>
 
-      {/* QUESTIONS */}
-      {selectedModule && !askAgain && (
-        <>
-          <Divider sx={{ my: 2 }} />
-          <Typography variant="subtitle2">Questions</Typography>
+      {/* 🔍 SEARCH – ADDITIONAL, AT BOTTOM */}
+      <Box sx={{ mt: 1 }}>
+        <TextField
+          fullWidth
+          size="small"
+          placeholder="Search questions..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
 
-          {questions
-            .slice(0, showAllQuestions ? questions.length : 3)
-            .map((item, i) => (
-              <Paper
-                key={i}
-                onClick={() => handleQuestionClick(item)}
-                sx={{
-                  p: 1,
-                  mt: 1,
-                  cursor: "pointer",
-                  "&:hover": { backgroundColor: "grey.100" },
-                }}
-              >
-                <Typography variant="body2">{item.q}</Typography>
-              </Paper>
-            ))}
-
-          {questions.length > 3 && !showAllQuestions && (
-            <Button size="small" onClick={() => setShowAllQuestions(true)}>
-              Show more
-            </Button>
-          )}
-        </>
-      )}
+        {searchResults.length > 0 && (
+          <Paper sx={{ mt: 1, maxHeight: 200, overflowY: "auto" }}>
+            <Stack>
+              {searchResults.map((q, i) => (
+                <Button
+                  key={i}
+                  variant="text"
+                  onClick={() => {
+                    setSearch("");
+                    handleQuestionClick(q);
+                  }}
+                  sx={{ justifyContent: "flex-start" }}
+                >
+                  {q.q}
+                </Button>
+              ))}
+            </Stack>
+          </Paper>
+        )}
+      </Box>
     </Box>
   );
 }
