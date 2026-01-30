@@ -7,7 +7,6 @@ import {
   Chip,
   Button,
 } from "@mui/material";
-import SmartToyIcon from "@mui/icons-material/SmartToy";
 
 export default function AiAssistant() {
   const [messages, setMessages] = useState([]);
@@ -18,23 +17,21 @@ export default function AiAssistant() {
   const [showFollowUp, setShowFollowUp] = useState(false);
   const [typingDots, setTypingDots] = useState(false);
 
-  // 🔹 AUTO SCROLL REF
   const messagesEndRef = useRef(null);
 
-  /* ---------------- AUTO SCROLL ---------------- */
+  /* 🔹 Auto scroll */
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, typingDots]);
 
-  /* ---------------- INIT ---------------- */
+  /* 🔹 Init */
   useEffect(() => {
-    const allowedModules = [
+    setModules([
       { code: "CIRCLE", name: "Circle Management" },
       { code: "CGL", name: "CGL Management" },
       { code: "BRANCH", name: "Branch Management" },
-    ];
+    ]);
 
-    setModules(allowedModules);
     setMessages([
       {
         from: "bot",
@@ -43,7 +40,17 @@ export default function AiAssistant() {
     ]);
   }, []);
 
-  /* ---------------- MODULE SELECT ---------------- */
+  /* 🔹 Helpers */
+  const addUserMessage = (text) =>
+    setMessages((prev) => [...prev, { from: "user", text }]);
+
+  const addBotMessage = (text) =>
+    setMessages((prev) => [...prev, { from: "bot", text }]);
+
+  const startTyping = () => setTypingDots(true);
+  const stopTyping = () => setTypingDots(false);
+
+  /* 🔹 Module select */
   const handleModuleSelect = (module) => {
     setSelectedModule(module);
     setShowCount(3);
@@ -65,7 +72,6 @@ export default function AiAssistant() {
           "How do I create a CGL?",
           "What is the approval flow for CGL?",
           "Where can I view CGL details?",
-          "How to track my CGL requests?",
         ],
         BRANCH: [
           "How do I create a branch?",
@@ -75,21 +81,19 @@ export default function AiAssistant() {
       };
 
       setQuestions(moduleQuestions[module.code] || []);
-      addBotMessage(
-        `Here are some common questions related to ${module.name}.`
-      );
+      addBotMessage(`Here are some common questions for ${module.name}.`);
       stopTyping();
     }, 1000);
   };
 
-  /* ---------------- QUESTION SELECT ---------------- */
+  /* 🔹 Question select */
   const handleQuestionSelect = (question) => {
     addUserMessage(question);
     startTyping();
 
     setTimeout(() => {
       addBotMessage(
-        "Please navigate to the respective module, click on Create, fill all mandatory details, and submit the request for approval."
+        "Please navigate to the respective module, click Create, fill mandatory details, and submit for approval."
       );
       addBotMessage("Would you like to ask another question?");
       setShowFollowUp(true);
@@ -97,7 +101,7 @@ export default function AiAssistant() {
     }, 1200);
   };
 
-  /* ---------------- FOLLOW-UP ---------------- */
+  /* 🔹 Follow-up */
   const handleFollowUp = (answer) => {
     addUserMessage(answer);
     setShowFollowUp(false);
@@ -106,35 +110,15 @@ export default function AiAssistant() {
       addBotMessage("Sure 🙂 Please select another question.");
     } else {
       addBotMessage(
-        "Thank you for using Fincore Assistant. If you need help again, feel free to reopen me anytime. Have a great day! 👋"
+        "Thank you for using Fincore Assistant. Feel free to reach out anytime. Have a great day! 👋"
       );
       setQuestions([]);
     }
   };
 
-  /* ---------------- HELPERS ---------------- */
-  const addUserMessage = (text) => {
-    setMessages((prev) => [...prev, { from: "user", text }]);
-  };
-
-  const addBotMessage = (text) => {
-    setMessages((prev) => [...prev, { from: "bot", text }]);
-  };
-
-  const startTyping = () => setTypingDots(true);
-  const stopTyping = () => setTypingDots(false);
-
-  /* ---------------- UI ---------------- */
   return (
-    <Box
-      sx={{
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        bgcolor: "#f5f7fb",
-      }}
-    >
-      {/* CHAT AREA */}
+    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "#f5f7fb" }}>
+      {/* CHAT */}
       <Box sx={{ flex: 1, overflowY: "auto", p: 2 }}>
         <Stack spacing={2}>
           {messages.map((msg, index) => (
@@ -147,8 +131,7 @@ export default function AiAssistant() {
                 sx={{
                   p: 1.5,
                   maxWidth: "75%",
-                  bgcolor:
-                    msg.from === "user" ? "primary.main" : "grey.200",
+                  bgcolor: msg.from === "user" ? "primary.main" : "grey.200",
                   color: msg.from === "user" ? "#fff" : "#000",
                 }}
               >
@@ -157,19 +140,24 @@ export default function AiAssistant() {
             </Stack>
           ))}
 
+          {/* ✅ WhatsApp-style typing dots */}
           {typingDots && (
-            <Stack direction="row" spacing={1} alignItems="center">
-              <SmartToyIcon fontSize="small" />
-              <Typography variant="body2">( ... )</Typography>
+            <Stack direction="row">
+              <Paper sx={{ p: 1.2, bgcolor: "grey.200" }}>
+                <Box sx={{ display: "flex", gap: 0.5 }}>
+                  <span className="dot" />
+                  <span className="dot" />
+                  <span className="dot" />
+                </Box>
+              </Paper>
             </Stack>
           )}
 
-          {/* 🔹 SCROLL TARGET */}
           <div ref={messagesEndRef} />
         </Stack>
       </Box>
 
-      {/* ACTION AREA */}
+      {/* ACTIONS */}
       <Box sx={{ p: 2, borderTop: "1px solid #ddd", bgcolor: "#fff" }}>
         {!selectedModule && (
           <Stack direction="row" spacing={1} flexWrap="wrap">
@@ -208,21 +196,37 @@ export default function AiAssistant() {
 
         {showFollowUp && (
           <Stack direction="row" spacing={2}>
-            <Button
-              variant="contained"
-              onClick={() => handleFollowUp("Yes")}
-            >
+            <Button variant="contained" onClick={() => handleFollowUp("Yes")}>
               Yes
             </Button>
-            <Button
-              variant="outlined"
-              onClick={() => handleFollowUp("No")}
-            >
+            <Button variant="outlined" onClick={() => handleFollowUp("No")}>
               No
             </Button>
           </Stack>
         )}
       </Box>
+
+      {/* 🔹 Typing animation CSS */}
+      <style>
+        {`
+          .dot {
+            width: 6px;
+            height: 6px;
+            background: #555;
+            border-radius: 50%;
+            animation: blink 1.4s infinite both;
+          }
+          .dot:nth-child(1) { animation-delay: 0s; }
+          .dot:nth-child(2) { animation-delay: 0.2s; }
+          .dot:nth-child(3) { animation-delay: 0.4s; }
+
+          @keyframes blink {
+            0% { opacity: .2; }
+            20% { opacity: 1; }
+            100% { opacity: .2; }
+          }
+        `}
+      </style>
     </Box>
   );
 }
