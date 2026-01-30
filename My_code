@@ -25,15 +25,13 @@ const QUESTION_BANK = {
       q: "Who can approve circle requests?",
       a: "Only authorized users can approve or reject circle requests.",
     },
-  ],
-  "CGL Management": [
     {
-      q: "What is CGL?",
-      a: "CGL stands for Central General Ledger used for accounting purposes.",
+      q: "Can I edit an approved circle?",
+      a: "Approved circles can only be modified via a new request.",
     },
     {
-      q: "How do I create a CGL?",
-      a: "Go to CGL Management, click Create, fill details and submit.",
+      q: "How can I track circle requests?",
+      a: "You can track requests from the Circle Requests screen.",
     },
   ],
 };
@@ -82,9 +80,11 @@ export default function AiAssistant() {
   const [stage, setStage] = useState("HOME"); // HOME | MODULES | QUESTIONS
   const [selectedModule, setSelectedModule] = useState(null);
   const [questions, setQuestions] = useState([]);
+  const [showQuestions, setShowQuestions] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(3);
   const [typing, setTyping] = useState(false);
 
-  /* Search (NEW – independent) */
+  /* Search */
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -99,7 +99,7 @@ export default function AiAssistant() {
     }, delay);
   };
 
-  /* ================= EXISTING FLOW ================= */
+  /* ================= FLOW ================= */
 
   const handleSelectModuleClick = () => {
     setChat((p) => [...p, { from: "user", text: "Select Module" }]);
@@ -111,12 +111,15 @@ export default function AiAssistant() {
     setChat((p) => [...p, { from: "user", text: module }]);
     const qs = QUESTION_BANK[module] || [];
     setQuestions(qs);
+    setVisibleCount(3);
+    setShowQuestions(true);
     setStage("QUESTIONS");
     botReply(`Here are some common questions related to ${module}.`);
   };
 
   const handleQuestionClick = (qObj) => {
     setChat((p) => [...p, { from: "user", text: qObj.q }]);
+    setShowQuestions(false); // 🔑 hide questions
     botReply(qObj.a, 1200);
     setTimeout(() => {
       botReply("Would you like to ask another question?");
@@ -125,9 +128,14 @@ export default function AiAssistant() {
 
   const handleYesNo = (yes) => {
     setChat((p) => [...p, { from: "user", text: yes ? "Yes" : "No" }]);
-    yes
-      ? botReply("Please select another question.")
-      : botReply("Thank you for using FinCore Assistant.");
+    if (yes) {
+      setVisibleCount(3);
+      setShowQuestions(true);
+      botReply("Please select another question.");
+    } else {
+      setShowQuestions(false);
+      botReply("Thank you for using FinCore Assistant. Have a great day!");
+    }
   };
 
   /* ================= SEARCH (ADDITIONAL) ================= */
@@ -175,7 +183,7 @@ export default function AiAssistant() {
           </Paper>
         )}
 
-        {/* HOME OPTIONS */}
+        {/* HOME */}
         {stage === "HOME" && (
           <Paper sx={{ p: 2 }}>
             <Stack spacing={1}>
@@ -208,11 +216,11 @@ export default function AiAssistant() {
           </Paper>
         )}
 
-        {/* QUESTIONS (MODULE FLOW – SAME AS BEFORE) */}
-        {stage === "QUESTIONS" && (
+        {/* QUESTIONS (ONLY WHEN showQuestions = true) */}
+        {stage === "QUESTIONS" && showQuestions && (
           <Paper sx={{ p: 2 }}>
             <Stack spacing={1}>
-              {questions.map((q, i) => (
+              {questions.slice(0, visibleCount).map((q, i) => (
                 <Button
                   key={i}
                   variant="text"
@@ -221,6 +229,15 @@ export default function AiAssistant() {
                   {q.q}
                 </Button>
               ))}
+
+              {questions.length > visibleCount && (
+                <Button
+                  size="small"
+                  onClick={() => setVisibleCount((c) => c + 3)}
+                >
+                  Show more
+                </Button>
+              )}
             </Stack>
           </Paper>
         )}
@@ -241,7 +258,7 @@ export default function AiAssistant() {
         <div ref={scrollRef} />
       </Stack>
 
-      {/* 🔍 SEARCH – ADDITIONAL, AT BOTTOM */}
+      {/* SEARCH (BOTTOM – ADDITIONAL ONLY) */}
       <Box sx={{ mt: 1 }}>
         <TextField
           fullWidth
