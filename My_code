@@ -1,42 +1,39 @@
 import {
-  Box,
   Drawer,
+  Box,
   Typography,
   IconButton,
+  Divider,
   Stack,
   Button,
   Chip,
   CircularProgress,
-  Divider,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
-import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import { useEffect, useState } from "react";
 
-/**
- * PROPS EXPECTED:
- * open
- * onClose
- * userMenus -> response.roleData.rootMenus
- */
-export default function AiAssistant({ open, onClose, userMenus = [] }) {
+export default function AiAssistant({
+  open,
+  onClose,
+  userMenus = [],
+}) {
   const [step, setStep] = useState("HOME");
-  const [modules, setModules] = useState([]);
-  const [selectedModule, setSelectedModule] = useState(null);
-  const [questions, setQuestions] = useState([]);
-  const [answer, setAnswer] = useState("");
+  const [selectedModule, setSelectedModule] = useState("");
   const [typing, setTyping] = useState(false);
+  const [answer, setAnswer] = useState("");
 
-  // 🔹 Extract allowed modules from backend response
-  useEffect(() => {
-    const allowed = userMenus
-      .filter((m) => m.hasChildren)
-      .map((m) => m.title);
-    setModules(allowed);
-  }, [userMenus]);
+  /* ---------------- ALLOWED MODULES ---------------- */
 
-  // 🔹 Dummy questions (replace later with API)
+  // userMenus MUST be an array like response.roleData.rootMenus
+  const allowedModules = Array.isArray(userMenus)
+    ? userMenus
+        .filter((m) => m.hasChildren)
+        .map((m) => m.title)
+    : [];
+
+  /* ---------------- DUMMY QUESTIONS ---------------- */
+
   const MODULE_QUESTIONS = {
     "Circle Management": [
       "How to create a circle?",
@@ -46,189 +43,63 @@ export default function AiAssistant({ open, onClose, userMenus = [] }) {
     "CGL Management": [
       "How to create a CGL?",
       "How to approve a CGL request?",
-      "Where can I see CGL details?",
+      "Where can I view CGL details?",
     ],
     "Branch Management": [
       "How to create a branch?",
-      "How to approve branch requests?",
+      "How to approve branch request?",
       "How to view branch details?",
     ],
   };
 
-  const MODULE_ANSWERS = {
+  const ANSWERS = {
     "How to create a circle?":
-      "Navigate to Circle Management, click Create, enter required details, and submit for approval.",
+      "Go to Circle Management → Click Create → Enter details → Submit for approval.",
     "How to approve a circle request?":
-      "Go to Circle Requests screen and approve or reject pending requests.",
+      "Navigate to Circle Requests → Review → Approve or Reject.",
     "How to view circle details?":
-      "Use the search option in View Circle Details to see complete information.",
+      "Use View Circle Details screen and search the circle.",
     "How to create a CGL?":
-      "Navigate to CGL Management and click Create CGL. Fill mandatory fields and submit.",
+      "Go to CGL Management → Create CGL → Fill details → Submit.",
     "How to approve a CGL request?":
-      "Open CGL Requests screen and approve pending CGL creation requests.",
-    "Where can I see CGL details?":
-      "Search CGL from View CGL Details screen.",
+      "Navigate to CGL Requests and approve pending requests.",
+    "Where can I view CGL details?":
+      "Use View CGL Details option and search the CGL.",
     "How to create a branch?":
-      "Go to Branch Management, click Create, enter branch details, and submit.",
-    "How to approve branch requests?":
-      "Navigate to Branch Requests and approve or reject pending items.",
+      "Go to Branch Management → Create → Fill branch details → Submit.",
+    "How to approve branch request?":
+      "Navigate to Branch Requests and approve or reject.",
     "How to view branch details?":
-      "Use View Branch Details option to search and view branch information.",
+      "Use View Branch Details option to search and view branch info.",
   };
+
+  /* ---------------- HANDLERS ---------------- */
 
   const handleModuleSelect = (module) => {
     setSelectedModule(module);
-    setQuestions(MODULE_QUESTIONS[module] || []);
     setStep("QUESTIONS");
   };
 
-  const handleQuestionSelect = (q) => {
+  const handleQuestionSelect = (question) => {
     setTyping(true);
     setAnswer("");
+    setStep("ANSWER");
 
+    // simulate backend delay
     setTimeout(() => {
       setTyping(false);
-      setAnswer(MODULE_ANSWERS[q]);
-      setStep("ANSWER");
-    }, 1500);
+      setAnswer(ANSWERS[question]);
+    }, 1200);
   };
 
   const reset = () => {
     setStep("HOME");
-    setSelectedModule(null);
-    setQuestions([]);
+    setSelectedModule("");
     setAnswer("");
+    setTyping(false);
   };
 
-  return (
-    <Drawer anchor="right" open={open} onClose={onClose}>
-      <Box width={420} height="100vh" display="flex" flexDirection="column">
-        {/* Header */}
-        <Box
-          p={2}
-          display="flex"
-          alignItems="center"
-          justifyContent="space-between"
-          borderBottom="1px solid #eee"
-        >
-          <Stack direction="row" spacing={1} alignItems="center">
-            <SmartToyIcon color="primary" />
-            <Typography fontWeight={600}>FinCore Assistant</Typography>
-          </Stack>
-          <IconButton onClick={onClose}>
-            <CloseIcon />
-          </IconButton>
-        </Box>
-
-        {/* Content */}
-        <Box p={2} flex={1} overflow="auto">
-          {step === "HOME" && (
-            <Stack spacing={2}>
-              <Typography>Select an option to continue</Typography>
-              <Button
-                variant="contained"
-                onClick={() => setStep("MODULES")}
-              >
-                Select Module
-              </Button>
-            </Stack>
-          )}
-
-          {step === "MODULES" && (
-            <Stack spacing={1.5}>
-              <Typography fontWeight={500}>
-                Select a module
-              </Typography>
-              {modules.map((m) => (
-                <Chip
-                  key={m}
-                  label={m}
-                  clickable
-                  onClick={() => handleModuleSelect(m)}
-                  icon={<CheckCircleOutlineIcon />}
-                />
-              ))}
-              <Divider />
-              <Button size="small" onClick={reset}>
-                Back
-              </Button>
-            </Stack>
-          )}
-
-          {step === "QUESTIONS" && (
-            <Stack spacing={1.5}>
-              <Typography fontWeight={500}>
-                {selectedModule} Questions
-              </Typography>
-              {questions.map((q) => (
-                <Chip
-                  key={q}
-                  label={q}
-                  clickable
-                  onClick={() => handleQuestionSelect(q)}
-                />
-              ))}
-              <Divider />
-              <Button size="small" onClick={() => setStep("MODULES")}>
-                Change Module
-              </Button>
-            </Stack>
-          )}
-
-          {step === "ANSWER" && (
-            <Stack spacing={2}>
-              <Typography fontWeight={500}>Answer</Typography>
-
-              {typing ? (
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <CircularProgress size={16} />
-                  <Typography variant="body2">
-                    Assistant is typing...
-                  </Typography>
-                </Stack>
-              ) : (
-                <Typography variant="body2">{answer}</Typography>
-              )}
-
-              <Divider />
-              <Button size="small" onClick={reset}>
-                Start Again
-              </Button>
-            </Stack>
-          )}
-        </Box>
-      </Box>
-    </Drawer>
-  );
-}
-
-
-
-import {
-  Drawer,
-  Box,
-  Typography,
-  IconButton,
-  Divider,
-  Stack,
-  Chip,
-  Button,
-} from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
-import SmartToyIcon from "@mui/icons-material/SmartToy";
-import { useState, useEffect } from "react";
-
-export default function AiAssistant({ open, onClose, userMenus = [] }) {
-  const [step, setStep] = useState("home");
-  const [selectedModule, setSelectedModule] = useState(null);
-
-  // 🔹 Extract allowed modules
-  const allowedModules = userMenus.map((m) => m.title);
-
-  useEffect(() => {
-    console.log("AI Assistant opened");
-    console.log("Allowed modules:", allowedModules);
-  }, [allowedModules]);
+  /* ---------------- RENDER ---------------- */
 
   return (
     <Drawer
@@ -237,14 +108,21 @@ export default function AiAssistant({ open, onClose, userMenus = [] }) {
       onClose={onClose}
       PaperProps={{
         sx: {
-          width: 380,               // ⭐ VERY IMPORTANT
+          width: 420,
           display: "flex",
           flexDirection: "column",
         },
       }}
     >
       {/* HEADER */}
-      <Box p={2} display="flex" alignItems="center" gap={1}>
+      <Box
+        sx={{
+          p: 2,
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+        }}
+      >
         <SmartToyIcon color="primary" />
         <Typography fontWeight={600} flex={1}>
           FinCore Assistant
@@ -257,69 +135,98 @@ export default function AiAssistant({ open, onClose, userMenus = [] }) {
       <Divider />
 
       {/* BODY */}
-      <Box p={2} flex={1} overflow="auto">
-        {step === "home" && (
+      <Box sx={{ flex: 1, p: 2, overflowY: "auto" }}>
+        {/* HOME */}
+        {step === "HOME" && (
           <Stack spacing={2}>
-            <Typography variant="body2">
-              How can I help you today?
-            </Typography>
-
+            <Typography>How can I help you?</Typography>
             <Button
               variant="contained"
-              onClick={() => setStep("module")}
+              onClick={() => setStep("MODULES")}
             >
               Select Module
             </Button>
-
             <Button variant="outlined" disabled>
               FAQs (Coming Soon)
             </Button>
           </Stack>
         )}
 
-        {step === "module" && (
+        {/* MODULES */}
+        {step === "MODULES" && (
           <Stack spacing={1.5}>
             <Typography fontWeight={600}>
               Select a module
             </Typography>
 
             {allowedModules.length === 0 && (
-              <Typography color="text.secondary">
-                No modules assigned to you.
+              <Typography color="error">
+                No modules available for this user
               </Typography>
             )}
 
-            {allowedModules.map((module) => (
+            {allowedModules.map((m) => (
               <Chip
-                key={module}
-                label={module}
+                key={m}
+                label={m}
                 clickable
-                onClick={() => {
-                  setSelectedModule(module);
-                  setStep("questions");
-                }}
-                sx={{ justifyContent: "flex-start" }}
+                onClick={() => handleModuleSelect(m)}
               />
             ))}
 
-            <Button size="small" onClick={() => setStep("home")}>
+            <Button size="small" onClick={reset}>
               ← Back
             </Button>
           </Stack>
         )}
 
-        {step === "questions" && (
+        {/* QUESTIONS */}
+        {step === "QUESTIONS" && (
           <Stack spacing={1.5}>
             <Typography fontWeight={600}>
-              {selectedModule} – Questions
+              {selectedModule}
             </Typography>
 
-            <Chip label="How to create?" clickable />
-            <Chip label="How to approve requests?" clickable />
-            <Chip label="Where to check status?" clickable />
+            {(MODULE_QUESTIONS[selectedModule] || []).map(
+              (q) => (
+                <Chip
+                  key={q}
+                  label={q}
+                  clickable
+                  onClick={() =>
+                    handleQuestionSelect(q)
+                  }
+                />
+              )
+            )}
 
-            <Button size="small" onClick={() => setStep("module")}>
-              ← Back
+            <Button
+              size="small"
+              onClick={() => setStep("MODULES")}
+            >
+              ← Change Module
+            </Button>
+          </Stack>
+        )}
+
+        {/* ANSWER */}
+        {step === "ANSWER" && (
+          <Stack spacing={2}>
+            {typing ? (
+              <Stack direction="row" spacing={1}>
+                <CircularProgress size={18} />
+                <Typography variant="body2">
+                  Assistant is typing…
+                </Typography>
+              </Stack>
+            ) : (
+              <Typography variant="body2">
+                {answer}
+              </Typography>
+            )}
+
+            <Button size="small" onClick={reset}>
+              Start Again
             </Button>
           </Stack>
         )}
