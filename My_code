@@ -1,232 +1,231 @@
-import { useEffect, useState, useRef } from "react";
 import {
   Box,
   Typography,
+  Chip,
   Stack,
   Paper,
-  Chip,
+  Divider,
   Button,
 } from "@mui/material";
+import { useSelector } from "react-redux";
+import { useEffect, useRef, useState } from "react";
 
+/* ------------------ DUMMY QUESTIONS (REPLACE WITH API LATER) ------------------ */
+const QUESTION_BANK = {
+  "Circle Management": [
+    {
+      q: "What is Circle Management?",
+      a: "Circle Management is used to create and manage operational circles within the system.",
+    },
+    {
+      q: "How do I create a circle?",
+      a: "Go to Circle Management → Create → Enter details → Submit for approval.",
+    },
+    {
+      q: "Who can approve circle requests?",
+      a: "Only authorized users with approval rights can approve or reject requests.",
+    },
+    {
+      q: "Can I edit an approved circle?",
+      a: "Yes, but changes must be raised as a new request.",
+    },
+  ],
+  "CGL Management": [
+    {
+      q: "What is CGL?",
+      a: "CGL stands for Central General Ledger used for accounting purposes.",
+    },
+    {
+      q: "How do I create a CGL?",
+      a: "Navigate to CGL Management → Create → Fill required fields → Submit.",
+    },
+    {
+      q: "Where can I see my CGL requests?",
+      a: "You can view them under the My Requests tab.",
+    },
+  ],
+};
+
+/* ------------------ TYPING DOTS ------------------ */
+const TypingDots = () => (
+  <Typography variant="body2" sx={{ fontStyle: "italic" }}>
+    <span className="dot">.</span>
+    <span className="dot">.</span>
+    <span className="dot">.</span>
+  </Typography>
+);
+
+/* ------------------ MAIN COMPONENT ------------------ */
 export default function AiAssistant() {
-  const [messages, setMessages] = useState([]);
-  const [modules, setModules] = useState([]);
-  const [questions, setQuestions] = useState([]);
+  const allowedMenus = useSelector((state) => state.menus.menus);
+
+  const [chat, setChat] = useState([]);
   const [selectedModule, setSelectedModule] = useState(null);
-  const [showCount, setShowCount] = useState(3);
-  const [showFollowUp, setShowFollowUp] = useState(false);
-  const [typingDots, setTypingDots] = useState(false);
+  const [showAllQuestions, setShowAllQuestions] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [askAgain, setAskAgain] = useState(false);
 
-  const messagesEndRef = useRef(null);
+  const bottomRef = useRef(null);
 
-  /* 🔹 Auto scroll */
+  /* Auto scroll */
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, typingDots]);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chat, isTyping]);
 
-  /* 🔹 Init */
-  useEffect(() => {
-    setModules([
-      { code: "CIRCLE", name: "Circle Management" },
-      { code: "CGL", name: "CGL Management" },
-      { code: "BRANCH", name: "Branch Management" },
-    ]);
-
-    setMessages([
-      {
-        from: "bot",
-        text: "👋 Hi, I’m your Fincore Assistant. Please select a module to continue.",
-      },
-    ]);
-  }, []);
-
-  /* 🔹 Helpers */
-  const addUserMessage = (text) =>
-    setMessages((prev) => [...prev, { from: "user", text }]);
-
-  const addBotMessage = (text) =>
-    setMessages((prev) => [...prev, { from: "bot", text }]);
-
-  const startTyping = () => setTypingDots(true);
-  const stopTyping = () => setTypingDots(false);
-
-  /* 🔹 Module select */
+  /* Handle module select */
   const handleModuleSelect = (module) => {
     setSelectedModule(module);
-    setShowCount(3);
-    setShowFollowUp(false);
-
-    addUserMessage(module.name);
-    startTyping();
-
-    setTimeout(() => {
-      const moduleQuestions = {
-        CIRCLE: [
-          "How do I create a circle?",
-          "Who can approve a circle request?",
-          "Where can I view circle details?",
-          "Can I edit an approved circle?",
-          "How to track circle request status?",
-        ],
-        CGL: [
-          "How do I create a CGL?",
-          "What is the approval flow for CGL?",
-          "Where can I view CGL details?",
-        ],
-        BRANCH: [
-          "How do I create a branch?",
-          "Who approves branch requests?",
-          "Where can I view branch details?",
-        ],
-      };
-
-      setQuestions(moduleQuestions[module.code] || []);
-      addBotMessage(`Here are some common questions for ${module.name}.`);
-      stopTyping();
-    }, 1000);
+    setShowAllQuestions(false);
+    setAskAgain(false);
+    setChat([
+      {
+        from: "bot",
+        text: `You selected ${module}. Please choose a question.`,
+      },
+    ]);
   };
 
-  /* 🔹 Question select */
-  const handleQuestionSelect = (question) => {
-    addUserMessage(question);
-    startTyping();
+  /* Handle question click */
+  const handleQuestionClick = (item) => {
+    setChat((prev) => [...prev, { from: "user", text: item.q }]);
+    setIsTyping(true);
 
     setTimeout(() => {
-      addBotMessage(
-        "Please navigate to the respective module, click Create, fill mandatory details, and submit for approval."
-      );
-      addBotMessage("Would you like to ask another question?");
-      setShowFollowUp(true);
-      stopTyping();
+      setIsTyping(false);
+      setChat((prev) => [
+        ...prev,
+        { from: "bot", text: item.a },
+        {
+          from: "bot",
+          text: "Would you like to ask another question?",
+          action: "yesno",
+        },
+      ]);
+      setAskAgain(true);
     }, 1200);
   };
 
-  /* 🔹 Follow-up */
-  const handleFollowUp = (answer) => {
-    addUserMessage(answer);
-    setShowFollowUp(false);
-
-    if (answer === "Yes") {
-      addBotMessage("Sure 🙂 Please select another question.");
-    } else {
-      addBotMessage(
-        "Thank you for using Fincore Assistant. Feel free to reach out anytime. Have a great day! 👋"
-      );
-      setQuestions([]);
-    }
-  };
+  const questions =
+    selectedModule && QUESTION_BANK[selectedModule]
+      ? QUESTION_BANK[selectedModule]
+      : [];
 
   return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "#f5f7fb" }}>
-      {/* CHAT */}
-      <Box sx={{ flex: 1, overflowY: "auto", p: 2 }}>
-        <Stack spacing={2}>
-          {messages.map((msg, index) => (
-            <Stack
-              key={index}
-              direction="row"
-              justifyContent={msg.from === "user" ? "flex-end" : "flex-start"}
-            >
+    <Box sx={{ height: "100%", p: 2, overflowY: "auto" }}>
+      {/* BOT WELCOME */}
+      {chat.length === 0 && (
+        <Typography variant="body1" mb={2}>
+          👋 Hi, I’m your FinCore Assistant. Please select a module.
+        </Typography>
+      )}
+
+      {/* MODULE SELECTION */}
+      {!selectedModule && (
+        <Stack direction="row" spacing={1} flexWrap="wrap">
+          {allowedMenus.map((m) => (
+            <Chip
+              key={m.id}
+              label={m.title}
+              clickable
+              color="primary"
+              onClick={() => handleModuleSelect(m.title)}
+            />
+          ))}
+        </Stack>
+      )}
+
+      {/* CHAT MESSAGES */}
+      <Stack spacing={1} mt={2}>
+        {chat.map((msg, idx) => (
+          <Box
+            key={idx}
+            alignSelf={msg.from === "user" ? "flex-end" : "flex-start"}
+            sx={{
+              backgroundColor:
+                msg.from === "user" ? "primary.main" : "grey.200",
+              color: msg.from === "user" ? "white" : "black",
+              px: 2,
+              py: 1,
+              borderRadius: 2,
+              maxWidth: "80%",
+            }}
+          >
+            <Typography variant="body2">{msg.text}</Typography>
+
+            {msg.action === "yesno" && (
+              <Stack direction="row" spacing={1} mt={1}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  onClick={() => {
+                    setAskAgain(false);
+                    setChat((prev) => [
+                      ...prev,
+                      {
+                        from: "bot",
+                        text: "Please select another question.",
+                      },
+                    ]);
+                  }}
+                >
+                  Yes
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    setAskAgain(false);
+                    setChat((prev) => [
+                      ...prev,
+                      {
+                        from: "bot",
+                        text:
+                          "Thank you for using FinCore Assistant. Have a great day!",
+                      },
+                    ]);
+                  }}
+                >
+                  No
+                </Button>
+              </Stack>
+            )}
+          </Box>
+        ))}
+
+        {isTyping && <TypingDots />}
+        <div ref={bottomRef} />
+      </Stack>
+
+      {/* QUESTIONS */}
+      {selectedModule && !askAgain && (
+        <>
+          <Divider sx={{ my: 2 }} />
+          <Typography variant="subtitle2">Questions</Typography>
+
+          {questions
+            .slice(0, showAllQuestions ? questions.length : 3)
+            .map((item, i) => (
               <Paper
+                key={i}
+                onClick={() => handleQuestionClick(item)}
                 sx={{
-                  p: 1.5,
-                  maxWidth: "75%",
-                  bgcolor: msg.from === "user" ? "primary.main" : "grey.200",
-                  color: msg.from === "user" ? "#fff" : "#000",
+                  p: 1,
+                  mt: 1,
+                  cursor: "pointer",
+                  "&:hover": { backgroundColor: "grey.100" },
                 }}
               >
-                <Typography variant="body2">{msg.text}</Typography>
+                <Typography variant="body2">{item.q}</Typography>
               </Paper>
-            </Stack>
-          ))}
+            ))}
 
-          {/* ✅ WhatsApp-style typing dots */}
-          {typingDots && (
-            <Stack direction="row">
-              <Paper sx={{ p: 1.2, bgcolor: "grey.200" }}>
-                <Box sx={{ display: "flex", gap: 0.5 }}>
-                  <span className="dot" />
-                  <span className="dot" />
-                  <span className="dot" />
-                </Box>
-              </Paper>
-            </Stack>
+          {questions.length > 3 && !showAllQuestions && (
+            <Button size="small" onClick={() => setShowAllQuestions(true)}>
+              Show more
+            </Button>
           )}
-
-          <div ref={messagesEndRef} />
-        </Stack>
-      </Box>
-
-      {/* ACTIONS */}
-      <Box sx={{ p: 2, borderTop: "1px solid #ddd", bgcolor: "#fff" }}>
-        {!selectedModule && (
-          <Stack direction="row" spacing={1} flexWrap="wrap">
-            {modules.map((m) => (
-              <Chip
-                key={m.code}
-                label={m.name}
-                onClick={() => handleModuleSelect(m)}
-                color="primary"
-                variant="outlined"
-              />
-            ))}
-          </Stack>
-        )}
-
-        {selectedModule && questions.length > 0 && !showFollowUp && (
-          <Stack spacing={1}>
-            {questions.slice(0, showCount).map((q, i) => (
-              <Button
-                key={i}
-                variant="outlined"
-                onClick={() => handleQuestionSelect(q)}
-                sx={{ justifyContent: "flex-start" }}
-              >
-                {q}
-              </Button>
-            ))}
-
-            {questions.length > showCount && (
-              <Button size="small" onClick={() => setShowCount(showCount + 3)}>
-                Show more
-              </Button>
-            )}
-          </Stack>
-        )}
-
-        {showFollowUp && (
-          <Stack direction="row" spacing={2}>
-            <Button variant="contained" onClick={() => handleFollowUp("Yes")}>
-              Yes
-            </Button>
-            <Button variant="outlined" onClick={() => handleFollowUp("No")}>
-              No
-            </Button>
-          </Stack>
-        )}
-      </Box>
-
-      {/* 🔹 Typing animation CSS */}
-      <style>
-        {`
-          .dot {
-            width: 6px;
-            height: 6px;
-            background: #555;
-            border-radius: 50%;
-            animation: blink 1.4s infinite both;
-          }
-          .dot:nth-child(1) { animation-delay: 0s; }
-          .dot:nth-child(2) { animation-delay: 0.2s; }
-          .dot:nth-child(3) { animation-delay: 0.4s; }
-
-          @keyframes blink {
-            0% { opacity: .2; }
-            20% { opacity: 1; }
-            100% { opacity: .2; }
-          }
-        `}
-      </style>
+        </>
+      )}
     </Box>
   );
 }
