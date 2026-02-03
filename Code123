@@ -1,3 +1,450 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Box,
+  Button,
+  Dialog,
+  DialogContent,
+  Grid,
+  IconButton,
+  Stack,
+  TextField,
+  Typography,
+  Tooltip,
+  MenuItem,
+  DialogActions,
+  Divider,
+  styled,
+} from "@mui/material";
+
+import {
+  Edit as EditIcon,
+  Add as AddIcon,
+  Close as CloseIcon,
+} from "@mui/icons-material";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import useApi from "../../hooks/useApi";
+import useCustomSnackbar from "../../utils/useCustomSnackbar";
+import {
+  CircleTab1Container,
+  CircleMasterDataGrid,
+  CircleTab1Addicon,
+  CircleTab1Fab,
+  CircleTab1Grid,
+  Circletab1DialogTitle,
+} from "./CircleMasterStyle";
+
+const OverlayBox = styled(Box)(() => ({
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  justifyContent: "center",
+  alignItems: "center",
+}));
+
+const CustomNoRowsOverlay = () => {
+  return (
+    <OverlayBox>
+      <ErrorOutlineIcon fontSize="large" />
+      <Typography variant="h5" fontSize="1.2rem">
+        Data is not available
+      </Typography>
+    </OverlayBox>
+  );
+};
+
+export default function CircleMasterTab() {
+  const [rows, setRows] = useState([]);
+  const [zones, setZones] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const snackbar = useCustomSnackbar();
+  const [originalData, setOriginalData] = useState(null); // New state for original data
+  const [isDataSame, setIsDataSame] = useState(true);
+  const { callApi } = useApi();
+
+  const [circleData, setCircleData] = useState({
+    circleCode: "",
+    circleName: "",
+    zoneCode: "",
+  });
+  const [errors, setErrors] = useState({});
+
+  const checkDataEquality = (current, original) => {
+    if (!original) return true; // If no original data, assume they are "same" initially for disable state
+    return (
+      current.circleName === original.circleName &&
+      current.zoneCode === original.zoneCode
+      // currencyCode is excluded as it is the ID and likely read-only
+    );
+  };
+
+  // --- debounce/snackbar control ---
+  const snackGateRef = useRef(true);
+  const notifyOnce = (msg, variant = "warning") => {
+    if (!snackGateRef.current) return;
+    snackGateRef.current = false;
+    snackbar(msg, variant);
+    setTimeout(() => (snackGateRef.current = true), 900);
+  };
+
+  // --- Fetch Data ---
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const [zonesRes, circlesRes] = await Promise.all([
+        callApi("/CM/common-master/zone-codes", null, "GET"),
+        callApi("/CM/common-master/circle-codes", null, "GET"),
+      ]);
+      setZones(zonesRes?.data ?? []);
+      setRows(circlesRes?.data ?? []);
+    } catch (err) {
+      console.error(err);
+      snackbar("Failed to fetch data", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    if (editingId && originalData) {
+      setIsDataSame(checkDataEquality(circleData, originalData));
+    }
+  }, [circleData, originalData, editingId]);
+
+  // --- Validation Rules ---
+  const reDigits = /^[0-9]*$/;
+  // const reDesc = /^[a-zA-Z0-9\s/&(),-]*$/;
+  const reDesc = /^(?!.* {2})[a-zA-Z0-9\s/&(),-]*$/;
+  const validateField = (name, value) => {
+    switch (name) {
+      case "circleCode":
+        if (!value.trim()) return "Circle Code is required";
+        if (!reDigits.test(value)) return "Only digits allowed";
+        if (value.length !== 3) return "Must be 3 digits";
+        break;
+
+      case "circleName":
+        if (!value.trim()) return "Circle Name is required";
+        if (!reDesc.test(value))
+          return "Invalid Format, Only alphabets, numbers, spaces(single spaces only between words) and ,()&/- are allowed!";
+        if (value.trim().length < 5)
+          return "Circle Name must be at least 5 characters";
+        break;
+
+      case "zoneCode":
+        if (!value.trim()) return "Zone Code is required";
+        if (!reDesc.test(value)) return "Only letters and digits allowed";
+        break;
+
+      default:
+        return "";
+    }
+    return "";
+  };
+
+  const isFormValid = useMemo(
+    () =>
+      !validateField("circleCode", circleData.circleCode) &&
+      !validateField("circleName", circleData.circleName) &&
+      !validateField("zoneCode", circleData.zoneCode),
+    [circleData],
+  );
+
+  const handleChange = (e) => {
+    const { name } = e.target;
+    let { value } = e.target;
+    if (name === "circleCode") {
+      if (!reDigits.test(value)) {
+        notifyOnce("Circle Code accepts digits only");
+        return;
+      }
+      if (value.length > 3) {
+        notifyOnce("Circle Code must be 3 digits");
+        return;
+      }
+    }
+    if (name === "circleName") {
+      if (value && !/^[A-Za-z0-9]$/.test(value[0])) {
+        notifyOnce("Should not start with special character");
+        return;
+      }
+      value = value?.toUpperCase();
+      if (!reDesc.test(value)) {
+        notifyOnce(
+          "Invalid Format, Only alphabets, spaces(single spaces only between words) and ,()&/- are allowed!",
+        );
+        return;
+      }
+      if (name === "zoneCode" && !reDesc.test(value)) {
+        notifyOnce("Zone Code accepts only letters/digits");
+        return;
+      }
+    }
+    setCircleData((prev) => ({ ...prev, [name]: value }));
+    setErrors((prev) => ({ ...prev, [name]: validateField(name, value) }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (editingId && isDataSame) {
+      snackbar("No Changes Detected!", "warning");
+      return; // Stop submission
+    }
+    const isEditing = editingId;
+    if (!isEditing) {
+      const circleExists = rows.some(
+        (row) => row.circleCode === circleData.circleCode,
+      );
+      if (circleExists) {
+        snackbar("Circle code already exist", "warning");
+        return;
+      }
+    }
+
+    const allErrors = {
+      circleCode: validateField("circleCode", circleData.circleCode),
+      circleName: validateField("circleName", circleData.circleName),
+      zoneCode: validateField("zoneCode", circleData.zoneCode),
+    };
+    setErrors(allErrors);
+
+    const valid = Object.values(allErrors).every((v) => !v);
+    if (!valid) {
+      notifyOnce("Please fix validation errors", "error");
+      return;
+    }
+
+    const selectedZone = zones.find(
+      (z) => String(z.id) === String(circleData.zoneCode),
+    );
+
+    const payloadData = {
+      requestType: "CIRCLE",
+      changeType: editingId ? "UPDATE" : "ADD",
+      targetId: circleData.circleCode,
+      payload: {
+        circleCode: circleData.circleCode,
+        circleName: circleData.circleName,
+        zoneCode: circleData.zoneCode,
+        zoneDescription: selectedZone?.description,
+      },
+    };
+
+    try {
+      const response = await callApi("/CR/create-request", payloadData, "POST");
+      if (response) {
+        snackbar(
+          editingId
+            ? "Circle update request submitted successfully with request id " +
+                response?.data?.id
+            : "Circle creation request submitted successfully with request id " +
+                response?.data?.id,
+          "success",
+        );
+        handleClose();
+        fetchData();
+      }
+    } catch (err) {
+      snackbar(err?.message || "Request failed", "error");
+    }
+  };
+
+  const handleEdit = (row) => {
+    const initialData = {
+      circleCode: String(row.circleCode ?? ""),
+      circleName: String(row.circleName ?? ""),
+      zoneCode: String(row.zoneCode ?? ""),
+    };
+    setCircleData(initialData);
+    setOriginalData(initialData); // Store the original data here
+    setEditingId(row.circleCode);
+    setOpen(true);
+    setIsDataSame(true);
+  };
+
+  const handleClose = () => {
+    setOpen(false);
+    setCircleData({
+      circleCode: "",
+      circleName: "",
+      zoneCode: "",
+    });
+    setOriginalData(null); // Clear original data on close
+    setErrors({});
+    setEditingId(null);
+    setIsDataSame(true);
+  };
+
+  // --- Columns ---
+  const columns = useMemo(
+    () => [
+      { field: "Type", headerName: "File Type", flex: 1.2 },
+      { field: "FILE_PATTERN", headerName: "File Pattern", flex: 2 },
+      {
+        field: "STREAM",
+        headerName: "Stream",
+        filterable: false,
+        disableColumnMenu: true,
+        flex: 2,
+        // valueGetter: (params) => {
+        //   const zone = zones.find((z) => String(z.id) === String(params));
+        //   return zone ? zone.description : "N/A";
+        // },
+      },
+      { field: "FREQUENCY", headerName: "Frequency", flex: 2 },
+      { field: "INCLUDE", headerName: "Include", flex: 2 },
+      {
+        field: "actions",
+        headerName: "Actions",
+        flex: 0.8,
+        filterable: false,
+        sortable: false,
+        disableColumnMenu: true,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params) => (
+          <Tooltip title="Edit">
+            <IconButton color="primary" onClick={() => handleEdit(params.row)}>
+              <EditIcon />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [zones],
+  );
+
+  return (
+    <CircleTab1Container>
+      <CircleMasterDataGrid
+        loading={loading}
+        rows={rows}
+        columns={columns}
+        disableRowSelectionOnClick
+        getRowId={(row) => row.circleCode}
+        pageSizeOptions={[5, 10, 25, 50]}
+        initialState={{
+          pagination: { paginationModel: { pageSize: 10, page: 0 } },
+          sorting: { sortModel: [{ field: "circleCode", sort: "asc" }] },
+        }}
+        sx={{
+          minHeight: 520,
+          width: "100%",
+          "& .MuiDataGrid-columnHeaders": { outline: "none" },
+        }}
+        localeText={{
+          noRowsLabel: "No Circle Records Found",
+        }}
+        slots={{
+          noRowsOverlay: CustomNoRowsOverlay,
+        }}
+      />
+
+      {/* Floating Create Button */}
+      <CircleTab1Fab
+        onClick={() => setOpen(true)}
+        color="primary"
+        variant="extended"
+      >
+        <CircleTab1Addicon />
+        Create
+      </CircleTab1Fab>
+
+      {/* Dialog Form */}
+      <Dialog open={open} maxWidth="sm" fullWidth="true">
+        <Box component="form" onSubmit={handleSubmit}>
+          <Circletab1DialogTitle>
+            <Stack
+              // margin={-1}
+              direction="row"
+              justifyContent="space-between"
+              alignItems="center"
+            >
+              <Typography variant="h6" color="primary">
+                {editingId ? "Edit Circle" : "Add New Circle"}
+              </Typography>
+              <IconButton onClick={handleClose}>
+                <CloseIcon />
+              </IconButton>
+            </Stack>
+          </Circletab1DialogTitle>
+
+          <Divider />
+
+          <DialogContent>
+            <CircleTab1Grid container spacing={3}>
+              <Grid size={{ xs: 12 }}>
+                <TextField
+                  fullWidth
+                  label="Circle Code *"
+                  name="circleCode"
+                  value={circleData.circleCode}
+                  onChange={handleChange}
+                  disabled={!!editingId}
+                  error={!!errors.circleCode}
+                  helperText={errors.circleCode || "Exactly 3 digits"}
+                  inputProps={{ maxLength: 3, inputMode: "numeric" }}
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12 }}>
+                <TextField
+                  fullWidth
+                  label="Circle Name *"
+                  name="circleName"
+                  value={circleData.circleName}
+                  onChange={handleChange}
+                  error={!!errors.circleName}
+                  inputProps={{ maxLength: 40 }}
+                  helperText={
+                    errors.circleName ||
+                    "Allowed 5-40 characters (A-Z, 0-9, spaces,/,&,(,),- )"
+                  }
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12 }}>
+                <TextField
+                  fullWidth
+                  select
+                  label="Zone *"
+                  name="zoneCode"
+                  value={circleData.zoneCode}
+                  onChange={handleChange}
+                  error={!!errors.zoneCode}
+                  helperText={errors.zoneCode || "Select corresponding Zone"}
+                >
+                  {zones.map((zone) => (
+                    <MenuItem key={zone.id} value={zone.id}>
+                      {zone.description}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+            </CircleTab1Grid>
+          </DialogContent>
+          <Divider></Divider>
+          <DialogActions>
+            <Button
+              type="submit"
+              variant="contained"
+              startIcon={editingId ? <EditIcon /> : <AddIcon />}
+              disabled={!isFormValid}
+            >
+              {editingId ? "Update" : "Add"}
+            </Button>
+          </DialogActions>
+        </Box>
+      </Dialog>
+    </CircleTab1Container>
+  );
+}
 
        import {
   Box,
