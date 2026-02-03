@@ -1,293 +1,326 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
-  Typography,
-  Paper,
-  Stack,
   Button,
+  Dialog,
+  DialogContent,
+  DialogActions,
+  Grid,
+  IconButton,
+  MenuItem,
+  Stack,
   TextField,
-  useTheme,
+  Typography,
+  Checkbox,
+  FormControlLabel,
+  Tooltip,
 } from "@mui/material";
-import { useEffect, useRef, useState } from "react";
-import { useSelector } from "react-redux";
+import {
+  Add as AddIcon,
+  Edit as EditIcon,
+  Close as CloseIcon,
+  Delete as DeleteIcon,
+} from "@mui/icons-material";
+import { DataGrid } from "@mui/x-data-grid";
+import useApi from "../../hooks/useApi";
+import useCustomSnackbar from "../../utils/useCustomSnackbar";
 
-/* ================= TEMP DATA (REPLACE WITH BE LATER) ================= */
-const QUESTION_BANK = {
-  "Circle Management": [
-    {
-      q: "What is Circle Management?",
-      a: "Circle Management allows you to create and manage operational circles in FinCore.",
-    },
-    {
-      q: "How do I create a circle?",
-      a: "Navigate to Circle Management, click Create, fill required details, and submit for approval.",
-    },
-    {
-      q: "Who can approve circle requests?",
-      a: "Only authorized users can approve or reject circle requests.",
-    },
-    {
-      q: "Can I edit an approved circle?",
-      a: "Approved circles can only be modified via a new request.",
-    },
-    {
-      q: "How can I track circle requests?",
-      a: "You can track requests from the Circle Requests screen.",
-    },
-  ],
-};
+export default function FileManagementTab() {
+  const { callApi } = useApi();
+  const snackbar = useCustomSnackbar();
 
-/* ================= TYPING DOTS ================= */
-const TypingDots = () => (
-  <Box sx={{ display: "flex", gap: 0.5 }}>
-    {[1, 2, 3].map((i) => (
-      <Box
-        key={i}
-        sx={{
-          width: 6,
-          height: 6,
-          borderRadius: "50%",
-          backgroundColor: "grey.500",
-          animation: "blink 1.4s infinite both",
-          animationDelay: `${i * 0.2}s`,
-        }}
-      />
-    ))}
-    <style>
-      {`
-        @keyframes blink {
-          0% { opacity: .2 }
-          20% { opacity: 1 }
-          100% { opacity: .2 }
-        }
-      `}
-    </style>
-  </Box>
-);
+  const [rows, setRows] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [originalData, setOriginalData] = useState(null);
+  const [isDataSame, setIsDataSame] = useState(true);
 
-export default function AiAssistant() {
-  const theme = useTheme();
-  const scrollRef = useRef(null);
+  const [formData, setFormData] = useState({
+    fileType: "",
+    subType: "",
+    filePattern: "",
+    stream: "",
+    frequency: { D: false, M: false, Y: false },
+    include: "",
+  });
 
-  /* Redux menus */
-  const menus = useSelector((state) => state.menus?.menus || []);
-  const allowedModules = menus.map((m) => m.title);
-
-  /* Chat state */
-  const [chat, setChat] = useState([
-    { from: "bot", text: "Hello 👋 I’m FinCore Assistant. How can I help you?" },
-  ]);
-
-  const [stage, setStage] = useState("HOME"); // HOME | MODULES | QUESTIONS
-  const [selectedModule, setSelectedModule] = useState(null);
-  const [questions, setQuestions] = useState([]);
-  const [showQuestions, setShowQuestions] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(3);
-  const [typing, setTyping] = useState(false);
-
-  /* Search */
-  const [search, setSearch] = useState("");
-
-  useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chat, typing]);
-
-  const botReply = (text, delay = 900) => {
-    setTyping(true);
-    setTimeout(() => {
-      setTyping(false);
-      setChat((p) => [...p, { from: "bot", text }]);
-    }, delay);
-  };
-
-  /* ================= FLOW ================= */
-
-  const handleSelectModuleClick = () => {
-    setChat((p) => [...p, { from: "user", text: "Select Module" }]);
-    setStage("MODULES");
-  };
-
-  const handleModuleSelect = (module) => {
-    setSelectedModule(module);
-    setChat((p) => [...p, { from: "user", text: module }]);
-    const qs = QUESTION_BANK[module] || [];
-    setQuestions(qs);
-    setVisibleCount(3);
-    setShowQuestions(true);
-    setStage("QUESTIONS");
-    botReply(`Here are some common questions related to ${module}.`);
-  };
-
-  const handleQuestionClick = (qObj) => {
-    setChat((p) => [...p, { from: "user", text: qObj.q }]);
-    setShowQuestions(false); // 🔑 hide questions
-    botReply(qObj.a, 1200);
-    setTimeout(() => {
-      botReply("Would you like to ask another question?");
-    }, 2300);
-  };
-
-  const handleYesNo = (yes) => {
-    setChat((p) => [...p, { from: "user", text: yes ? "Yes" : "No" }]);
-    if (yes) {
-      setVisibleCount(3);
-      setShowQuestions(true);
-      botReply("Please select another question.");
-    } else {
-      setShowQuestions(false);
-      botReply("Thank you for using FinCore Assistant. Have a great day!");
+  /* ---------------- FETCH ---------------- */
+  const fetchData = async () => {
+    try {
+      const res = await callApi("/CM/common-master/file-config", null, "GET");
+      setRows(res?.data || []);
+    } catch {
+      snackbar("Failed to load file configurations", "error");
     }
   };
 
-  /* ================= SEARCH (ADDITIONAL) ================= */
+  useEffect(() => {
+    fetchData();
+  }, []);
 
-  const allQuestions = Object.values(QUESTION_BANK).flat();
-  const searchResults =
-    search.trim().length > 0
-      ? allQuestions.filter((q) =>
-          q.q.toLowerCase().includes(search.toLowerCase())
-        )
-      : [];
+  /* ---------------- EDIT TRACK ---------------- */
+  useEffect(() => {
+    if (editingId && originalData) {
+      setIsDataSame(
+        JSON.stringify(formData) === JSON.stringify(originalData)
+      );
+    }
+  }, [formData, originalData, editingId]);
 
-  /* ================= UI ================= */
+  /* ---------------- HANDLERS ---------------- */
+  const handleChange = (e) => {
+    const { name, value } = e.target;
 
-  return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", p: 2 }}>
-      {/* CHAT AREA */}
-      <Stack spacing={1.5} sx={{ flex: 1, overflowY: "auto" }}>
-        {chat.map((msg, i) => (
-          <Box
-            key={i}
-            sx={{
-              display: "flex",
-              justifyContent: msg.from === "user" ? "flex-end" : "flex-start",
-            }}
-          >
-            <Paper
-              sx={{
-                p: 1.5,
-                maxWidth: "75%",
-                backgroundColor:
-                  msg.from === "user"
-                    ? theme.palette.primary.light
-                    : theme.palette.grey[100],
-              }}
-            >
-              <Typography variant="body2">{msg.text}</Typography>
-            </Paper>
-          </Box>
-        ))}
+    if (name === "fileType") {
+      setFormData((prev) => ({
+        ...prev,
+        fileType: value,
+        subType: value === "GLIF" ? "GLIF" : "",
+      }));
+      return;
+    }
 
-        {typing && (
-          <Paper sx={{ p: 1.5, width: "fit-content" }}>
-            <TypingDots />
-          </Paper>
-        )}
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
 
-        {/* HOME */}
-        {stage === "HOME" && (
-          <Paper sx={{ p: 2 }}>
-            <Stack spacing={1}>
-              <Button variant="outlined" onClick={handleSelectModuleClick}>
-                Select Module
-              </Button>
-              <Button variant="outlined">FAQs</Button>
-            </Stack>
-          </Paper>
-        )}
+  const handleFrequencyChange = (key) => {
+    setFormData((prev) => ({
+      ...prev,
+      frequency: { ...prev.frequency, [key]: !prev.frequency[key] },
+    }));
+  };
 
-        {/* MODULES */}
-        {stage === "MODULES" && (
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Select a module
-            </Typography>
-            <Stack direction="row" flexWrap="wrap" gap={1}>
-              {allowedModules.map((m) => (
-                <Button
-                  key={m}
-                  size="small"
-                  variant="outlined"
-                  onClick={() => handleModuleSelect(m)}
-                >
-                  {m}
-                </Button>
-              ))}
-            </Stack>
-          </Paper>
-        )}
+  const handleEdit = (row) => {
+    const init = {
+      fileType: row.fileType,
+      subType: row.subType,
+      filePattern: row.filePattern,
+      stream: row.stream,
+      frequency: {
+        D: row.frequency?.includes("D"),
+        M: row.frequency?.includes("M"),
+        Y: row.frequency?.includes("Y"),
+      },
+      include: row.include,
+    };
+    setFormData(init);
+    setOriginalData(init);
+    setEditingId(row.id);
+    setOpen(true);
+    setIsDataSame(true);
+  };
 
-        {/* QUESTIONS (ONLY WHEN showQuestions = true) */}
-        {stage === "QUESTIONS" && showQuestions && (
-          <Paper sx={{ p: 2 }}>
-            <Stack spacing={1}>
-              {questions.slice(0, visibleCount).map((q, i) => (
-                <Button
-                  key={i}
-                  variant="text"
-                  onClick={() => handleQuestionClick(q)}
-                >
-                  {q.q}
-                </Button>
-              ))}
+  const handleDelete = async (id) => {
+    try {
+      await callApi(`/CM/common-master/file-config/${id}`, null, "DELETE");
+      snackbar("Record deleted successfully", "success");
+      fetchData();
+    } catch {
+      snackbar("Delete failed", "error");
+    }
+  };
 
-              {questions.length > visibleCount && (
-                <Button
-                  size="small"
-                  onClick={() => setVisibleCount((c) => c + 3)}
-                >
-                  Show more
-                </Button>
-              )}
-            </Stack>
-          </Paper>
-        )}
+  const handleClose = () => {
+    setOpen(false);
+    setEditingId(null);
+    setOriginalData(null);
+    setIsDataSame(true);
+    setFormData({
+      fileType: "",
+      subType: "",
+      filePattern: "",
+      stream: "",
+      frequency: { D: false, M: false, Y: false },
+      include: "",
+    });
+  };
 
-        {/* YES / NO */}
-        {chat.at(-1)?.text ===
-          "Would you like to ask another question?" && (
+  const handleSubmit = async () => {
+    if (editingId && isDataSame) {
+      snackbar("No changes detected", "warning");
+      return;
+    }
+
+    const payload = {
+      requestType: "FILE_CONFIG",
+      changeType: editingId ? "UPDATE" : "ADD",
+      targetId: editingId,
+      payload: {
+        ...formData,
+        frequency: Object.keys(formData.frequency)
+          .filter((k) => formData.frequency[k])
+          .join(","),
+      },
+    };
+
+    try {
+      await callApi("/CR/create-request", payload, "POST");
+      snackbar(
+        editingId
+          ? "File configuration update request submitted"
+          : "File configuration creation request submitted",
+        "success"
+      );
+      handleClose();
+      fetchData();
+    } catch {
+      snackbar("Request failed", "error");
+    }
+  };
+
+  /* ---------------- TABLE ---------------- */
+  const columns = useMemo(
+    () => [
+      { field: "fileType", headerName: "File Type", flex: 1 },
+      { field: "subType", headerName: "Sub Type", flex: 1 },
+      { field: "filePattern", headerName: "File Pattern", flex: 2 },
+      { field: "stream", headerName: "Stream", flex: 1.5 },
+      { field: "frequency", headerName: "Frequency", flex: 1 },
+      { field: "include", headerName: "Include", flex: 1 },
+      {
+        field: "actions",
+        headerName: "Actions",
+        flex: 1,
+        align: "center",
+        renderCell: (params) => (
           <Stack direction="row" spacing={1}>
-            <Button variant="outlined" onClick={() => handleYesNo(true)}>
-              Yes
-            </Button>
-            <Button variant="outlined" onClick={() => handleYesNo(false)}>
-              No
-            </Button>
+            <Tooltip title="Edit">
+              <IconButton
+                color="primary"
+                onClick={() => handleEdit(params.row)}
+              >
+                <EditIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Delete">
+              <IconButton
+                color="error"
+                onClick={() => handleDelete(params.row.id)}
+              >
+                <DeleteIcon />
+              </IconButton>
+            </Tooltip>
           </Stack>
-        )}
+        ),
+      },
+    ],
+    []
+  );
 
-        <div ref={scrollRef} />
-      </Stack>
+  /* ---------------- UI ---------------- */
+  return (
+    <Box>
+      <DataGrid
+        rows={rows}
+        columns={columns}
+        getRowId={(row) => row.id}
+        autoHeight
+        disableRowSelectionOnClick
+      />
 
-      {/* SEARCH (BOTTOM – ADDITIONAL ONLY) */}
-      <Box sx={{ mt: 1 }}>
-        <TextField
-          fullWidth
-          size="small"
-          placeholder="Search questions..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      {/* CREATE BUTTON */}
+      <Button
+        variant="contained"
+        startIcon={<AddIcon />}
+        sx={{ position: "fixed", bottom: 24, right: 24 }}
+        onClick={() => setOpen(true)}
+      >
+        Create
+      </Button>
 
-        {searchResults.length > 0 && (
-          <Paper sx={{ mt: 1, maxHeight: 200, overflowY: "auto" }}>
-            <Stack>
-              {searchResults.map((q, i) => (
-                <Button
-                  key={i}
-                  variant="text"
-                  onClick={() => {
-                    setSearch("");
-                    handleQuestionClick(q);
-                  }}
-                  sx={{ justifyContent: "flex-start" }}
-                >
-                  {q.q}
-                </Button>
-              ))}
+      {/* DIALOG */}
+      <Dialog open={open} maxWidth="sm" fullWidth>
+        <DialogContent>
+          <Stack spacing={2}>
+            <Stack direction="row" justifyContent="space-between">
+              <Typography variant="h6">
+                {editingId ? "Edit File Configuration" : "Add File Configuration"}
+              </Typography>
+              <IconButton onClick={handleClose}>
+                <CloseIcon />
+              </IconButton>
             </Stack>
-          </Paper>
-        )}
-      </Box>
+
+            <TextField
+              select
+              label="File Type"
+              name="fileType"
+              value={formData.fileType}
+              onChange={handleChange}
+              disabled={!!editingId}
+            >
+              <MenuItem value="BRANCH">Branch</MenuItem>
+              <MenuItem value="GLIF">GLIF</MenuItem>
+            </TextField>
+
+            <TextField
+              select
+              label="Sub Type"
+              name="subType"
+              value={formData.subType}
+              onChange={handleChange}
+              disabled={formData.fileType === "GLIF"}
+            >
+              {formData.fileType === "BRANCH" &&
+                ["INV", "BOR", "GEN", "CTA"].map((v) => (
+                  <MenuItem key={v} value={v}>
+                    {v}
+                  </MenuItem>
+                ))}
+              {formData.fileType === "GLIF" && (
+                <MenuItem value="GLIF">GLIF</MenuItem>
+              )}
+            </TextField>
+
+            <TextField
+              label="File Pattern"
+              name="filePattern"
+              value={formData.filePattern}
+              onChange={handleChange}
+            />
+
+            <TextField
+              label="Stream"
+              name="stream"
+              value={formData.stream}
+              onChange={handleChange}
+            />
+
+            <Box>
+              <Typography>Frequency</Typography>
+              {["D", "M", "Y"].map((f) => (
+                <FormControlLabel
+                  key={f}
+                  control={
+                    <Checkbox
+                      checked={formData.frequency[f]}
+                      onChange={() => handleFrequencyChange(f)}
+                    />
+                  }
+                  label={f}
+                />
+              ))}
+            </Box>
+
+            <TextField
+              select
+              label="Include"
+              name="include"
+              value={formData.include}
+              onChange={handleChange}
+            >
+              <MenuItem value="YES">Yes</MenuItem>
+              <MenuItem value="NO">No</MenuItem>
+            </TextField>
+          </Stack>
+        </DialogContent>
+
+        <DialogActions>
+          <Button variant="contained" onClick={handleSubmit}>
+            {editingId ? "Update" : "Add"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
