@@ -1,1228 +1,177 @@
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Box,
-  Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
   IconButton,
-  Collapse,
-  Stack,
-} from "@mui/material";
-import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import { useState, useEffect } from "react";
-
-export default function Faqs({ setFaqOpen }) {
-  const [openRow, setOpenRow] = useState(null);
-  const [faqList, setFaqList] = useState([]);
-
-  /* 🔹 TEMP DUMMY DATA (replace with API later) */
-  useEffect(() => {
-    setFaqList([
-      {
-        id: 1,
-        question: "What is CGL Management used for in Fincore?",
-        answer:
-          "CGL Management is used to create, view, manage, and process Central General Ledger (CGL) accounts, including approval and maintenance of CGL-related requests.",
-      },
-      {
-        id: 2,
-        question: "What options are available under CGL Management?",
-        answer:
-          "CGL Management provides three options: View CGL Details, CGL Requests, and CGL Management.",
-      },
-      {
-        id: 3,
-        question: "How can I view CGL details?",
-        answer:
-          "You can view CGL details by using the Search CGL option. After selecting a CGL, the system displays complete CGL information.",
-      },
-      {
-        id: 4,
-        question: "What information is shown in View CGL Details?",
-        answer:
-          "The screen displays CGL Number, Description, Account Classification, Comp1, Segment, Comp2, Balance Compare flag, Manual Posting flag, Balance Forward flag, and Open Date.",
-      },
-      {
-        id: 5,
-        question: "How can I track the status of my CGL request?",
-        answer:
-          "You can track the status of your CGL request in the My Requests tab, where the approval status is displayed.",
-      },
-    ]);
-  }, []);
-
-  const handleToggle = (id) => {
-    setOpenRow(openRow === id ? null : id);
-  };
-
-  return (
-    <Box
-      p={3}
-      height="calc(100vh - 120px)"
-      overflow="hidden"
-    >
-      {/* 🔹 HEADER (Same style as User Guides) */}
-      <Paper sx={{ p: 2, mb: 2 }}>
-        <Stack direction="row" alignItems="center" spacing={1}>
-          <IconButton
-            onClick={setFaqOpen}
-            sx={{
-              "&:hover": { backgroundColor: "grey.200" },
-            }}
-          >
-            <ArrowBackIcon />
-          </IconButton>
-
-          <Typography variant="h6" fontWeight={600}>
-            Frequently Asked Questions
-          </Typography>
-        </Stack>
-      </Paper>
-
-      {/* 🔹 CONTENT */}
-      <Paper
-        sx={{
-          height: "100%",
-          overflowY: "auto",
-        }}
-      >
-        <TableContainer>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell width="5%" />
-                <TableCell>
-                  <b>Question</b>
-                </TableCell>
-              </TableRow>
-            </TableHead>
-
-            <TableBody>
-              {faqList.map((faq) => (
-                <>
-                  {/* QUESTION ROW */}
-                  <TableRow
-                    key={faq.id}
-                    hover
-                    sx={{ cursor: "pointer" }}
-                    onClick={() => handleToggle(faq.id)}
-                  >
-                    <TableCell>
-                      <IconButton size="small">
-                        {openRow === faq.id ? (
-                          <KeyboardArrowUpIcon />
-                        ) : (
-                          <KeyboardArrowDownIcon />
-                        )}
-                      </IconButton>
-                    </TableCell>
-                    <TableCell>{faq.question}</TableCell>
-                  </TableRow>
-
-                  {/* ANSWER ROW */}
-                  <TableRow>
-                    <TableCell colSpan={2} sx={{ p: 0 }}>
-                      <Collapse
-                        in={openRow === faq.id}
-                        timeout="auto"
-                        unmountOnExit
-                      >
-                        <Box p={2} bgcolor="grey.50">
-                          <Typography variant="body2">
-                            {faq.answer}
-                          </Typography>
-                        </Box>
-                      </Collapse>
-                    </TableCell>
-                  </TableRow>
-                </>
-              ))}
-
-              {faqList.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={2} align="center">
-                    No FAQs available
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Paper>
-    </Box>
-  );
-}
-
-
-
-user guides 
-import {
-  Box,
+  Tooltip,
   Typography,
-  List,
-  ListItemButton,
-  ListItemText,
-  Card,
-  CardContent,
-  Stack,
-  Divider,
-  Chip,
-  IconButton,
-  Paper,
 } from "@mui/material";
-import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import { useEffect, useState } from "react";
-
-export default function UserGuides({ setUserGuideOpen }) {
-  const [modules, setModules] = useState([]);
-  const [selectedModule, setSelectedModule] = useState(null);
-
-  // 🔹 TEMP DUMMY DATA (later replace with API)
-  useEffect(() => {
-    const dummyGuideData = [
-      {
-        module: "CGL Management",
-        steps: [
-          "Navigate to CGL Management from the main menu.",
-          "Choose View CGL Details, CGL Requests, or CGL Management.",
-          "Search and view complete CGL details.",
-          "Approve or reject CGL requests raised by other users.",
-          "Create a new CGL by entering all mandatory fields.",
-          "Track request status in My Requests tab.",
-        ],
-      },
-      {
-        module: "Circle Management",
-        steps: [
-          "Open Circle Management from the menu.",
-          "View all approved circles in Management Circle.",
-          "Create a new circle using the Create button.",
-          "Submit circle request for approval.",
-          "Approve or reject circle requests.",
-        ],
-      },
-      {
-        module: "Branch Management",
-        steps: [
-          "Navigate to Branch Management.",
-          "View branch details using search option.",
-          "Create new branch with mandatory details.",
-          "Submit branch request for approval.",
-          "Track branch status in request section.",
-        ],
-      },
-    ];
-
-    setModules(dummyGuideData);
-    setSelectedModule(dummyGuideData[0]);
-  }, []);
-
-  return (
-    <Box
-      display="flex"
-      gap={3}
-      p={3}
-      height="calc(100vh - 120px)"
-      overflow="hidden"
-    >
-      {/* 🔹 LEFT PANEL */}
-      <Paper sx={{ width: 280, height: "100%" }}>
-        <CardContent>
-          <Stack direction="row" alignItems="center" spacing={1} mb={1}>
-            <IconButton onClick={setUserGuideOpen}>
-              <ArrowBackIcon />
-            </IconButton>
-            <Typography fontWeight={600}>Modules</Typography>
-          </Stack>
-
-          <Divider sx={{ mb: 1 }} />
-
-          <List disablePadding>
-            {modules.map((item) => (
-              <ListItemButton
-                key={item.module}
-                selected={selectedModule?.module === item.module}
-                onClick={() => setSelectedModule(item)}
-                sx={{ borderRadius: 1, mb: 0.5 }}
-              >
-                <ListItemText primary={item.module} />
-              </ListItemButton>
-            ))}
-          </List>
-        </CardContent>
-      </Paper>
-
-      {/* 🔹 RIGHT PANEL */}
-      <Paper
-        sx={{
-          flex: 1,
-          maxWidth: 900,
-          height: "100%",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        {/* 🔹 Sticky Header */}
-        <Box
-          sx={{
-            position: "sticky",
-            top: 0,
-            zIndex: 1,
-            backgroundColor: "#fff",
-            p: 2,
-            borderBottom: "1px solid #ddd",
-          }}
-        >
-          <Typography variant="h6" fontWeight={600}>
-            {selectedModule?.module}
-          </Typography>
-        </Box>
-
-        {/* 🔹 Scrollable Content */}
-        <CardContent sx={{ overflowY: "auto" }}>
-          <Stack spacing={2}>
-            {selectedModule?.steps.map((step, index) => (
-              <Card key={index} variant="outlined">
-                <CardContent>
-                  <Stack direction="row" spacing={2}>
-                    <Chip
-                      icon={<CheckCircleOutlineIcon />}
-                      label={`Step ${index + 1}`}
-                      size="small"
-                      color="primary"
-                    />
-                    <Typography variant="body2">{step}</Typography>
-                  </Stack>
-                </CardContent>
-              </Card>
-            ))}
-          </Stack>
-        </CardContent>
-      </Paper>
-    </Box>
-  );
-}
-
-
-
-ai assistant 
-
-
 import {
-  Box,
-  Typography,
-  Paper,
-  Stack,
-  Chip,
-  Button,
-  Divider,
-  IconButton,
-} from "@mui/material";
-import SmartToyIcon from "@mui/icons-material/SmartToy";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import { useEffect, useState } from "react";
-
-export default function AiAssistant({ setAiOpen }) {
-  const [messages, setMessages] = useState([]);
-  const [suggestedQuestions, setSuggestedQuestions] = useState([]);
-
-  /* =====================================================
-     🔹 DUMMY DATA (TEMP – FRONTEND ONLY)
-     ===================================================== */
-
-  const initialQuestions = [
-    { id: 1, text: "How do I create a CGL?" },
-    { id: 2, text: "How can I approve a circle request?" },
-    { id: 3, text: "How do I view branch details?" },
-  ];
-
-  const answerMap = {
-    1: {
-      answer:
-        "To create a CGL, navigate to CGL Management, click on Create, enter all mandatory details, and submit the request for approval.",
-      followUps: [
-        { id: 4, text: "What are the mandatory fields for CGL creation?" },
-        { id: 5, text: "Who can approve a CGL request?" },
-      ],
-    },
-    2: {
-      answer:
-        "Circle requests can be approved from the Circle Requests screen by authorized users.",
-      followUps: [
-        { id: 6, text: "Where can I see pending circle requests?" },
-      ],
-    },
-    3: {
-      answer:
-        "You can view branch details by navigating to Branch Management and using the View Branch Details option.",
-      followUps: [
-        { id: 7, text: "What information is shown in branch details?" },
-      ],
-    },
-  };
-
-  /* =====================================================
-     🔹 INITIAL BOT MESSAGE
-     ===================================================== */
-  useEffect(() => {
-    setMessages([
-      {
-        type: "bot",
-        text: "👋 Hi! I’m your FinCore Assistant. How can I help you today?",
-      },
-    ]);
-    setSuggestedQuestions(initialQuestions);
-  }, []);
-
-  /* =====================================================
-     🔹 HANDLE QUESTION CLICK
-     ===================================================== */
-  const handleQuestionClick = (question) => {
-    // Add user message
-    setMessages((prev) => [
-      ...prev,
-      { type: "user", text: question.text },
-    ]);
-
-    // Simulate backend response
-    const response = answerMap[question.id];
-
-    if (response) {
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          { type: "bot", text: response.answer },
-        ]);
-        setSuggestedQuestions(response.followUps || []);
-      }, 500);
-    }
-  };
-
-  return (
-    <Box
-      p={3}
-      height="calc(100vh - 120px)"
-      display="flex"
-      flexDirection="column"
-      overflow="hidden"
-    >
-      {/* ================= HEADER ================= */}
-      <Paper sx={{ p: 2, mb: 2 }}>
-        <Stack direction="row" alignItems="center" spacing={1}>
-          <IconButton
-            onClick={setAiOpen}
-            sx={{ "&:hover": { backgroundColor: "grey.200" } }}
-          >
-            <ArrowBackIcon />
-          </IconButton>
-
-          <SmartToyIcon color="primary" />
-
-          <Box>
-            <Typography variant="h6" fontWeight={600}>
-              FinCore Assistant
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Always here to help
-            </Typography>
-          </Box>
-        </Stack>
-      </Paper>
-
-      {/* ================= CHAT AREA ================= */}
-      <Paper
-        sx={{
-          flex: 1,
-          p: 2,
-          overflowY: "auto",
-          mb: 2,
-          backgroundColor: "grey.50",
-        }}
-      >
-        <Stack spacing={2}>
-          {messages.map((msg, index) => (
-            <Box
-              key={index}
-              alignSelf={msg.type === "user" ? "flex-end" : "flex-start"}
-              maxWidth="70%"
-            >
-              <Paper
-                sx={{
-                  p: 1.5,
-                  backgroundColor:
-                    msg.type === "user" ? "primary.main" : "white",
-                  color: msg.type === "user" ? "white" : "text.primary",
-                }}
-              >
-                <Typography variant="body2">{msg.text}</Typography>
-              </Paper>
-            </Box>
-          ))}
-        </Stack>
-      </Paper>
-
-      {/* ================= SUGGESTED QUESTIONS ================= */}
-      {suggestedQuestions.length > 0 && (
-        <>
-          <Divider sx={{ mb: 1 }} />
-          <Stack direction="row" spacing={1} flexWrap="wrap">
-            {suggestedQuestions.map((q) => (
-              <Chip
-                key={q.id}
-                label={q.text}
-                onClick={() => handleQuestionClick(q)}
-                clickable
-                color="primary"
-                variant="outlined"
-              />
-            ))}
-          </Stack>
-        </>
-      )}
-    </Box>
-  );
-}
-
-
-
-
-
-ai assistant update 
-
-
-import {
-  Box,
-  Card,
-  CardContent,
-  Typography,
-  IconButton,
-  TextField,
-  Stack,
-  Chip,
-  Divider,
-  Paper,
-} from "@mui/material";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import SendIcon from "@mui/icons-material/Send";
-import SmartToyIcon from "@mui/icons-material/SmartToy";
-import PersonIcon from "@mui/icons-material/Person";
-import { useState } from "react";
-
-export default function AiAssistant({ setAiOpen }) {
-  const [input, setInput] = useState("");
-  const [messages, setMessages] = useState([
-    {
-      type: "bot",
-      text: "Hi 👋 I’m your FinCore Assistant. Ask me anything about the application.",
-    },
-  ]);
-
-  /* 🔹 Dummy Question Bank (Replace with BE later) */
-  const questionBank = [
-    {
-      keywords: ["cgl", "ledger"],
-      question: "How do I create a new CGL?",
-    },
-    {
-      keywords: ["cgl", "approve"],
-      question: "How can I approve a CGL request?",
-    },
-    {
-      keywords: ["circle"],
-      question: "How do I manage circles in the system?",
-    },
-    {
-      keywords: ["branch"],
-      question: "How can I view branch details?",
-    },
-    {
-      keywords: ["user", "role"],
-      question: "How do I assign roles to users?",
-    },
-    {
-      keywords: ["report"],
-      question: "Where can I download reports?",
-    },
-  ];
-
-  /* 🔹 Keyword-based suggestion logic */
-  const suggestions = input
-    ? questionBank.filter((q) =>
-        q.keywords.some((k) =>
-          input.toLowerCase().includes(k.toLowerCase())
-        )
-      )
-    : [];
-
-  const handleSend = (text) => {
-    if (!text.trim()) return;
-
-    setMessages((prev) => [
-      ...prev,
-      { type: "user", text },
-      {
-        type: "bot",
-        text:
-          "Thanks for your question. This answer will come from backend once API is integrated.",
-      },
-    ]);
-
-    setInput("");
-  };
-
-  return (
-    <Box p={3}>
-      {/* 🔹 HEADER */}
-      <Stack direction="row" alignItems="center" spacing={1} mb={2}>
-        <IconButton
-          onClick={setAiOpen}
-          sx={{ "&:hover": { backgroundColor: "grey.200" } }}
-        >
-          <ArrowBackIcon />
-        </IconButton>
-        <Typography variant="h6" fontWeight={600}>
-          AI Assistant
-        </Typography>
-      </Stack>
-
-      <Card
-        sx={{
-          height: "75vh",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        {/* 🔹 CHAT AREA */}
-        <CardContent sx={{ flex: 1, overflowY: "auto" }}>
-          <Stack spacing={2}>
-            {messages.map((msg, index) => (
-              <Stack
-                key={index}
-                direction="row"
-                spacing={1}
-                justifyContent={msg.type === "user" ? "flex-end" : "flex-start"}
-              >
-                {msg.type === "bot" && <SmartToyIcon color="primary" />}
-                <Paper
-                  sx={{
-                    p: 1.5,
-                    maxWidth: "70%",
-                    backgroundColor:
-                      msg.type === "user" ? "primary.main" : "grey.100",
-                    color: msg.type === "user" ? "#fff" : "#000",
-                  }}
-                >
-                  <Typography variant="body2">{msg.text}</Typography>
-                </Paper>
-                {msg.type === "user" && <PersonIcon />}
-              </Stack>
-            ))}
-          </Stack>
-        </CardContent>
-
-        <Divider />
-
-        {/* 🔹 SUGGESTIONS */}
-        {suggestions.length > 0 && (
-          <Box px={2} py={1}>
-            <Typography variant="caption" color="text.secondary">
-              Suggested questions
-            </Typography>
-            <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
-              {suggestions.map((s, i) => (
-                <Chip
-                  key={i}
-                  label={s.question}
-                  onClick={() => handleSend(s.question)}
-                  variant="outlined"
-                  sx={{ mb: 1 }}
-                />
-              ))}
-            </Stack>
-          </Box>
-        )}
-
-        {/* 🔹 INPUT */}
-        <Box p={2}>
-          <Stack direction="row" spacing={1}>
-            <TextField
-              fullWidth
-              size="small"
-              placeholder="Type your question here..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSend(input)}
-            />
-            <IconButton
-              color="primary"
-              onClick={() => handleSend(input)}
-            >
-              <SendIcon />
-            </IconButton>
-          </Stack>
-        </Box>
-      </Card>
-    </Box>
-  );
-}
-
-
-
-
-import React,{ useEffect, useState, forwardRef } from "react";
-import {
-  Box,
-  Card,
-  Stack,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
-  TextField,
-  Button,
-  CircularProgress,
-} from "@mui/material";
-import Autocomplete from "@mui/material/Autocomplete";
-import { LocalizationProvider, DatePicker } from "@mui/x-date-pickers";
-import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
-import dayjs from "dayjs";
+  Cancel as CancelIcon,
+} from "@mui/icons-material";
+import { DataGrid } from "@mui/x-data-grid";
 import useApi from "../../hooks/useApi";
 import useCustomSnackbar from "../../utils/useCustomSnackbar";
-import { useSelector} from "react-redux";
 
-const moduleType="BRANCH_WISE";
-
-export default function BranchWiseReports() {
-  const user=useSelector((state)=> state.auth.user);
+export default function FileMyRequests() {
   const { callApi } = useApi();
-  const showSnackBar = useCustomSnackbar();
+  const snackbar = useCustomSnackbar();
 
-  const [minDate, setMinDate] = useState(dayjs("2020-01-01"));
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
 
+  /* ---------------- FETCH MY REQUESTS ---------------- */
+  const fetchMyRequests = async () => {
+    try {
+      setLoading(true);
+      const res = await callApi("/CR/my-requests", null, "GET");
 
-  /* ---------------- RADIO ---------------- */
-  const [countryType, setCountryType] = useState("INDIAN");
+      const fileRequests =
+        res?.data?.filter(
+          (r) => r.requestType === "FILE_CONFIG"
+        ) || [];
 
-  /* ---------------- MASTER DATA ---------------- */
-  const [zoneList, setZoneList] = useState([]);
-  const [circleList, setCircleList] = useState([]);
-  const [branchList, setBranchList] = useState([]);
-  const [reportList, setReportList] = useState([]);
+      setRows(fileRequests);
+    } catch (err) {
+      snackbar("Failed to fetch file requests", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  /* ---------------- SELECTED VALUES ---------------- */
-  const [zone, setZone] = useState(null);
-  const [circle, setCircle] = useState(null);
-  const [branch, setBranch] = useState(null);
-  const [report, setReport] = useState(null);
-  const [reportDate, setReportDate] = useState(null);
-
-  const [isDownloading, setIsDownloading] = useState(false);
-
-  const [circleLoading,setCircleLoading]=useState(false);
-  const [branchLoading,setBranchLoading]=useState(false);
-  const [reportLoading,setReportLoading]=useState(false);
-
-  const [branchHasMore, setBranchHasMore]=useState(true);
-
-  const [dateError,setDateError]=useState(null);
-
-  const [branchSize,setBranchSize]=useState(20);
-
-  const listboxRef=React.useRef(null);
-  const scrollTopRef=React.useReducer(0);
-  
-
-  /* ---------------- INITIAL LOAD ---------------- */
   useEffect(() => {
-    fetchZones();
+    fetchMyRequests();
   }, []);
 
-  
-
-  /* ---------------- RADIO CHANGE ---------------- */
-  const handleCountryChange = (e) => {
-    const value = e.target.value;
-    setCountryType(value);
-    setZone(null);
-    setCircle(null);
-    setBranch(null);
-    setCircleList([]);
-    setBranchList([]);
-    setReport(null);
-    setReportList([]);
-    setReportDate(null);
-
-    if (value === "FOREIGN") {
-      setZone({ zoneCode: 4, zoneDesc: "Foreign Office" });
-    }
-  };
-
-  /* ---------------- API CALLS ---------------- */
-
-  const fetchZones = async () => {
-      try{
-        const res = await callApi("/CM/common-master/indian-zones", {}, "GET");
-      setZoneList(res?.data || []);
-      }
-      catch{
-        setZoneList([]);
-      }
-  };
-
-  useEffect(() => {
-    if(!zone?.zoneCode) return;
-
-    setCircle(null);
-    setBranch(null);
-    setCircleList([]);
-    setBranchList([]);
-    setReport(null);
-    setReportList([]);
-    setReportDate(null);
-
-    fetchCircles(zone);
-    
-  }, [zone, countryType]);
-
-
-
-  const fetchCircles = async (zone) => {
+  /* ---------------- CANCEL REQUEST ---------------- */
+  const handleCancel = async (requestId) => {
     try {
-      setCircleLoading(true);
-      const bankType =
-        countryType === "Foreign" ? "Foreign Office" : "Indian";
-      const res = await callApi(
-        `/CM/common-master/indian-foreign-circles?bankType=${encodeURIComponent(
-          bankType
-        )}&zoneCode=${zone.zoneCode}`,
+      await callApi(
+        `/CR/cancel-request/${requestId}`,
         null,
-        "GET"
+        "POST"
       );
-      setCircleList(res?.data || []);
-    }
-    catch 
-    {
-      setCircleList([]);
-    }
-    finally
-    {
-      setCircleLoading(false);
+      snackbar("Request cancelled successfully", "success");
+      fetchMyRequests();
+    } catch {
+      snackbar("Failed to cancel request", "error");
     }
   };
 
-
-  useEffect(()=>{
-    if(!circle?.circleCode)return;
-    setBranch(null);
-    setBranchList([]);
-    setBranchSize(20);
-    setBranchHasMore(true);
-    fetchBranches(circle,20);
-  },[circle]);
-
-
-const fetchBranches = async (circle, size = 20) => {
-  if (!circle?.circleCode || branchLoading) return;
-
-  try {
-    setBranchLoading(true);
-
-    const res = await callApi(
-      `/CM/common-master/indian-foreign-branches?circleCode=${circle.circleCode}&size=${size}`,
-      null,
-      "GET"
-    );
-
-    // const branches=res?.data?.data?.data || res?.data?.data || [];
-    //     setBranchList(branches);
-    //     setBranchHasMore(branches.length === size);
-    //     setBranchSize(size);
-
-    // const newbranches=res?.data?.data?.data || res?.data?.data || [];
-    // setBranchList((prev)=>{
-    //   const map=new Map(prev.map(b=>[b.branchCode,b]));
-    //   newbranches.forEach(b=> map.set(b.branchCode,b));
-    //   return Array.from(map.values());
-    // });
-    // setBranchHasMore(newbranches.length === size);
-    // setBranchSize(size);
-
-    // setTimeout(()=>{
-    //   if(listboxRef.current){
-    //     listboxRef.current.scrollTop=scrollTopRef.current;
-    //   }
-    // },0);
-
-    const branches=res?.data?.data?.data || res?.data?.data || [];
-        setBranchList(prev=>{
-if(size<=prev.length)return prev;
-return branches.slice(0,size);
-        });
-        setBranchHasMore(branches.length === size);
-        setBranchSize(size);
-
-      } catch (e) {
-        console.error(e);
-        setBranchList([]);
-      } finally {
-        setBranchLoading(false);
-      }
-};
-
- useEffect(()=>{
-    if(!branch?.branchCode) return;
-     
-      setReportList([]);
-      setReport(null);
-      setReportDate(null);
-      fetchReports(branch);
-  },[branch]);
-
-const fetchReports = async (branch) => {
-     try {
-      setReportLoading(true);
-    const res = await callApi(
-      "/RS/reports/types", {
-      moduleType:moduleType,
-      countryType,
-      zoneId: zone?.zoneCode,
-      circleCode: circle?.circleCode,
-      branchCode: branch?.branchCode,
-      roleId:user.role,
-    },
-   "POST");
-   const reports=res?.data || [];
-      setReportList(reports);
-      if(reports.length>0 && reports[0].selectedDate){
-        setMinDate(dayjs(reports[0].selectedDate).startOf("day"));
-      }
-
-    } catch {
-      setReportList([]);
-    }
-    finally
-    {
-      setReportLoading(false);
-    }
-};
-
-  /* ---------------- DOWNLOAD (FIXED) ---------------- */
-const handleDownload = async () => {
-    if (!report || !reportDate || dateError) return;
-
-    const payload = {
-      moduleType:moduleType,
-      countryType,
-      zoneId: zone?.zoneCode || null,
-      circleCode: circle?.circleCode || null,
-      branchCode: branch?.branchCode || null,
-      fileName: report?.fileName || null,
-      date: reportDate.format("YYYY-MM-DD"),
-      roleId:user.role,
-    };
-
-    try {
-      //startProgressTimer();
-      setIsDownloading(true);
-
-      const response = await callApi(
-        "/RS/reports/download",
-        payload,
-        "POST",
-        "blob",
-        "application/json",
-        {},
-        false
-      );
-
-      if (!response?.data || response.data.size <= 22) {
-        showSnackBar("No reports found for selected criteria", "warning");
-        return;
-      }
-
-      // Extract filename
-      let filename = "report.zip";
-      const contentDisposition =
-        response.headers?.["content-disposition"] ||
-        response.headers?.["Content-Disposition"];
-
-      if (contentDisposition) {
-        const match = contentDisposition.match(/filename="(.+?)"/);
-        if (match?.[1]) filename = match[1];
-      }
-
-      // Trigger download
-      const url = window.URL.createObjectURL(response.data);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-
-      showSnackBar(`Report "${filename}" downloaded successfully`, "success");
-    } catch (error) {
-      if (error instanceof Blob) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          try {
-            const err = JSON.parse(reader.result);
-            showSnackBar(err.message || "Download failed", "error");
-          } catch {
-            showSnackBar("Something went wrong while downloading", "error");
-          }
-        };
-        reader.readAsText(error);
-      } else {
-        showSnackBar("Network error while downloading report", "error");
-      }
-    } finally {
-      setIsDownloading(false);
-    }
-};
-
-const getErrorMessage = (error) => {
-    const minDateStr = minDate?.isValid()
-      ? minDate.format("DD/MM/YYYY")
-      : "Allowed Min Date";
-
-    switch (error) {
-      case "maxDate":
-        return "Date cannot be in the future (Today is max)";
-      case "minDate":
-        return `Date cannot be prior to ${minDateStr}`;
-      case "invalidDate":
-        // This covers cases like 31st Feb or 31st April
-        return "Invalid date (Check day for this month)";
-      default:
-        // When no error, return instructions 
-        return `Allowed Range: ${minDateStr} - Today`;
-    }
-};
-
-
-const branchListBox=React.forwardRef(function
-    branchListBox(
-      props,ref
-    )
-    {
-      const {children,...other}=props;
-      return(
-      // <ul ref={ref} {...other}>
-      //   {children}
-      <ul {...other}
-      ref={(node)=>{
-        listboxRef.current=node;
-        if(typeof ref==='function') ref(node);
-        else if (ref) ref.current=node;
-      }}>
-        {children}
-            
-            {branchHasMore && !branchLoading && (
-              <li
-                style={{
-                  textAlign: "center",
-                  padding: "8px",
-                  cursor: "pointer",
-                  fontWeight: 500,
-                  color: "#1976d2",
-                }}
-                onMouseDown={(e) => e.preventDefault()} 
-                onClick={() =>{
-                  // if(listboxRef.current){
-                  //   scrollTopRef.current=listboxRef.current.scrollTop;
-                  // }
-                  fetchBranches(circle, branchSize + 20)
-                }}
+  /* ---------------- COLUMNS ---------------- */
+  const columns = useMemo(
+    () => [
+      {
+        field: "requestId",
+        headerName: "Request ID",
+        flex: 1.2,
+      },
+      {
+        field: "fileType",
+        headerName: "File Type",
+        flex: 1,
+        valueGetter: (params) =>
+          params.row.payload?.fileType || "",
+      },
+      {
+        field: "subType",
+        headerName: "Sub Type",
+        flex: 1,
+        valueGetter: (params) =>
+          params.row.payload?.subType || "",
+      },
+      {
+        field: "filePattern",
+        headerName: "File Pattern",
+        flex: 2,
+        valueGetter: (params) =>
+          params.row.payload?.filePattern || "",
+      },
+      {
+        field: "stream",
+        headerName: "Stream",
+        flex: 1.5,
+        valueGetter: (params) =>
+          params.row.payload?.stream || "",
+      },
+      {
+        field: "frequency",
+        headerName: "Frequency",
+        flex: 1,
+        valueGetter: (params) =>
+          params.row.payload?.frequency || "",
+      },
+      {
+        field: "include",
+        headerName: "Include",
+        flex: 1,
+        valueGetter: (params) =>
+          params.row.payload?.include || "",
+      },
+      {
+        field: "changeType",
+        headerName: "Request Type",
+        flex: 1,
+        valueGetter: (params) =>
+          params.row.changeType === "ADD"
+            ? "Added"
+            : params.row.changeType === "UPDATE"
+            ? "Modified"
+            : "",
+      },
+      {
+        field: "status",
+        headerName: "Status",
+        flex: 1,
+      },
+      {
+        field: "actions",
+        headerName: "Actions",
+        flex: 1,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params) =>
+          params.row.status === "PENDING" ? (
+            <Tooltip title="Cancel Request">
+              <IconButton
+                color="error"
+                onClick={() =>
+                  handleCancel(params.row.requestId)
+                }
               >
-                Show more branches...
-              </li>
-        )}
-      </ul>
+                <CancelIcon />
+              </IconButton>
+            </Tooltip>
+          ) : (
+            <Typography variant="body2">—</Typography>
+          ),
+      },
+    ],
+    []
   );
-});
 
   /* ---------------- UI ---------------- */
   return (
-    <Box minHeight="80vh" display="flex" justifyContent="center" alignItems="center">
-      <Card sx={{ p: 4, width: 580, minHeight:420, display:"flex", flexDirection:"column" }}>
-        <Stack spacing={3} flexGrow={1} sx={{pb:2}}>
-          <RadioGroup row value={countryType} onChange={handleCountryChange} sx={{justifyContent:"center" , gap:10}}>
-            <FormControlLabel value="INDIAN" control={<Radio />} label="Indian" />
-            <FormControlLabel value="FOREIGN" control={<Radio />} label="Foreign" />
-          </RadioGroup>
-
-          {countryType === "INDIAN" && (
-            <Autocomplete
-              value={zone}
-              options={zoneList}
-              getOptionLabel={(o) => o?.zoneDesc || ""}
-              isOptionEqualToValue={(o, v) => o.zoneCode === v.zoneCode}
-              onChange={(e, v) => {
-                setZone(v);
-              }}
-              renderInput={(params) => (
-                <TextField {...params} label="Select a Zone" />
-              )}
-            />
-          )}
-
-          <Autocomplete
-            value={circle}
-            options={circleList}
-            loading={circleLoading}
-            disabled={!zone}
-            getOptionLabel={(o) => `${o.circleCode}-${o.circleName}`}
-            isOptionEqualToValue={(o, v) => o.circleCode === v.circleCode}
-            onChange={(e, v) => {
-              setCircle(v);
-            }}
-            renderInput={(params) => (
-              <TextField {...params} label="Select a Circle" 
-              InputProps={{
-                ...params.InputProps,
-                endAdornment:(
-                  <>
-                  {circleLoading && <CircularProgress  size={20}/>}
-                  {params.InputProps.endAdornment}
-                  </>
-                ),
-              }}/>
-            )}
-          />
-
-        <Autocomplete
-          value={branch}
-          options={Array.isArray(branchList) ? branchList : []}
-          loading={branchLoading}
-          disabled={!circle}
-          ListboxComponent={branchListBox}
-          getOptionLabel={(o) =>
-            o?.branchCode ? `${o.branchCode} - ${o.branchName}` : ""
-          }
-          isOptionEqualToValue={(o, v) =>
-            o?.branchCode === v?.branchCode
-          }
-          onChange={(e, v) => setBranch(v)}
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              label="Select Branch"
-              InputProps={{
-                ...params.InputProps,
-                endAdornment: (
-                  <>
-                    {branchLoading && <CircularProgress size={18} />}
-                    {params.InputProps.endAdornment}
-                  </>
-                ),
-              }}
-            />
-          )}
-        />
-
-
-          {branch && (
-            <>
-              <Autocomplete
-                value={report}
-                options={reportList}
-                loading={reportLoading}
-                getOptionLabel={(o) => o?.reportName || ""}
-                isOptionEqualToValue={(o, v) => o.id === v.id}
-                onChange={(e, v) => setReport(v)}
-                renderInput={(params) => (
-                  <TextField {...params} label="Select a report" 
-                  InputProps={{
-                ...params.InputProps,
-                endAdornment:(
-                  <>
-                  {reportLoading && <CircularProgress  size={20}/>}
-                  {params.InputProps.endAdornment}
-                  </>
-                ),
-              }}/>
-                )}
-              />
-
-              <LocalizationProvider dateAdapter={AdapterDayjs}>
-                <DatePicker
-                  label="Select report date"
-                  format="DD/MM/YYYY"
-                  minDate={minDate}
-                  maxDate={dayjs().endOf("day")}
-                  value={reportDate}
-                  onChange={(v)=>setReportDate(v)}
-                  onError={(err)=>setDateError(err)}
-                  slotProps={{
-                    textField:{
-                      error:!!dateError,
-                      helperText:dateError
-                      ?getErrorMessage(dateError)
-                      :"",
-                    },
-                  }}
-                />
-              </LocalizationProvider>
-            </>
-          )}
-          </Stack>
-        <Stack>
-          <Button
-            variant="contained"
-            size="large"
-            disabled={!circle || !branch || !report || !reportDate || isDownloading}
-            onClick={handleDownload}
-          >
-            {isDownloading ? "Downloading..." : "Fetch & Download"}
-          </Button>
-        </Stack>
-      </Card>
+    <Box>
+      <DataGrid
+        rows={rows}
+        columns={columns}
+        getRowId={(row) => row.requestId}
+        loading={loading}
+        autoHeight
+        disableRowSelectionOnClick
+        pageSizeOptions={[5, 10, 25, 50]}
+        initialState={{
+          pagination: {
+            paginationModel: { pageSize: 10, page: 0 },
+          },
+          sorting: {
+            sortModel: [{ field: "requestId", sort: "desc" }],
+          },
+        }}
+        localeText={{
+          noRowsLabel: "No File Requests Found",
+        }}
+      />
     </Box>
   );
 }
-
-
-
-const fetchBranches = async (circle, size = 20) => {
-  if (!circle?.circleCode || branchLoading) return;
-
-  try {
-    setBranchLoading(true);
-
-    const res = await callApi(
-      `/CM/common-master/indian-foreign-branches?circleCode=${circle.circleCode}&size=${size}`,
-      null,
-      "GET"
-    );
-
-    const branches = res?.data?.data?.data || res?.data?.data || [];
-
-    setBranchList(prev => {
-      // If already loaded enough, do nothing
-      if (prev.length >= branches.length) return prev;
-
-      // Append without duplicates
-      const map = new Map(prev.map(b => [b.branchCode, b]));
-      branches.forEach(b => map.set(b.branchCode, b));
-
-      return Array.from(map.values());
-    });
-
-    setBranchHasMore(branches.length === size);
-    setBranchSize(size);
-
-  } catch (e) {
-    console.error(e);
-    setBranchList([]);
-  } finally {
-    setBranchLoading(false);
-  }
-};
