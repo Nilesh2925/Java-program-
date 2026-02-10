@@ -603,3 +603,616 @@ export default function FileManagementTab() {
     </CircleTab1Container>
   );
 }
+
+
+
+
+
+
+    const parts = freq.toUpperCase().split("/");
+
+    parts.forEach((p) => {
+      if (p === "D") result.D = true;import React, { useEffect, useMemo, useState } from "react";
+import {
+  Box,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogActions,
+  MenuItem,
+  Stack,
+  TextField,
+  Typography,
+  Checkbox,
+  FormControlLabel,
+  Tooltip,
+  IconButton,
+  Container,
+  styled,
+} from "@mui/material";
+import {
+  Add as AddIcon,
+  Edit as EditIcon,
+  Close as CloseIcon,
+  Delete as DeleteIcon,
+} from "@mui/icons-material";
+import { DataGrid } from "@mui/x-data-grid";
+import useApi from "../../hooks/useApi";
+import useCustomSnackbar from "../../utils/useCustomSnackbar";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import {
+  CircleTab1Fab,
+  CircleTab1Addicon,
+  CircleTab1Container,
+} from "./FileMasterStyle";
+
+const checkDataEquality = (current, original) => {
+  if (!original) return true; // If no original data, assume they are "same" initially for disable state
+  return (
+    // current.filePattern === original.filePattern &&
+    current.stream === original.stream
+    // current.zoneCode === original.zoneCode
+    // currencyCode is excluded as it is the ID and likely read-only
+  );
+};
+const TYPE_OPTIONS = [
+  { value: "bancs24", label: "Bancs24" },
+  { value: "glif", label: "GLIF" },
+];
+
+const FREQUENCY_MAP = [
+  { label: "Daily", key: "D" },
+  { label: "Monthly", key: "M" },
+  { label: "Yearly", key: "Y" },
+];
+
+const EMPTY_FORM = {
+  type: "",
+  subType: "",
+  filePattern: "",
+  stream: "",
+  includeFile: "",
+  frequency: { D: false, M: false, Y: false },
+};
+
+const OverlayBox = styled(Box)(() => ({
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  justifyContent: "center",
+  alignItems: "center",
+}));
+
+const CustomNoRowsOverlay = () => {
+  return (
+    <OverlayBox>
+      <ErrorOutlineIcon fontSize="large" />
+      <Typography variant="h5" fontSize="1.2rem">
+        Data is not available
+      </Typography>
+    </OverlayBox>
+  );
+};
+export default function FileManagementTab() {
+  const { callApi } = useApi();
+  const snackbar = useCustomSnackbar();
+
+  const [rows, setRows] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [formData, setFormData] = useState(EMPTY_FORM);
+  const [originalData, setOriginalData] = useState(null);
+  const [isDataSame, setIsDataSame] = useState(true);
+  const [errors, setErrors] = useState({});
+
+  // --- Fetch Data ---
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const res = await callApi("/CM/common-master/files", null, "GET");
+      setRows(res?.data || []);
+    } catch (err) {
+      console.error(err);
+      snackbar("Failed to load file configurations", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const subTypeOptions = useMemo(() => {
+    const map = {};
+
+    rows.forEach((r) => {
+      if (!map[r.type]) map[r.type] = new Set();
+      if (r.subType) map[r.type].add(r.subType);
+    });
+
+    const result = {};
+    Object.keys(map).forEach((k) => {
+      result[k] = Array.from(map[k]);
+    });
+
+    return result;
+  }, [rows]);
+
+  useEffect(() => {
+    if (editingId && originalData) {
+      //   setIsDataSame(JSON.stringify(formData) === JSON.stringify(originalData));
+      setIsDataSame(checkDataEquality(formData, originalData));
+    }
+  }, [formData, originalData, editingId]);
+
+  const parseFrequency = (freq) => {
+    const result = { D: false, M: false, Y: false };
+
+    if (!freq) return result;
+
+      if (p === "M") result.M = true;
+      if (p === "Y") result.Y = true;
+    });
+
+    return result;
+  };
+
+  const reDesc = /^(?!.* {2})[a-zA-Z0-9\s/&(),-]*$/;
+  const validateField = (name, value) => {
+    switch (name) {
+      // case "filePattern":
+      //   if (!String(value).trim()) return " filePattern is required";
+      //   if (!reDesc.test(value))
+      //     return "Invalid Format, Only alphabets, numbers, spaces(single spaces only between words) and ,()&/- are allowed!";
+      //   break;
+
+      case "type":
+        if (!String(value).trim()) return "Type is required";
+        break;
+
+      case "subType":
+        if (!String(value).trim()) return "subType is required";
+        break;
+
+      case "frequency":
+        if (!String(value).trim()) return "frequency is required";
+        break;
+
+      case "stream":
+        if (!String(value).trim()) return "stream is required";
+        break;
+
+      default:
+        return "";
+    }
+    return "";
+  };
+  console.log("formData", formData);
+  console.log("filePattern", formData.filePattern);
+  console.log(!validateField("filePattern", formData.filePattern));
+  console.log("type", formData.type);
+  console.log(!validateField("type", formData.type));
+  console.log("includeFile", formData.includeFile);
+  console.log("stream", formData.stream);
+  console.log("frequency", formData.frequency);
+  console.log("subType", formData.subType);
+  const isFormValid = useMemo(
+    () =>
+      !validateField("filePattern", formData.filePattern) &&
+      !validateField("type", formData.type) &&
+      !validateField("subType", formData.subType) &&
+      !validateField("frequency", formData.frequency) &&
+      !validateField("stream", formData.stream) &&
+      !validateField("includeFile", formData.includeFile),
+    [formData],
+  );
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+
+    if (name === "type") {
+      setFormData((prev) => ({
+        ...prev,
+        type: value,
+        subType: value === "GLIF" ? "GLIF" : "",
+      }));
+      return;
+    }
+
+    if (name == "filePattern") {
+      if (value && !/^[A-Za-z0-9]$/.test(value[0])) {
+        snackbar("Should not start with special character", "warning");
+        return;
+      }
+      // value = value?.toUpperCase();
+      // if (!reDesc.test(value)) {
+      //   snackbar(
+      //     "Invalid Format, Only alphabets, spaces(single spaces only between words) and ,()&/- are allowed!",
+      //   );
+      //   return;
+      // }
+    }
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+    setErrors((prev) => ({ ...prev, [name]: validateField(name, value) }));
+  };
+
+  const handleFrequencyChange = (key) => {
+    setFormData((prev) => ({
+      ...prev,
+      frequency: {
+        ...prev.frequency,
+        [key]: !prev.frequency[key],
+      },
+    }));
+  };
+
+  const handleEdit = (row) => {
+    const init = {
+      type: row.type || "",
+      subType: row.subType || "",
+      filePattern: row.filePattern || "",
+      stream: row.stream || "",
+      includeFile: row.includeFile || "",
+      frequency: parseFrequency(row.frequency),
+    };
+
+    setFormData(init);
+    setOriginalData(init);
+    setEditingId(row.fileId);
+    setOpen(true);
+  };
+
+  const handleDelete = async (row) => {
+    try {
+      const payload = {
+        requestType: "FILE_TYPE_MASTER",
+        changeType: "DELETE",
+        targetId: row.filePattern,
+        payload: {
+          type: row.type,
+          subType: row.subType,
+          filePattern: row.filePattern,
+          stream: row.stream,
+          includeFile: row.includeFile,
+          frequency: row.frequency,
+        },
+      };
+
+      const response = await callApi("/CR/create-request", payload, "POST");
+      snackbar(
+        " delete request submitted successfully with request id " +
+          response?.data?.id,
+        "success",
+      );
+      fetchData();
+    } catch (err) {
+      snackbar(err?.message || "Delete failed", "error");
+    }
+  };
+
+  const handleClose = () => {
+    setOpen(false);
+    setEditingId(null);
+    setOriginalData(null);
+    setErrors({});
+    setFormData(EMPTY_FORM);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (editingId && isDataSame) {
+      snackbar("No changes detected", "warning");
+      return;
+    }
+
+    // // BASIC VALIDATION
+    // if (!formData.type) {
+    //   snackbar("Type is required", "error");
+    //   return;
+    // }
+
+    // if (!formData.subType) {
+    //   snackbar("Sub Type is required", "error");
+    //   return;
+    // }
+
+    // if (!formData.filePattern) {
+    //   snackbar("File Pattern is required", "error");
+    //   return;
+    // }
+
+    // if (!formData.stream) {
+    //   snackbar("Stream is required", "error");
+    //   return;
+    // }
+
+    // if (!formData.includeFile) {
+    //   snackbar("Include File is required", "error");
+    //   return;
+    // }
+
+    const allErrors = {
+      filePattern: validateField("filePattern", formData.filePattern),
+      type: validateField("type", formData.type),
+      subType: validateField("subType", formData.subType),
+      frequency: validateField("frequency", formData.frequency),
+      stream: validateField("stream", formData.stream),
+      includeFile: validateField("includeFile", formData.includeFile),
+    };
+    setErrors(allErrors);
+
+    const valid = Object.values(allErrors).every((v) => !v);
+    if (!valid) {
+      notifyOnce("Please fix validation errors", "error");
+      return;
+    }
+
+    const payload = {
+      requestType: "FILE_TYPE_MASTER",
+      changeType: editingId ? "UPDATE" : "ADD",
+      targetId: formData.filePattern,
+      payload: {
+        ...formData,
+        frequency: Object.keys(formData.frequency)
+          .filter((k) => formData.frequency[k])
+          .join("/"),
+      },
+    };
+
+    try {
+      const response = await callApi("/CR/create-request", payload, "POST");
+
+      snackbar(
+        editingId
+          ? " update request submitted successfully with request id " +
+              response?.data?.id
+          : "creation request submitted successfully with request id " +
+              response?.data?.id,
+        "success",
+      );
+
+      handleClose();
+      fetchData();
+    } catch (err) {
+      snackbar(err?.message || "Request failed", "error");
+    }
+  };
+
+  const columns = useMemo(
+    () => [
+      { field: "type", headerName: "File Type", flex: 1 },
+      { field: "filePattern", headerName: "File Pattern", flex: 1 },
+
+      {
+        field: "stream",
+        headerName: "Stream",
+        flex: 1,
+        renderCell: (params) =>
+          params.value === "Y" ? "Yes" : params.value === "N" ? "No" : "",
+      },
+
+      {
+        field: "frequency",
+        headerName: "Frequency",
+        flex: 1,
+        renderCell: (params) => {
+          if (!params.value) return "";
+
+          return params.value
+            .split(/[/,]/)
+            .map((f) => {
+              if (f === "D") return "Daily";
+              if (f === "M") return "Monthly";
+              if (f === "Y") return "Yearly";
+              return f;
+            })
+            .join(" / ");
+        },
+      },
+
+      {
+        field: "includeFile",
+        headerName: "Include",
+        flex: 1,
+        renderCell: (params) =>
+          params.value === "Y" ? "Yes" : params.value === "N" ? "No" : "",
+      },
+
+      {
+        field: "actions",
+        headerName: "Actions",
+        flex: 1,
+        align: "center",
+        renderCell: (params) => (
+          <Stack direction="row" spacing={1}>
+            <Tooltip title="Edit">
+              <IconButton
+                color="primary"
+                onClick={() => handleEdit(params.row)}
+              >
+                <EditIcon />
+              </IconButton>
+            </Tooltip>
+
+            <Tooltip title="Delete">
+              <IconButton
+                color="error"
+                onClick={() => handleDelete(params.row)}
+              >
+                <DeleteIcon />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        ),
+      },
+    ],
+    [],
+  );
+
+  return (
+    <CircleTab1Container>
+      <DataGrid
+        loading={loading}
+        rows={rows}
+        columns={columns}
+        disableRowSelectionOnClick
+        getRowId={(row) => row.fileId}
+        pageSizeOptions={[5, 10, 25, 50]}
+        initialState={{
+          pagination: { paginationModel: { pageSize: 10, page: 0 } },
+          sorting: { sortModel: [{ field: "circleCode", sort: "asc" }] },
+        }}
+        sx={{
+          minHeight: 520,
+          width: "100%",
+          "& .MuiDataGrid-columnHeaders": { outline: "none" },
+        }}
+        localeText={{
+          noRowsLabel: "No Circle Records Found",
+        }}
+        slots={{
+          noRowsOverlay: CustomNoRowsOverlay,
+        }}
+      />
+
+      <CircleTab1Fab
+        variant="extended"
+        color="primary"
+        // startIcon={<AddIcon />}
+        onClick={() => setOpen(true)}
+      >
+        <CircleTab1Addicon />
+        Create
+      </CircleTab1Fab>
+      {/* Dialog Form */}
+
+      <Dialog open={open} maxWidth="sm" fullWidth>
+        <Box component="form" onSubmit={handleSubmit}>
+          <DialogContent>
+            <Stack spacing={2}>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="h6">
+                  {editingId
+                    ? "Edit File Configuration"
+                    : "Add File Configuration"}
+                </Typography>
+                <IconButton onClick={handleClose}>
+                  <CloseIcon />
+                </IconButton>
+              </Stack>
+              <TextField
+                select
+                label="Type"
+                name="type"
+                value={formData.type || ""}
+                onChange={handleChange}
+                disabled={!!editingId}
+                // error={!!errors.Type}
+                // helperText={errors.Type || "Type is required"}
+              >
+                {TYPE_OPTIONS.map((opt) => (
+                  <MenuItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              <TextField
+                select
+                label="Sub Type"
+                name="subType"
+                value={formData.subType || ""}
+                onChange={handleChange}
+                // error={!!errors.subType}
+                // helperText={errors.subType || "Sub Type is required"}
+                disabled={formData.type === "GLIF"}
+              >
+                {(subTypeOptions[formData.type] || []).map((v) => (
+                  <MenuItem key={v} value={v}>
+                    {v}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              <TextField
+                label="File Pattern"
+                name="filePattern"
+                value={formData.filePattern || ""}
+                onChange={handleChange}
+                error={!!errors.filePattern}
+                helperText={errors.filePattern || "min 3 digits"}
+              />
+
+              <TextField
+                select
+                label="Stream"
+                name="stream"
+                value={formData.stream || ""}
+                onChange={handleChange}
+                // error={!!errors.Stream}
+                // helperText={errors.Stream || "Stream is required"}
+              >
+                <MenuItem value="Y">Yes</MenuItem>
+                <MenuItem value="N">No</MenuItem>
+              </TextField>
+
+              <Box>
+                <Typography>Frequency</Typography>
+
+                {FREQUENCY_MAP.map(({ label, key }) => (
+                  <FormControlLabel
+                    key={key}
+                    control={
+                      <Checkbox
+                        checked={formData.frequency[key]}
+                        onChange={() => handleFrequencyChange(key)}
+                      />
+                    }
+                    label={label}
+                  />
+                ))}
+              </Box>
+
+              <TextField
+                select
+                label="Include"
+                name="includeFile"
+                value={formData.includeFile || ""}
+                onChange={handleChange}
+              >
+                <MenuItem value="Y">Yes</MenuItem>
+                <MenuItem value="N">No</MenuItem>
+              </TextField>
+            </Stack>
+          </DialogContent>
+
+          <DialogActions>
+            {/* <Button
+            variant="contained"
+            onClick={handleSubmit}
+            disabled={!isFormValid}
+          >
+            {editingId ? "Update" : "Add"}
+          </Button> */}
+            <Button
+              type="submit"
+              variant="contained"
+              startIcon={editingId ? <EditIcon /> : <AddIcon />}
+              disabled={!isFormValid}
+            >
+              {editingId ? "Update" : "Add"}
+            </Button>
+          </DialogActions>
+        </Box>
+      </Dialog>
+    </CircleTab1Container>
+  );
+}
+
+
+
