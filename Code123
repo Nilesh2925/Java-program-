@@ -415,3 +415,311 @@ export default function FileManagementTab() {
     </CircleTab1Container>
   );
 }
+
+
+
+
+
+//new
+
+// ==== SAME IMPORTS (UNCHANGED) ====
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Box,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogActions,
+  MenuItem,
+  Stack,
+  TextField,
+  Typography,
+  Checkbox,
+  FormControlLabel,
+  Tooltip,
+  IconButton,
+  styled,
+} from "@mui/material";
+import {
+  Add as AddIcon,
+  Edit as EditIcon,
+  Close as CloseIcon,
+  Delete as DeleteIcon,
+} from "@mui/icons-material";
+import { DataGrid } from "@mui/x-data-grid";
+import useApi from "../../hooks/useApi";
+import useCustomSnackbar from "../../utils/useCustomSnackbar";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import {
+  CircleTab1Fab,
+  CircleTab1Addicon,
+  CircleTab1Container,
+} from "./FileMasterStyle";
+
+// ======================= CONSTANTS =======================
+const TYPE_OPTIONS = [
+  { value: "bancs24", label: "Bancs24" },
+  { value: "glif", label: "GLIF" },
+];
+
+const FREQUENCY_KEYS = ["D", "M", "Y"];
+
+const EMPTY_FORM = {
+  type: "",
+  subType: "",
+  filePattern: "",
+  stream: "",
+  includeFile: "",
+  frequency: { D: false, M: false, Y: false },
+};
+
+// ======================= COMPONENT =======================
+export default function FileManagementTab() {
+  const { callApi } = useApi();
+  const snackbar = useCustomSnackbar();
+
+  const [rows, setRows] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [formData, setFormData] = useState(EMPTY_FORM);
+  const [originalData, setOriginalData] = useState(null);
+  const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  // ======================= FETCH =======================
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const res = await callApi("/CM/common-master/files", null, "GET");
+      setRows(res?.data || []);
+    } catch {
+      snackbar("Failed to load data", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  // ======================= HELPERS =======================
+  const isFrequencySelected = Object.values(formData.frequency).some(Boolean);
+
+  const isDataChanged =
+    editingId &&
+    originalData &&
+    JSON.stringify(formData) !== JSON.stringify(originalData);
+
+  const isFormValid =
+    formData.type &&
+    formData.subType &&
+    formData.filePattern &&
+    formData.stream &&
+    formData.includeFile &&
+    isFrequencySelected &&
+    Object.values(errors).every((e) => !e);
+
+  // ======================= VALIDATION =======================
+  const validateFilePattern = (value) => {
+    if (!value) return "File Pattern is required";
+    if (!/^[A-Z0-9]+$/.test(value))
+      return "Only A-Z and 0-9 allowed";
+    return "";
+  };
+
+  // ======================= HANDLERS =======================
+  const handleChange = (e) => {
+    let { name, value } = e.target;
+
+    if (name === "filePattern") {
+      value = value.toUpperCase();
+      if (!/^[A-Z0-9]*$/.test(value)) return;
+    }
+
+    if (name === "type") {
+      setFormData((p) => ({
+        ...p,
+        type: value,
+        subType: value === "glif" ? "GLIF" : "",
+      }));
+      return;
+    }
+
+    setFormData((p) => ({ ...p, [name]: value }));
+    setErrors((p) => ({ ...p, [name]: "" }));
+  };
+
+  const handleFrequencyChange = (key) => {
+    setFormData((p) => ({
+      ...p,
+      frequency: { ...p.frequency, [key]: !p.frequency[key] },
+    }));
+  };
+
+  const handleEdit = (row) => {
+    const init = {
+      type: row.type,
+      subType: row.subType,
+      filePattern: row.filePattern,
+      stream: row.stream,
+      includeFile: row.includeFile,
+      frequency: {
+        D: row.frequency?.includes("D"),
+        M: row.frequency?.includes("M"),
+        Y: row.frequency?.includes("Y"),
+      },
+    };
+    setFormData(init);
+    setOriginalData(init);
+    setEditingId(row.fileId);
+    setOpen(true);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    // === DUPLICATE CHECK (CREATE ONLY) ===
+    if (!editingId) {
+      const exists = rows.some(
+        (r) =>
+          r.type === formData.type &&
+          r.subType === formData.subType &&
+          r.filePattern === formData.filePattern
+      );
+      if (exists) {
+        snackbar("File already exists", "warning");
+        return;
+      }
+    }
+
+    if (editingId && !isDataChanged) {
+      snackbar("No changes detected", "warning");
+      return;
+    }
+
+    const payload = {
+      requestType: "FILE_TYPE_MASTER",
+      changeType: editingId ? "UPDATE" : "ADD",
+      targetId: formData.filePattern,
+      payload: {
+        ...formData,
+        frequency: FREQUENCY_KEYS.filter(
+          (k) => formData.frequency[k]
+        ).join("/"),
+      },
+    };
+
+    await callApi("/CR/create-request", payload, "POST");
+    snackbar("Request submitted successfully", "success");
+    handleClose();
+    fetchData();
+  };
+
+  const handleClose = () => {
+    setOpen(false);
+    setEditingId(null);
+    setFormData(EMPTY_FORM);
+    setOriginalData(null);
+    setErrors({});
+  };
+
+  // ======================= COLUMNS =======================
+  const columns = [
+    { field: "type", headerName: "File Type", flex: 1 },
+    { field: "filePattern", headerName: "File Pattern", flex: 1 },
+    { field: "stream", headerName: "Stream", flex: 1 },
+    { field: "frequency", headerName: "Frequency", flex: 1 },
+    {
+      field: "actions",
+      headerName: "Actions",
+      renderCell: (p) => (
+        <Stack direction="row">
+          <IconButton onClick={() => handleEdit(p.row)}>
+            <EditIcon />
+          </IconButton>
+        </Stack>
+      ),
+    },
+  ];
+
+  // ======================= JSX =======================
+  return (
+    <CircleTab1Container>
+      <DataGrid
+        rows={rows}
+        columns={columns}
+        getRowId={(r) => r.fileId}
+        loading={loading}
+      />
+
+      <CircleTab1Fab onClick={() => setOpen(true)}>
+        <CircleTab1Addicon /> Create
+      </CircleTab1Fab>
+
+      <Dialog open={open} fullWidth maxWidth="sm">
+        <Box component="form" onSubmit={handleSubmit}>
+          <DialogContent>
+            <Stack spacing={2}>
+              <TextField select name="type" value={formData.type} onChange={handleChange}>
+                {TYPE_OPTIONS.map((o) => (
+                  <MenuItem key={o.value} value={o.value}>
+                    {o.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              <TextField name="subType" value={formData.subType} onChange={handleChange} />
+
+              <TextField
+                name="filePattern"
+                value={formData.filePattern}
+                onChange={handleChange}
+                error={!!errors.filePattern}
+                helperText={errors.filePattern}
+              />
+
+              <TextField name="stream" value={formData.stream} onChange={handleChange} />
+
+              <Box>
+                {FREQUENCY_KEYS.map((k) => (
+                  <FormControlLabel
+                    key={k}
+                    control={
+                      <Checkbox
+                        checked={formData.frequency[k]}
+                        onChange={() => handleFrequencyChange(k)}
+                      />
+                    }
+                    label={k}
+                  />
+                ))}
+              </Box>
+
+              <TextField
+                name="includeFile"
+                select
+                value={formData.includeFile}
+                onChange={handleChange}
+              >
+                <MenuItem value="Y">Yes</MenuItem>
+                <MenuItem value="N">No</MenuItem>
+              </TextField>
+            </Stack>
+          </DialogContent>
+
+          <DialogActions>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={editingId ? !isDataChanged || !isFormValid : !isFormValid}
+            >
+              {editingId ? "Update" : "Add"}
+            </Button>
+          </DialogActions>
+        </Box>
+      </Dialog>
+    </CircleTab1Container>
+  );
+}
+
