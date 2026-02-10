@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Box,
@@ -32,6 +31,22 @@ import {
   CircleTab1Container,
 } from "./FileMasterStyle";
 
+/* ------------------ HELPERS ------------------ */
+
+const checkDataEquality = (current, original) => {
+  if (!original) return true;
+
+  return (
+    current.type === original.type &&
+    current.subType === original.subType &&
+    current.filePattern === original.filePattern &&
+    current.stream === original.stream &&
+    current.includeFile === original.includeFile &&
+    JSON.stringify(current.frequency) ===
+      JSON.stringify(original.frequency)
+  );
+};
+
 const TYPE_OPTIONS = [
   { value: "bancs24", label: "Bancs24" },
   { value: "glif", label: "GLIF" },
@@ -52,6 +67,8 @@ const EMPTY_FORM = {
   frequency: { D: false, M: false, Y: false },
 };
 
+/* ------------------ UI HELPERS ------------------ */
+
 const OverlayBox = styled(Box)(() => ({
   display: "flex",
   flexDirection: "column",
@@ -69,6 +86,8 @@ const CustomNoRowsOverlay = () => (
   </OverlayBox>
 );
 
+/* ------------------ COMPONENT ------------------ */
+
 export default function FileManagementTab() {
   const { callApi } = useApi();
   const snackbar = useCustomSnackbar();
@@ -83,6 +102,7 @@ export default function FileManagementTab() {
   const [errors, setErrors] = useState({});
 
   /* ---------------- FETCH ---------------- */
+
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -99,7 +119,16 @@ export default function FileManagementTab() {
     fetchData();
   }, []);
 
+  /* ---------------- CHANGE DETECTION ---------------- */
+
+  useEffect(() => {
+    if (editingId && originalData) {
+      setIsDataSame(checkDataEquality(formData, originalData));
+    }
+  }, [formData, originalData, editingId]);
+
   /* ---------------- VALIDATION ---------------- */
+
   const validateField = (name, value) => {
     switch (name) {
       case "type":
@@ -146,23 +175,21 @@ export default function FileManagementTab() {
     [formData],
   );
 
-  /* ---------------- EDIT CHANGE DETECTION ---------------- */
-  useEffect(() => {
-    if (editingId && originalData) {
-      setIsDataSame(
-        JSON.stringify(formData) === JSON.stringify(originalData),
-      );
-    }
-  }, [formData, originalData, editingId]);
-
   /* ---------------- HANDLERS ---------------- */
+
   const handleChange = (e) => {
     let { name, value } = e.target;
 
     if (name === "filePattern") {
       value = value.toUpperCase();
+
       if (!/^[A-Z0-9]*$/.test(value)) {
         snackbar("Only letters and numbers allowed", "warning");
+        return;
+      }
+
+      if (value && !/^[A-Z0-9]/.test(value[0])) {
+        snackbar("Should not start with special character", "warning");
         return;
       }
     }
@@ -181,27 +208,32 @@ export default function FileManagementTab() {
   const parseFrequency = (freq) => {
     const result = { D: false, M: false, Y: false };
     if (!freq) return result;
+
     freq
       .toUpperCase()
       .split(/[/,]/)
       .forEach((f) => (result[f] = true));
+
     return result;
   };
 
   const handleEdit = (row) => {
     const init = {
-      type: row.type,
-      subType: row.subType,
-      filePattern: row.filePattern,
-      stream: row.stream,
-      includeFile: row.includeFile,
+      type: row.type || "",
+      subType: row.subType || "",
+      filePattern: row.filePattern || "",
+      stream: row.stream || "",
+      includeFile: row.includeFile || "",
       frequency: parseFrequency(row.frequency),
     };
+
     setFormData(init);
     setOriginalData(init);
     setEditingId(row.fileId);
     setOpen(true);
   };
+
+  /* ---------------- SUBMIT ---------------- */
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -229,6 +261,7 @@ export default function FileManagementTab() {
               .filter((k) => formData.frequency[k])
               .join("/"),
       );
+
       if (exists) {
         snackbar("File configuration already exists", "error");
         return;
@@ -249,7 +282,10 @@ export default function FileManagementTab() {
 
     try {
       const res = await callApi("/CR/create-request", payload, "POST");
-      snackbar(`Request submitted. ID: ${res?.data?.id}`, "success");
+      snackbar(
+        `Request submitted successfully with request id ${res?.data?.id}`,
+        "success",
+      );
       setOpen(false);
       setFormData(EMPTY_FORM);
       setEditingId(null);
@@ -260,11 +296,13 @@ export default function FileManagementTab() {
   };
 
   /* ---------------- UI ---------------- */
+
   return (
     <CircleTab1Container>
       <DataGrid
         rows={rows}
         loading={loading}
+        getRowId={(r) => r.fileId}
         columns={[
           { field: "type", headerName: "File Type", flex: 1 },
           { field: "filePattern", headerName: "File Pattern", flex: 1 },
@@ -275,13 +313,14 @@ export default function FileManagementTab() {
             field: "actions",
             headerName: "Actions",
             renderCell: (p) => (
-              <IconButton onClick={() => handleEdit(p.row)}>
-                <EditIcon />
-              </IconButton>
+              <Tooltip title="Edit">
+                <IconButton onClick={() => handleEdit(p.row)}>
+                  <EditIcon />
+                </IconButton>
+              </Tooltip>
             ),
           },
         ]}
-        getRowId={(r) => r.fileId}
         slots={{ noRowsOverlay: CustomNoRowsOverlay }}
       />
 
@@ -294,6 +333,15 @@ export default function FileManagementTab() {
         <Box component="form" onSubmit={handleSubmit}>
           <DialogContent>
             <Stack spacing={2}>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="h6">
+                  {editingId ? "Edit File Configuration" : "Add File Configuration"}
+                </Typography>
+                <IconButton onClick={() => setOpen(false)}>
+                  <CloseIcon />
+                </IconButton>
+              </Stack>
+
               <TextField
                 select
                 label="Type"
@@ -333,7 +381,9 @@ export default function FileManagementTab() {
                   />
                 ))}
                 {errors.frequency && (
-                  <Typography color="error">{errors.frequency}</Typography>
+                  <Typography color="error" variant="caption">
+                    {errors.frequency}
+                  </Typography>
                 )}
               </Box>
 
