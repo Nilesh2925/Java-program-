@@ -1,37 +1,65 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Box,
   Button,
   Dialog,
   DialogContent,
-  Grid,
-  IconButton,
+  DialogActions,
+  MenuItem,
   Stack,
   TextField,
   Typography,
+  Checkbox,
+  FormControlLabel,
   Tooltip,
-  MenuItem,
-  DialogActions,
-  Divider,
+  IconButton,
+  Container,
   styled,
 } from "@mui/material";
-
 import {
-  Edit as EditIcon,
   Add as AddIcon,
+  Edit as EditIcon,
   Close as CloseIcon,
+  Delete as DeleteIcon,
 } from "@mui/icons-material";
-import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import { DataGrid } from "@mui/x-data-grid";
 import useApi from "../../hooks/useApi";
 import useCustomSnackbar from "../../utils/useCustomSnackbar";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import {
-  CircleTab1Container,
-  CircleMasterDataGrid,
-  CircleTab1Addicon,
   CircleTab1Fab,
-  CircleTab1Grid,
-  Circletab1DialogTitle,
-} from "./CircleMasterStyle";
+  CircleTab1Addicon,
+  CircleTab1Container,
+} from "./FileMasterStyle";
+
+const checkDataEquality = (current, original) => {
+  if (!original) return true; // If no original data, assume they are "same" initially for disable state
+  return (
+    // current.filePattern === original.filePattern &&
+    current.stream === original.stream
+    // current.zoneCode === original.zoneCode
+    // currencyCode is excluded as it is the ID and likely read-only
+  );
+};
+const TYPE_OPTIONS = [
+  { value: "bancs24", label: "Bancs24" },
+  { value: "glif", label: "GLIF" },
+];
+
+const FREQUENCY_MAP = [
+  { label: "Daily", key: "D" },
+  { label: "Monthly", key: "M" },
+  { label: "Yearly", key: "Y" },
+];
+
+const EMPTY_FORM = {
+  type: "",
+  subType: "",
+  filePattern: "",
+  stream: "",
+  includeFile: "",
+  frequency: { D: false, M: false, Y: false },
+};
 
 const OverlayBox = styled(Box)(() => ({
   display: "flex",
@@ -51,56 +79,28 @@ const CustomNoRowsOverlay = () => {
     </OverlayBox>
   );
 };
+export default function FileManagementTab() {
+  const { callApi } = useApi();
+  const snackbar = useCustomSnackbar();
 
-export default function CircleMasterTab() {
   const [rows, setRows] = useState([]);
-  const [zones, setZones] = useState([]);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
-  const snackbar = useCustomSnackbar();
-  const [originalData, setOriginalData] = useState(null); // New state for original data
+  const [formData, setFormData] = useState(EMPTY_FORM);
+  const [originalData, setOriginalData] = useState(null);
   const [isDataSame, setIsDataSame] = useState(true);
-  const { callApi } = useApi();
-
-  const [circleData, setCircleData] = useState({
-    circleCode: "",
-    circleName: "",
-    zoneCode: "",
-  });
   const [errors, setErrors] = useState({});
-
-  const checkDataEquality = (current, original) => {
-    if (!original) return true; // If no original data, assume they are "same" initially for disable state
-    return (
-      current.circleName === original.circleName &&
-      current.zoneCode === original.zoneCode
-      // currencyCode is excluded as it is the ID and likely read-only
-    );
-  };
-
-  // --- debounce/snackbar control ---
-  const snackGateRef = useRef(true);
-  const notifyOnce = (msg, variant = "warning") => {
-    if (!snackGateRef.current) return;
-    snackGateRef.current = false;
-    snackbar(msg, variant);
-    setTimeout(() => (snackGateRef.current = true), 900);
-  };
 
   // --- Fetch Data ---
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [zonesRes, circlesRes] = await Promise.all([
-        callApi("/CM/common-master/zone-codes", null, "GET"),
-        callApi("/CM/common-master/circle-codes", null, "GET"),
-      ]);
-      setZones(zonesRes?.data ?? []);
-      setRows(circlesRes?.data ?? []);
+      const res = await callApi("/CM/common-master/files", null, "GET");
+      setRows(res?.data || []);
     } catch (err) {
       console.error(err);
-      snackbar("Failed to fetch data", "error");
+      snackbar("Failed to load file configurations", "error");
     } finally {
       setLoading(false);
     }
@@ -110,35 +110,68 @@ export default function CircleMasterTab() {
     fetchData();
   }, []);
 
+  const subTypeOptions = useMemo(() => {
+    const map = {};
+
+    rows.forEach((r) => {
+      if (!map[r.type]) map[r.type] = new Set();
+      if (r.subType) map[r.type].add(r.subType);
+    });
+
+    const result = {};
+    Object.keys(map).forEach((k) => {
+      result[k] = Array.from(map[k]);
+    });
+
+    return result;
+  }, [rows]);
+
   useEffect(() => {
     if (editingId && originalData) {
-      setIsDataSame(checkDataEquality(circleData, originalData));
+      //   setIsDataSame(JSON.stringify(formData) === JSON.stringify(originalData));
+      setIsDataSame(checkDataEquality(formData, originalData));
     }
-  }, [circleData, originalData, editingId]);
+  }, [formData, originalData, editingId]);
 
-  // --- Validation Rules ---
-  const reDigits = /^[0-9]*$/;
-  // const reDesc = /^[a-zA-Z0-9\s/&(),-]*$/;
+  const parseFrequency = (freq) => {
+    const result = { D: false, M: false, Y: false };
+
+    if (!freq) return result;
+
+    const parts = freq.toUpperCase().split("/");
+
+    parts.forEach((p) => {
+      if (p === "D") result.D = true;
+      if (p === "M") result.M = true;
+      if (p === "Y") result.Y = true;
+    });
+
+    return result;
+  };
+
   const reDesc = /^(?!.* {2})[a-zA-Z0-9\s/&(),-]*$/;
   const validateField = (name, value) => {
     switch (name) {
-      case "circleCode":
-        if (!value.trim()) return "Circle Code is required";
-        if (!reDigits.test(value)) return "Only digits allowed";
-        if (value.length !== 3) return "Must be 3 digits";
+      // case "filePattern":
+      //   if (!String(value).trim()) return " filePattern is required";
+      //   if (!reDesc.test(value))
+      //     return "Invalid Format, Only alphabets, numbers, spaces(single spaces only between words) and ,()&/- are allowed!";
+      //   break;
+
+      case "type":
+        if (!String(value).trim()) return "Type is required";
         break;
 
-      case "circleName":
-        if (!value.trim()) return "Circle Name is required";
-        if (!reDesc.test(value))
-          return "Invalid Format, Only alphabets, numbers, spaces(single spaces only between words) and ,()&/- are allowed!";
-        if (value.trim().length < 5)
-          return "Circle Name must be at least 5 characters";
+      case "subType":
+        if (!String(value).trim()) return "subType is required";
         break;
 
-      case "zoneCode":
-        if (!value.trim()) return "Zone Code is required";
-        if (!reDesc.test(value)) return "Only letters and digits allowed";
+      case "frequency":
+        if (!String(value).trim()) return "frequency is required";
+        break;
+
+      case "stream":
+        if (!String(value).trim()) return "stream is required";
         break;
 
       default:
@@ -146,71 +179,160 @@ export default function CircleMasterTab() {
     }
     return "";
   };
-
+  console.log("formData", formData);
+  console.log("filePattern", formData.filePattern);
+  console.log(!validateField("filePattern", formData.filePattern));
+  console.log("type", formData.type);
+  console.log(!validateField("type", formData.type));
+  console.log("includeFile", formData.includeFile);
+  console.log("stream", formData.stream);
+  console.log("frequency", formData.frequency);
+  console.log("subType", formData.subType);
   const isFormValid = useMemo(
     () =>
-      !validateField("circleCode", circleData.circleCode) &&
-      !validateField("circleName", circleData.circleName) &&
-      !validateField("zoneCode", circleData.zoneCode),
-    [circleData],
+      !validateField("filePattern", formData.filePattern) &&
+      !validateField("type", formData.type) &&
+      !validateField("subType", formData.subType) &&
+      !validateField("frequency", formData.frequency) &&
+      !validateField("stream", formData.stream) &&
+      !validateField("includeFile", formData.includeFile),
+    [formData],
   );
 
   const handleChange = (e) => {
-    const { name } = e.target;
-    let { value } = e.target;
-    if (name === "circleCode") {
-      if (!reDigits.test(value)) {
-        notifyOnce("Circle Code accepts digits only");
-        return;
-      }
-      if (value.length > 3) {
-        notifyOnce("Circle Code must be 3 digits");
-        return;
-      }
+    const { name, value } = e.target;
+
+    if (name === "type") {
+      setFormData((prev) => ({
+        ...prev,
+        type: value,
+        subType: value === "GLIF" ? "GLIF" : "",
+      }));
+      return;
     }
-    if (name === "circleName") {
+
+    if (name == "filePattern") {
       if (value && !/^[A-Za-z0-9]$/.test(value[0])) {
-        notifyOnce("Should not start with special character");
+        snackbar("Should not start with special character", "warning");
         return;
       }
-      value = value?.toUpperCase();
-      if (!reDesc.test(value)) {
-        notifyOnce(
-          "Invalid Format, Only alphabets, spaces(single spaces only between words) and ,()&/- are allowed!",
-        );
-        return;
-      }
-      if (name === "zoneCode" && !reDesc.test(value)) {
-        notifyOnce("Zone Code accepts only letters/digits");
-        return;
-      }
+      // value = value?.toUpperCase();
+      // if (!reDesc.test(value)) {
+      //   snackbar(
+      //     "Invalid Format, Only alphabets, spaces(single spaces only between words) and ,()&/- are allowed!",
+      //   );
+      //   return;
+      // }
     }
-    setCircleData((prev) => ({ ...prev, [name]: value }));
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
     setErrors((prev) => ({ ...prev, [name]: validateField(name, value) }));
+  };
+
+  const handleFrequencyChange = (key) => {
+    setFormData((prev) => ({
+      ...prev,
+      frequency: {
+        ...prev.frequency,
+        [key]: !prev.frequency[key],
+      },
+    }));
+  };
+
+  const handleEdit = (row) => {
+    const init = {
+      type: row.type || "",
+      subType: row.subType || "",
+      filePattern: row.filePattern || "",
+      stream: row.stream || "",
+      includeFile: row.includeFile || "",
+      frequency: parseFrequency(row.frequency),
+    };
+
+    setFormData(init);
+    setOriginalData(init);
+    setEditingId(row.fileId);
+    setOpen(true);
+  };
+
+  const handleDelete = async (row) => {
+    try {
+      const payload = {
+        requestType: "FILE_TYPE_MASTER",
+        changeType: "DELETE",
+        targetId: row.filePattern,
+        payload: {
+          type: row.type,
+          subType: row.subType,
+          filePattern: row.filePattern,
+          stream: row.stream,
+          includeFile: row.includeFile,
+          frequency: row.frequency,
+        },
+      };
+
+      const response = await callApi("/CR/create-request", payload, "POST");
+      snackbar(
+        " delete request submitted successfully with request id " +
+          response?.data?.id,
+        "success",
+      );
+      fetchData();
+    } catch (err) {
+      snackbar(err?.message || "Delete failed", "error");
+    }
+  };
+
+  const handleClose = () => {
+    setOpen(false);
+    setEditingId(null);
+    setOriginalData(null);
+    setErrors({});
+    setFormData(EMPTY_FORM);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     if (editingId && isDataSame) {
-      snackbar("No Changes Detected!", "warning");
-      return; // Stop submission
+      snackbar("No changes detected", "warning");
+      return;
     }
-    const isEditing = editingId;
-    if (!isEditing) {
-      const circleExists = rows.some(
-        (row) => row.circleCode === circleData.circleCode,
-      );
-      if (circleExists) {
-        snackbar("Circle code already exist", "warning");
-        return;
-      }
-    }
+
+    // // BASIC VALIDATION
+    // if (!formData.type) {
+    //   snackbar("Type is required", "error");
+    //   return;
+    // }
+
+    // if (!formData.subType) {
+    //   snackbar("Sub Type is required", "error");
+    //   return;
+    // }
+
+    // if (!formData.filePattern) {
+    //   snackbar("File Pattern is required", "error");
+    //   return;
+    // }
+
+    // if (!formData.stream) {
+    //   snackbar("Stream is required", "error");
+    //   return;
+    // }
+
+    // if (!formData.includeFile) {
+    //   snackbar("Include File is required", "error");
+    //   return;
+    // }
 
     const allErrors = {
-      circleCode: validateField("circleCode", circleData.circleCode),
-      circleName: validateField("circleName", circleData.circleName),
-      zoneCode: validateField("zoneCode", circleData.zoneCode),
+      filePattern: validateField("filePattern", formData.filePattern),
+      type: validateField("type", formData.type),
+      subType: validateField("subType", formData.subType),
+      frequency: validateField("frequency", formData.frequency),
+      stream: validateField("stream", formData.stream),
+      includeFile: validateField("includeFile", formData.includeFile),
     };
     setErrors(allErrors);
 
@@ -220,114 +342,116 @@ export default function CircleMasterTab() {
       return;
     }
 
-    const selectedZone = zones.find(
-      (z) => String(z.id) === String(circleData.zoneCode),
-    );
-
-    const payloadData = {
-      requestType: "CIRCLE",
+    const payload = {
+      requestType: "FILE_TYPE_MASTER",
       changeType: editingId ? "UPDATE" : "ADD",
-      targetId: circleData.circleCode,
+      targetId: formData.filePattern,
       payload: {
-        circleCode: circleData.circleCode,
-        circleName: circleData.circleName,
-        zoneCode: circleData.zoneCode,
-        zoneDescription: selectedZone?.description,
+        ...formData,
+        frequency: Object.keys(formData.frequency)
+          .filter((k) => formData.frequency[k])
+          .join("/"),
       },
     };
 
     try {
-      const response = await callApi("/CR/create-request", payloadData, "POST");
-      if (response) {
-        snackbar(
-          editingId
-            ? "Circle update request submitted successfully with request id " +
-                response?.data?.id
-            : "Circle creation request submitted successfully with request id " +
-                response?.data?.id,
-          "success",
-        );
-        handleClose();
-        fetchData();
-      }
+      const response = await callApi("/CR/create-request", payload, "POST");
+
+      snackbar(
+        editingId
+          ? " update request submitted successfully with request id " +
+              response?.data?.id
+          : "creation request submitted successfully with request id " +
+              response?.data?.id,
+        "success",
+      );
+
+      handleClose();
+      fetchData();
     } catch (err) {
       snackbar(err?.message || "Request failed", "error");
     }
   };
 
-  const handleEdit = (row) => {
-    const initialData = {
-      circleCode: String(row.circleCode ?? ""),
-      circleName: String(row.circleName ?? ""),
-      zoneCode: String(row.zoneCode ?? ""),
-    };
-    setCircleData(initialData);
-    setOriginalData(initialData); // Store the original data here
-    setEditingId(row.circleCode);
-    setOpen(true);
-    setIsDataSame(true);
-  };
-
-  const handleClose = () => {
-    setOpen(false);
-    setCircleData({
-      circleCode: "",
-      circleName: "",
-      zoneCode: "",
-    });
-    setOriginalData(null); // Clear original data on close
-    setErrors({});
-    setEditingId(null);
-    setIsDataSame(true);
-  };
-
-  // --- Columns ---
   const columns = useMemo(
     () => [
-      { field: "Type", headerName: "File Type", flex: 1.2 },
-      { field: "FILE_PATTERN", headerName: "File Pattern", flex: 2 },
+      { field: "type", headerName: "File Type", flex: 1 },
+      { field: "filePattern", headerName: "File Pattern", flex: 1 },
+
       {
-        field: "STREAM",
+        field: "stream",
         headerName: "Stream",
-        filterable: false,
-        disableColumnMenu: true,
-        flex: 2,
-        // valueGetter: (params) => {
-        //   const zone = zones.find((z) => String(z.id) === String(params));
-        //   return zone ? zone.description : "N/A";
-        // },
+        flex: 1,
+        renderCell: (params) =>
+          params.value === "Y" ? "Yes" : params.value === "N" ? "No" : "",
       },
-      { field: "FREQUENCY", headerName: "Frequency", flex: 2 },
-      { field: "INCLUDE", headerName: "Include", flex: 2 },
+
+      {
+        field: "frequency",
+        headerName: "Frequency",
+        flex: 1,
+        renderCell: (params) => {
+          if (!params.value) return "";
+
+          return params.value
+            .split(/[/,]/)
+            .map((f) => {
+              if (f === "D") return "Daily";
+              if (f === "M") return "Monthly";
+              if (f === "Y") return "Yearly";
+              return f;
+            })
+            .join(" / ");
+        },
+      },
+
+      {
+        field: "includeFile",
+        headerName: "Include",
+        flex: 1,
+        renderCell: (params) =>
+          params.value === "Y" ? "Yes" : params.value === "N" ? "No" : "",
+      },
+
       {
         field: "actions",
         headerName: "Actions",
-        flex: 0.8,
-        filterable: false,
-        sortable: false,
-        disableColumnMenu: true,
+        flex: 1,
         align: "center",
-        headerAlign: "center",
         renderCell: (params) => (
-          <Tooltip title="Edit">
-            <IconButton color="primary" onClick={() => handleEdit(params.row)}>
-              <EditIcon />
-            </IconButton>
-          </Tooltip>
+          <Stack direction="row" spacing={1}>
+            <Tooltip title="Edit">
+              <IconButton
+                color="primary"
+                onClick={() => handleEdit(params.row)}
+              >
+                <EditIcon />
+              </IconButton>
+            </Tooltip>
+
+            <Tooltip title="Delete">
+              <IconButton
+                color="error"
+                onClick={() => handleDelete(params.row)}
+              >
+                <DeleteIcon />
+              </IconButton>
+            </Tooltip>
+          </Stack>
         ),
       },
     ],
-    [zones],
+    [],
   );
 
   return (
     <CircleTab1Container>
-      <CircleMasterDataGrid
+      <DataGrid
         loading={loading}
         rows={rows}
         columns={columns}
         disableRowSelectionOnClick
-        getRowId={(row) => row.circleCode}
+        getRowId={(row) => row.fileId}
         pageSizeOptions={[5, 10, 25, 50]}
         initialState={{
           pagination: { paginationModel: { pageSize: 10, page: 0 } },
@@ -346,91 +470,125 @@ export default function CircleMasterTab() {
         }}
       />
 
-      {/* Floating Create Button */}
       <CircleTab1Fab
-        onClick={() => setOpen(true)}
-        color="primary"
         variant="extended"
+        color="primary"
+        // startIcon={<AddIcon />}
+        onClick={() => setOpen(true)}
       >
         <CircleTab1Addicon />
         Create
       </CircleTab1Fab>
-
       {/* Dialog Form */}
-      <Dialog open={open} maxWidth="sm" fullWidth="true">
+
+      <Dialog open={open} maxWidth="sm" fullWidth>
         <Box component="form" onSubmit={handleSubmit}>
-          <Circletab1DialogTitle>
-            <Stack
-              // margin={-1}
-              direction="row"
-              justifyContent="space-between"
-              alignItems="center"
-            >
-              <Typography variant="h6" color="primary">
-                {editingId ? "Edit Circle" : "Add New Circle"}
-              </Typography>
-              <IconButton onClick={handleClose}>
-                <CloseIcon />
-              </IconButton>
-            </Stack>
-          </Circletab1DialogTitle>
-
-          <Divider />
-
           <DialogContent>
-            <CircleTab1Grid container spacing={3}>
-              <Grid size={{ xs: 12 }}>
-                <TextField
-                  fullWidth
-                  label="Circle Code *"
-                  name="circleCode"
-                  value={circleData.circleCode}
-                  onChange={handleChange}
-                  disabled={!!editingId}
-                  error={!!errors.circleCode}
-                  helperText={errors.circleCode || "Exactly 3 digits"}
-                  inputProps={{ maxLength: 3, inputMode: "numeric" }}
-                />
-              </Grid>
+            <Stack spacing={2}>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="h6">
+                  {editingId
+                    ? "Edit File Configuration"
+                    : "Add File Configuration"}
+                </Typography>
+                <IconButton onClick={handleClose}>
+                  <CloseIcon />
+                </IconButton>
+              </Stack>
+              <TextField
+                select
+                label="Type"
+                name="type"
+                value={formData.type || ""}
+                onChange={handleChange}
+                disabled={!!editingId}
+                // error={!!errors.Type}
+                // helperText={errors.Type || "Type is required"}
+              >
+                {TYPE_OPTIONS.map((opt) => (
+                  <MenuItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </MenuItem>
+                ))}
+              </TextField>
 
-              <Grid size={{ xs: 12 }}>
-                <TextField
-                  fullWidth
-                  label="Circle Name *"
-                  name="circleName"
-                  value={circleData.circleName}
-                  onChange={handleChange}
-                  error={!!errors.circleName}
-                  inputProps={{ maxLength: 40 }}
-                  helperText={
-                    errors.circleName ||
-                    "Allowed 5-40 characters (A-Z, 0-9, spaces,/,&,(,),- )"
-                  }
-                />
-              </Grid>
+              <TextField
+                select
+                label="Sub Type"
+                name="subType"
+                value={formData.subType || ""}
+                onChange={handleChange}
+                // error={!!errors.subType}
+                // helperText={errors.subType || "Sub Type is required"}
+                disabled={formData.type === "GLIF"}
+              >
+                {(subTypeOptions[formData.type] || []).map((v) => (
+                  <MenuItem key={v} value={v}>
+                    {v}
+                  </MenuItem>
+                ))}
+              </TextField>
 
-              <Grid size={{ xs: 12 }}>
-                <TextField
-                  fullWidth
-                  select
-                  label="Zone *"
-                  name="zoneCode"
-                  value={circleData.zoneCode}
-                  onChange={handleChange}
-                  error={!!errors.zoneCode}
-                  helperText={errors.zoneCode || "Select corresponding Zone"}
-                >
-                  {zones.map((zone) => (
-                    <MenuItem key={zone.id} value={zone.id}>
-                      {zone.description}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Grid>
-            </CircleTab1Grid>
+              <TextField
+                label="File Pattern"
+                name="filePattern"
+                value={formData.filePattern || ""}
+                onChange={handleChange}
+                error={!!errors.filePattern}
+                helperText={errors.filePattern || "min 3 digits"}
+              />
+
+              <TextField
+                select
+                label="Stream"
+                name="stream"
+                value={formData.stream || ""}
+                onChange={handleChange}
+                // error={!!errors.Stream}
+                // helperText={errors.Stream || "Stream is required"}
+              >
+                <MenuItem value="Y">Yes</MenuItem>
+                <MenuItem value="N">No</MenuItem>
+              </TextField>
+
+              <Box>
+                <Typography>Frequency</Typography>
+
+                {FREQUENCY_MAP.map(({ label, key }) => (
+                  <FormControlLabel
+                    key={key}
+                    control={
+                      <Checkbox
+                        checked={formData.frequency[key]}
+                        onChange={() => handleFrequencyChange(key)}
+                      />
+                    }
+                    label={label}
+                  />
+                ))}
+              </Box>
+
+              <TextField
+                select
+                label="Include"
+                name="includeFile"
+                value={formData.includeFile || ""}
+                onChange={handleChange}
+              >
+                <MenuItem value="Y">Yes</MenuItem>
+                <MenuItem value="N">No</MenuItem>
+              </TextField>
+            </Stack>
           </DialogContent>
-          <Divider></Divider>
+
           <DialogActions>
+            {/* <Button
+            variant="contained"
+            onClick={handleSubmit}
+            disabled={!isFormValid}
+          >
+            {editingId ? "Update" : "Add"}
+          </Button> */}
             <Button
               type="submit"
               variant="contained"
@@ -443,1147 +601,5 @@ export default function CircleMasterTab() {
         </Box>
       </Dialog>
     </CircleTab1Container>
-  );
-}
-
-       import {
-  Box,
-  Typography,
-  List,
-  ListItemButton,
-  ListItemText,
-  Card,
-  CardContent,
-  Stack,
-  Divider,
-  Chip,
-  IconButton,
-} from "@mui/material";
-import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
-import { useState } from "react";
-import { guideData } from "../data/guideData";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-export default function UserGuides({ setUserGuideOpen }) {
-  const modules = Object.keys(guideData);
-  const [selectedModule, setSelectedModule] = useState(modules[0]);
-
-  const currentGuide = guideData[selectedModule];
-
-  return (
-    <Box display="flex" gap={3} p={3} overflow="hidden">
-      {/* left card */}
-      <Card sx={{ width: 280, height: "fit-content" }}>
-        <CardContent>
-          <IconButton
-            onClick={setUserGuideOpen}
-            sx={{
-              // backgroundColor: "none",
-              "&:hover": {
-                backgroundColor: "grey.200",
-              },
-            }}
-          >
-            <ArrowBackIcon sx={{ fontSize: 16 }} />
-          </IconButton>
-          <Typography variant="subtitle" fontWeight={700} mb={1}>
-            Modules
-          </Typography>
-          <Divider sx={{ mb: 1 }} />
-
-          <List disablePadding>
-            {modules.map((module) => (
-              <ListItemButton
-                key={module}
-                selected={selectedModule === module}
-                onClick={() => setSelectedModule(module)}
-                sx={{
-                  borderRadius: 1,
-                  mb: 0.5,
-                }}
-              >
-                <ListItemText primary={module} />
-              </ListItemButton>
-            ))}
-          </List>
-        </CardContent>
-      </Card>
-
-      {/* right card */}
-      <Box>
-        <Box
-          sx={{
-            position: "sticky",
-            top: 0,
-            zIndex: 1,
-            pb: 1,
-            //backgroundColor: "#ebcece",
-          }}
-        >
-          <Typography variant="h6" fontWeight={500}>
-            {currentGuide.title}
-          </Typography>
-        </Box>
-        <Card
-          sx={{
-            flex: 1,
-            height: "75vh",
-            maxWidth: 900,
-            width: 900,
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
-          <CardContent sx={{ overflowY: "auto" }}>
-            <Stack spacing={1.5}>
-              <Divider />
-
-              {currentGuide.steps.map((step, index) => (
-                <Card
-                  key={index}
-                  variant="outlined"
-                  sx={{
-                    backgroundColor: "grey.100",
-                  }}
-                >
-                  <CardContent>
-                    <Stack direction="row" spacing={2} alignItems="flex-start">
-                      <Chip
-                        icon={<CheckCircleOutlineIcon />}
-                        label={`Step ${index + 1}`}
-                        //color="primary"
-                        size="small"
-                      />
-                      <Typography variant="body2">{step}</Typography>
-                    </Stack>
-                  </CardContent>
-                </Card>
-              ))}
-            </Stack>
-          </CardContent>
-        </Card>
-      </Box>
-    </Box>
-  );
-}
-import {
-  Box,
-  Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
-  IconButton,
-  Collapse,
-  Stack,
-} from "@mui/material";
-import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
-import { useState, useEffect } from "react";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-export default function Faqs({ setFaqOpen }) {
-  const [openRow, setOpenRow] = useState(null);
-  const [faqList, setFaqList] = useState([]);
-
-  // 🔹 Dummy data (temporary)
-
-  const cglFaqDummyData = [
-    {
-      id: 1,
-      question: "What is CGL Management used for in Fincore?",
-      answer:
-        "CGL Management is used to create, view, manage, and process Central General Ledger (CGL) accounts, including approval and maintenance of CGL-related requests.",
-    },
-    {
-      id: 2,
-      question: "What options are available under CGL Management?",
-      answer:
-        "CGL Management provides three options: View CGL Details, CGL Requests, and CGL Management.",
-    },
-    {
-      id: 3,
-      question: "How can I view CGL details?",
-      answer:
-        "You can view CGL details by using the Search CGL option. After selecting a CGL, the system displays all related information.",
-    },
-    {
-      id: 4,
-      question: "What information is shown in View CGL Details?",
-      answer:
-        "The screen displays CGL Number, Description, Account Classification, Comp1, Segment, Comp2, Balance Compare flag, Manual Posting flag, Balance Forward flag, and Open Date.",
-    },
-    {
-      id: 5,
-      question: "What is the purpose of the CGL Requests screen?",
-      answer:
-        "The CGL Requests screen is used to approve or reject CGL creation requests raised by other users.",
-    },
-    {
-      id: 6,
-      question: "What is the difference between Manage CGL and My Requests?",
-      answer:
-        "Manage CGL shows all approved and active CGLs, while My Requests displays CGL requests created by the logged-in user along with their current status.",
-    },
-    {
-      id: 7,
-      question: "How do I create a new CGL?",
-      answer:
-        "Click on the Create button in the CGL Management screen, enter all mandatory CGL details, and submit the request for approval.",
-    },
-    {
-      id: 8,
-      question: "Can a CGL be created without approval?",
-      answer:
-        "No, all CGL creation requests must be approved by an authorized user before the CGL becomes active.",
-    },
-    {
-      id: 9,
-      question: "How can I track the status of my CGL request?",
-      answer:
-        "The status of your CGL request can be tracked in the My Requests tab, where the current approval status is displayed.",
-    },
-    {
-      id: 10,
-      question: "Can an approved CGL be modified later?",
-      answer:
-        "Yes, changes to an approved CGL must be raised as a new request and approved before the changes take effect.",
-    },
-  ];
-  useEffect(() => {
-    setFaqList(cglFaqDummyData);
-  }, []);
-
-  const handleToggle = (id) => {
-    setOpenRow(openRow === id ? null : id);
-  };
-
-  return (
-    <Box p={4}>
-      {/* 🔹 Back Navigation */}
-      <Stack direction="row" alignItems="center" spacing={1} mb={2}>
-        <IconButton
-          onClick={setFaqOpen}
-          sx={{
-            //backgroundColor: "grey.100",
-            "&:hover": {
-              backgroundColor: "grey.200",
-            },
-          }}
-        >
-          <ArrowBackIcon sx={{ fontSize: 20 }} />
-        </IconButton>
-
-        <Typography variant="h6" fontWeight={500}>
-          Frequently Asked Questions
-        </Typography>
-      </Stack>
-
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell width="5%" />
-              <TableCell>
-                <b>Question</b>
-              </TableCell>
-            </TableRow>
-          </TableHead>
-
-          <TableBody>
-            {faqList.map((faq) => (
-              <>
-                {/* QUESTION ROW */}
-                <TableRow
-                  key={faq.id}
-                  hover
-                  sx={{ cursor: "pointer" }}
-                  onClick={() => handleToggle(faq.id)}
-                >
-                  <TableCell>
-                    <IconButton size="small">
-                      {openRow === faq.id ? (
-                        <KeyboardArrowUpIcon />
-                      ) : (
-                        <KeyboardArrowDownIcon />
-                      )}
-                    </IconButton>
-                  </TableCell>
-                  <TableCell>{faq.question}</TableCell>
-                </TableRow>
-
-                {/* ANSWER ROW */}
-                <TableRow>
-                  <TableCell
-                    style={{ paddingBottom: 0, paddingTop: 0 }}
-                    colSpan={2}
-                  >
-                    <Collapse
-                      in={openRow === faq.id}
-                      timeout="auto"
-                      unmountOnExit
-                    >
-                      <Box m={2}>
-                        <Typography variant="body2">{faq.answer}</Typography>
-                      </Box>
-                    </Collapse>
-                  </TableCell>
-                </TableRow>
-              </>
-            ))}
-
-            {faqList.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={2} align="center">
-                  No FAQs available
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
-    </Box>
-  );
-}
-
-
-
-import { Box, Card, CardActionArea, Grid, Typography } from "@mui/material";
-import QuizIcon from "@mui/icons-material/Quiz";
-import MenuBookIcon from "@mui/icons-material/MenuBook";
-export default function HelpSupportHome({ setFaqOpen, setUserGuideOpen }) {
-  return (
-    <>
-      <Box p={3}>
-        <Grid
-          container
-          spacing={3}
-          justifyContent={"center"}
-          alignItems={"center"}
-        >
-          <Grid item xs={12} md={3}>
-            <Card>
-              <CardActionArea onClick={setFaqOpen}>
-                <Box p={4} textAlign="center">
-                  <QuizIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
-                  <Typography variant="h6">FAQs</Typography>
-                </Box>
-              </CardActionArea>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={3}>
-            <Card>
-              <CardActionArea onClick={setUserGuideOpen}>
-                <Box p={4} textAlign="center">
-                  <MenuBookIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
-                  <Typography variant="h6">User Guides</Typography>
-                </Box>
-              </CardActionArea>
-            </Card>
-          </Grid>
-        </Grid>
-      </Box>
-    </>
-  );
-}
-
-
-
-report branch wise 
-
-import { useState } from "react";
-import {
-  Box,
-  Card,
-  Stack,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
-  TextField,
-  Button,
-} from "@mui/material";
-import Autocomplete from "@mui/material/Autocomplete";
-import { LocalizationProvider, DatePicker } from "@mui/x-date-pickers";
-import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
-import dayjs from "dayjs";
-import useApi from "../../hooks/useApi";
-
-export default function BranchWiseReports() {
-  const { callApi } = useApi();
-
-  const [countryType, setCountryType] = useState("INDIAN");
-
-  const [zoneList, setZoneList] = useState([]);
-  const [circleList, setCircleList] = useState([]);
-  const [branchList, setBranchList] = useState([]);
-
-  const [zone, setZone] = useState(null);
-  const [circle, setCircle] = useState(null);
-  const [branch, setBranch] = useState(null);
-  const [date, setDate] = useState(null);
-
-  const [loadingZone, setLoadingZone] = useState(false);
-  const [loadingCircle, setLoadingCircle] = useState(false);
-  const [loadingBranch, setLoadingBranch] = useState(false);
-
-  /* ---------------- ZONE ---------------- */
-
-  const fetchZones = async (val) => {
-    if (!val || val.length < 2) {
-      setZoneList([]);
-      return;
-    }
-
-    setLoadingZone(true);
-    const res = await callApi(
-      `/CM/common-master/zones?q=${encodeURIComponent(val)}`,
-      null,
-      "GET"
-    );
-
-    let data = res?.data || [];
-
-    data =
-      countryType === "FOREIGN"
-        ? data.filter((z) => z.code === "4")
-        : data.filter((z) => z.code !== "4");
-
-    setZoneList(data);
-    setLoadingZone(false);
-  };
-
-  /* ---------------- CIRCLE ---------------- */
-
-  const fetchCircles = async (zoneCode) => {
-    setLoadingircleList([]);
-    setLoadingCircle(true);
-
-    const res = await callApi(
-      `/CM/common-master/circles?zoneCode=${zoneCode}`,
-      null,
-      "GET"
-    );
-
-    setCircleList(res?.data || []);
-    setLoadingCircle(false);
-  };
-
-  /* ---------------- BRANCH ---------------- */
-
-  const fetchBranches = async (val) => {
-    if (!val || val.length < 3 || !circle) {
-      setBranchList([]);
-      return;
-    }
-
-    setLoadingBranch(true);
-
-    const res = await callApi(
-      `/CM/common-master/branches-code-name-only?q=${encodeURIComponent(val)}`,
-      null,
-      "GET"
-    );
-
-    setBranchList(res?.data || []);
-    setLoadingBranch(false);
-  };
-
-  /* ---------------- DOWNLOAD ---------------- */
-
-  const handleDownload = () => {
-    console.log({
-      countryType,
-      zoneCode: zone?.code,
-      circleCode: circle?.circleCode,
-      branchCode: branch?.branchCode,
-      reportDate: date?.format("YYYY-MM-DD"),
-    });
-  };
-
-  return (
-    <Box
-      display="flex"
-      justifyContent="center"
-      alignItems="center"
-      minHeight="80vh"
-    >
-      <Card sx={{ p: 4, width: 520 }}>
-        <Stack spacing={3}>
-          {/* RADIO */}
-          <RadioGroup
-            row
-            value={countryType}
-            onChange={(e) => {
-              setCountryType(e.target.value);
-              setZone(null);
-              setCircle(null);
-              setBranch(null);
-            }}
-          >
-            <FormControlLabel value="INDIAN" control={<Radio />} label="Indian" />
-            <FormControlLabel value="FOREIGN" control={<Radio />} label="Foreign" />
-          </RadioGroup>
-
-          {/* ZONE */}
-          {countryType === "INDIAN" && (
-            <Autocomplete
-              value={zone}
-              options={zoneList}
-              loading={loadingZone}
-              getOptionLabel={(o) => `${o.code} - ${o.name}`}
-              onInputChange={(e, v) => fetchZones(v)}
-              onChange={(e, v) => {
-                setZone(v);
-                setCircle(null);
-                setBranch(null);
-                if (v) fetchCircles(v.code);
-              }}
-              renderInput={(params) => (
-                <TextField {...params} label="Zone" />
-              )}
-            />
-          )}
-
-          {/* CIRCLE */}
-          <Autocomplete
-            value={circle}
-            options={circleList}
-            loading={loadingCircle}
-            disabled={countryType === "INDIAN" && !zone}
-            getOptionLabel={(o) => `${o.circleCode} - ${o.circleName}`}
-            onChange={(e, v) => {
-              setCircle(v);
-              setBranch(null);
-            }}
-            renderInput={(params) => (
-              <TextField {...params} label="Circle" />
-            )}
-          />
-
-          {/* BRANCH */}
-          <Autocomplete
-            value={branch}
-            options={branchList}
-            loading={loadingBranch}
-            disabled={!circle}
-            getOptionLabel={(o) => `${o.branchCode} - ${o.branchName}`}
-            onInputChange={(e, v) => fetchBranches(v)}
-            onChange={(e, v) => setBranch(v)}
-            renderInput={(params) => (
-              <TextField {...params} label="Branch" />
-            )}
-          />
-
-          {/* DATE */}
-          <LocalizationProvider dateAdapter={AdapterDayjs}>
-            <DatePicker
-              label="Report Date"
-              value={date}
-              maxDate={dayjs()}
-              onChange={(v) => setDate(v)}
-            />
-          </LocalizationProvider>
-
-          {/* DOWNLOAD */}
-          <Button
-            variant="contained"
-            size="large"
-            disabled={!circle || !branch || !date}
-            onClick={handleDownload}
-          >
-            Fetch & Download
-          </Button>
-        </Stack>
-      </Card>
-    </Box>
-  );
-}
-
-
-
-
-
-import { useState } from "react";
-import {
-  Box,
-  Card,
-  Stack,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
-  TextField,
-  Button,
-} from "@mui/material";
-import Autocomplete from "@mui/material/Autocomplete";
-import { debounce } from "@mui/material/utils";
-import { LocalizationProvider, DatePicker } from "@mui/x-date-pickers";
-import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
-import dayjs from "dayjs";
-import useApi from "../../hooks/useApi";
-import { useSelector } from "react-redux";
-
-
-export default function BranchWiseReports() {
-  const { callApi } = useApi();
-  const user = useSelector((state) => state.auth.user);
-
-  const [countryType, setCountryType] = useState("INDIAN");
-
-  const [zoneList, setZoneList] = useState([]);
-  const [circleList, setCircleList] = useState([]);
-  const [branchList, setBranchList] = useState([]);
-  const [reportList, setReportList] = useState([]);
-
-  const [zone, setZone] = useState(null);
-  const [circle, setCircle] = useState(null);
-  const [branch, setBranch] = useState(null);
-  const [report, setReport] = useState(null);
-  const [reportDate, setReportDate] = useState(null);
-
-  /* ---------------- ZONE (POST + payload) ---------------- */
-
-  const fetchZones = debounce(async (value) => {
-    if (!value || value.length < 2) {
-      setZoneList([]);
-      return;
-    }
-
-    const res = await callApi(
-      "/CM/common-master/zones",
-      { q: value },
-      "POST"
-    );
-
-    let data = res?.data || [];
-
-    // Zone-4 logic
-    data =
-      countryType === "FOREIGN"
-        ? data.filter((z) => z.zoneCode === "4")
-        : data.filter((z) => z.zoneCode !== "4");
-
-    setZoneList(data);
-  }, 400);
-
-  /* ---------------- CIRCLE (POST + payload) ---------------- */
-
-  const fetchCircles = async (zoneCode) => {
-    const res = await callApi(
-      "/CM/common-master/circles",
-      { zoneCode },
-      "POST"
-    );
-    setCircleList(res?.data || []);
-  };
-
-  /* ---------------- BRANCH (GET like your code) ---------------- */
-
-  const fetchBranches = debounce(async (value) => {
-    if (!value || value.length < 3 || !circle) {
-      setBranchList([]);
-      return;
-    }
-
-    const res = await callApi(
-      `/CM/common-master/branches-code-name-only?q=${encodeURIComponent(value)}`,
-      null,
-      "GET"
-    );
-
-    setBranchList(res?.data || []);
-  }, 400);
-
-  /* ---------------- REPORT TYPES ---------------- */
-
-  const fetchReports = async () => {
-    const res = await callApi(
-      "/RS/reports/types",
-      { roleId: user.role },
-      "POST"
-    );
-    setReportList(res?.data || []);
-  };
-
-  /* ---------------- DOWNLOAD ---------------- */
-
-  const handleDownload = () => {
-    const payload = {
-      countryType,
-      zoneCode: zone?.zoneCode,
-      circleCode: circle?.circleCode,
-      branchCode: branch?.branchCode,
-      reportId: report?.id,
-      reportDate: reportDate?.format("YYYY-MM-DD"),
-    };
-
-    console.log("DOWNLOAD PAYLOAD:", payload);
-  };
-
-  return (
-    <Box
-      display="flex"
-      justifyContent="center"
-      alignItems="center"
-      minHeight="80vh"
-    >
-      <Card sx={{ p: 4, width: 560 }}>
-        <Stack spacing={3}>
-          {/* RADIO */}
-          <RadioGroup
-            row
-            value={countryType}
-            onChange={(e) => {
-              setCountryType(e.target.value);
-              setZone(null);
-              setCircle(null);
-              setBranch(null);
-            }}
-          >
-            <FormControlLabel value="INDIAN" control={<Radio />} label="Indian" />
-            <FormControlLabel value="FOREIGN" control={<Radio />} label="Foreign" />
-          </RadioGroup>
-
-          {/* ZONE */}
-          {countryType === "INDIAN" && (
-            <Autocomplete
-              value={zone}
-              options={zoneList}
-              getOptionLabel={(o) => `${o.zoneCode} - ${o.zoneName}`}
-              onInputChange={(e, v) => fetchZones(v)}
-              onChange={(e, v) => {
-                setZone(v);
-                setCircle(null);
-                setBranch(null);
-                if (v) fetchCircles(v.zoneCode);
-              }}
-              renderInput={(params) => (
-                <TextField {...params} label="Zone Code" />
-              )}
-            />
-          )}
-
-          {/* CIRCLE */}
-          <Autocomplete
-            value={circle}
-            options={circleList}
-            disabled={countryType === "INDIAN" && !zone}
-            getOptionLabel={(o) => `${o.circleCode} - ${o.circleName}`}
-            onChange={(e, v) => {
-              setCircle(v);
-              setBranch(null);
-            }}
-            renderInput={(params) => (
-              <TextField {...params} label="Circle Code" />
-            )}
-          />
-
-          {/* BRANCH */}
-          <Autocomplete
-            value={branch}
-            options={branchList}
-            disabled={!circle}
-            getOptionLabel={(o) => `${o.branchCode} - ${o.branchName}`}
-            onInputChange={(e, v) => fetchBranches(v)}
-            onChange={(e, v) => setBranch(v)}
-            renderInput={(params) => (
-              <TextField {...params} label="Branch Code" />
-            )}
-          />
-
-          {/* REPORT NAME */}
-          <Autocomplete
-            value={report}
-            options={reportList}
-            onOpen={fetchReports}
-            getOptionLabel={(o) => o.reportName}
-            onChange={(e, v) => setReport(v)}
-            renderInput={(params) => (
-              <TextField {...params} label="Report Name" />
-            )}
-          />
-
-          {/* DATE */}
-          <LocalizationProvider dateAdapter={AdapterDayjs}>
-            <DatePicker
-              label="Report Date"
-              value={reportDate}
-              maxDate={dayjs()}
-              onChange={(v) => setReportDate(v)}
-            />
-          </LocalizationProvider>
-
-          {/* DOWNLOAD */}
-          <Button
-            variant="contained"
-            size="large"
-            disabled={!branch || !report || !reportDate}
-            onClick={handleDownload}
-          >
-            Fetch & Download
-          </Button>
-        </Stack>
-      </Card>
-    </Box>
-  );
-}
-
-
-
-
-ai assistant header
-
-
-
-import { Drawer, Box, IconButton, Typography, Divider } from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
-import AiAssistant from "./AiAssistant";
-
-export default function AiAssistantDrawer({ open, onClose }) {
-  return (
-    <Drawer
-      anchor="right"
-      open={open}
-      onClose={onClose}
-      PaperProps={{
-        sx: {
-          width: 420,
-          maxWidth: "100%",
-        },
-      }}
-    >
-      {/* HEADER */}
-      <Box
-        sx={{
-          p: 2,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <Typography fontWeight={600}>AI Assistant</Typography>
-        <IconButton onClick={onClose}>
-          <CloseIcon />
-        </IconButton>
-      </Box>
-
-      <Divider />
-
-      {/* BODY */}
-      <Box sx={{ height: "100%" }}>
-        <AiAssistant isDrawer />
-      </Box>
-    </Drawer>
-  );
-}
-
-
-
-
-.<IconButton
-  color="inherit"
-  onClick={() => setNotificationDrawerOpen(true)}
->
-  {unreadCount > 0 ? (
-    <Badge badgeContent={unreadCount || ""} color="error">
-      <Notifications />
-    </Badge>
-  ) : (
-    <Notifications />
-  )}
-</IconButton>
-
-{/* 🤖 AI ASSISTANT ICON */}
-<IconButton
-  color="inherit"
-  onClick={() => setAiDrawerOpen(true)}
-  sx={{ ml: 0.5 }}
->
-  <SmartToyIcon />
-</IconButton>
-
-<Avatar
-  onClick={() => setProfileDrawerOpen(true)}
-  sx={{
-    width: 32,
-    height: 32,
-    color: "primary.contrastText",
-    backgroundColor: "primary.main",
-    cursor: "pointer",
-    ml: 1,
-  }}
->
-  {userAvatarCreator(user)}
-</Avatar>
-
-
-
-<AiAssistantDrawer
-  open={aiDrawerOpen}
-  onClose={() => setAiDrawerOpen(false)}
-/>
-
-
-
-
-
-
-
-import { Drawer, Box, IconButton, Typography, Divider } from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
-import AiAssistant from "./AiAssistant";
-
-export default function AiAssistantDrawer({ open, onClose }) {
-  return (
-    <Drawer
-      anchor="right"
-      open={open}
-      onClose={onClose}   // ✅ VERY IMPORTANT
-      PaperProps={{
-        sx: {
-          width: 420,
-        },
-      }}
-    >
-      {/* HEADER */}
-      <Box
-        sx={{
-          p: 2,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <Typography fontWeight={600}>AI Assistant</Typography>
-
-        {/* ❌ CLOSE BUTTON */}
-        <IconButton onClick={onClose}>
-          <CloseIcon />
-        </IconButton>
-      </Box>
-
-      <Divider />
-
-      {/* BODY */}
-      <Box sx={{ height: "calc(100% - 64px)" }}>
-        <AiAssistant />
-      </Box>
-    </Drawer>
-  );
-}
-
-
-
-
-
-
-
-import {
-  Box,
-  Card,
-  CardContent,
-  Typography,
-  TextField,
-  Stack,
-  Chip,
-  Divider,
-  Paper,
-} from "@mui/material";
-import SmartToyIcon from "@mui/icons-material/SmartToy";
-import PersonIcon from "@mui/icons-material/Person";
-import { useState } from "react";
-
-/* ================= TYPING DOTS COMPONENT ================= */
-function TypingDots() {
-  return (
-    <Box display="flex" alignItems="center" gap={0.5}>
-      <span className="dot">•</span>
-      <span className="dot">•</span>
-      <span className="dot">•</span>
-
-      <style>
-        {`
-          .dot {
-            font-size: 22px;
-            animation: blink 1.4s infinite both;
-          }
-          .dot:nth-child(1) { animation-delay: 0s; }
-          .dot:nth-child(2) { animation-delay: 0.2s; }
-          .dot:nth-child(3) { animation-delay: 0.4s; }
-
-          @keyframes blink {
-            0% { opacity: 0.2; }
-            20% { opacity: 1; }
-            100% { opacity: 0.2; }
-          }
-        `}
-      </style>
-    </Box>
-  );
-}
-
-export default function AiAssistant() {
-  const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-
-  const [messages, setMessages] = useState([
-    {
-      type: "bot",
-      text: "Hi 👋 I’m your FinCore Assistant. Type to search and select a question to get help.",
-    },
-  ]);
-
-  /* ================= DUMMY DATA (FRONTEND ONLY) ================= */
-
-  const qaData = [
-    {
-      id: 1,
-      keywords: ["circle", "create"],
-      question: "How to create a circle?",
-      answer:
-        "Go to Circle Management → Click Create → Enter details → Submit for approval.",
-    },
-    {
-      id: 2,
-      keywords: ["circle", "approve"],
-      question: "How to approve a circle request?",
-      answer:
-        "Navigate to Circle Requests → Review request → Click Approve or Reject.",
-    },
-    {
-      id: 3,
-      keywords: ["branch", "view"],
-      question: "How can I view branch details?",
-      answer:
-        "Open Branch Management → View Branch Details → Search branch to see details.",
-    },
-    {
-      id: 4,
-      keywords: ["user", "create"],
-      question: "How do I create a user?",
-      answer:
-        "Go to User Management → Click Create User → Fill details → Assign roles → Save.",
-    },
-  ];
-
-  /* ================= SEARCH LOGIC ================= */
-
-  const suggestions = input
-    ? qaData.filter((item) =>
-        item.keywords.some((k) =>
-          input.toLowerCase().includes(k)
-        )
-      )
-    : [];
-
-  /* ================= HANDLE QUESTION SELECTION ================= */
-
-  const handleQuestionSelect = (item) => {
-    // Show user question
-    setMessages((prev) => [
-      ...prev,
-      { type: "user", text: item.question },
-    ]);
-
-    // Show typing dots
-    setIsTyping(true);
-    setInput("");
-
-    // Simulate backend delay
-    setTimeout(() => {
-      setIsTyping(false);
-      setMessages((prev) => [
-        ...prev,
-        { type: "bot", text: item.answer },
-      ]);
-    }, 1200); // 👈 typing delay (adjust if needed)
-  };
-
-  return (
-    <Box p={2}>
-      <Card
-        sx={{
-          height: "75vh",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        {/* ================= CHAT AREA ================= */}
-        <CardContent sx={{ flex: 1, overflowY: "auto" }}>
-          <Stack spacing={2}>
-            {messages.map((msg, index) => (
-              <Stack
-                key={index}
-                direction="row"
-                spacing={1}
-                justifyContent={
-                  msg.type === "user" ? "flex-end" : "flex-start"
-                }
-              >
-                {msg.type === "bot" && <SmartToyIcon color="primary" />}
-                <Paper
-                  sx={{
-                    p: 1.5,
-                    maxWidth: "70%",
-                    backgroundColor:
-                      msg.type === "user"
-                        ? "primary.main"
-                        : "grey.100",
-                    color: msg.type === "user" ? "#fff" : "#000",
-                  }}
-                >
-                  <Typography variant="body2">{msg.text}</Typography>
-                </Paper>
-                {msg.type === "user" && <PersonIcon />}
-              </Stack>
-            ))}
-
-            {/* ================= TYPING INDICATOR ================= */}
-            {isTyping && (
-              <Stack direction="row" spacing={1} alignItems="center">
-                <SmartToyIcon color="primary" />
-                <Paper sx={{ p: 1.5, backgroundColor: "grey.100" }}>
-                  <TypingDots />
-                </Paper>
-              </Stack>
-            )}
-          </Stack>
-        </CardContent>
-
-        <Divider />
-
-        {/* ================= SUGGESTIONS ================= */}
-        {suggestions.length > 0 && (
-          <Box px={2} py={1}>
-            <Typography variant="caption" color="text.secondary">
-              Select a question
-            </Typography>
-            <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
-              {suggestions.map((item) => (
-                <Chip
-                  key={item.id}
-                  label={item.question}
-                  onClick={() => handleQuestionSelect(item)}
-                  variant="outlined"
-                  sx={{ mb: 1 }}
-                />
-              ))}
-            </Stack>
-          </Box>
-        )}
-
-        {/* ================= INPUT (SEARCH ONLY) ================= */}
-        <Box p={2}>
-          <TextField
-            fullWidth
-            size="small"
-            placeholder="Type to search a question..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-          />
-        </Box>
-      </Card>
-    </Box>
   );
 }
