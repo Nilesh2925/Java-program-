@@ -672,3 +672,495 @@ export default function FileManagementTab() {
     </CircleTab1Container>
   );
 }
+
+
+
+
+/// my request tab
+
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Box,
+  Button,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  Stack,
+  Tooltip,
+  Typography,
+} from "@mui/material";
+import { Cancel as CancelIcon } from "@mui/icons-material";
+import { DataGrid } from "@mui/x-data-grid";
+import useApi from "../../hooks/useApi";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import useCustomSnackbar from "../../utils/useCustomSnackbar";
+import { getPermissions } from "../../utils/CommonUtilities";
+import ViewMyRequestDialog from "../common/ViewMyRequestDialog";
+import { useSelector } from "react-redux";
+import CustomChip from "../../utils/CustomChip";
+import PendingActionsIcon from "@mui/icons-material/PendingActions";
+import AddBoxIcon from "@mui/icons-material/AddBox";
+import AutoDeleteIcon from "@mui/icons-material/AutoDelete";
+import EditDocumentIcon from "@mui/icons-material/EditDocument";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import GppBadIcon from "@mui/icons-material/GppBad";
+import DateRangeIcon from "@mui/icons-material/DateRange";
+import BlockFlippedIcon from "@mui/icons-material/BlockFlipped";
+import InfoIcon from "@mui/icons-material/Info";
+function CustomNoRowsOverlay() {
+  return (
+    <Stack height="100%" alignItems="center" justifyContent="center">
+      <InfoIcon sx={{ fontSize: 48, color: "text.secondary", mb: 2 }} />
+      <Typography variant="h6">No file Requests Found</Typography>
+      <Typography>You have not created any requests.</Typography>
+    </Stack>
+  );
+}
+
+export default function FileMyRequests() {
+  const { callApi } = useApi();
+  const snackbar = useCustomSnackbar();
+
+  const [rows, setRows] = useState([]);
+  const [viewOpen, setViewOpen] = useState(false);
+  const [viewData, setViewData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [requestId, setRequestId] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(false);
+  const selectedMenuItem = useSelector((s) => s.menus.selectedMenuItem);
+  const permissions = getPermissions(selectedMenuItem);
+
+  /* ---------------- FETCH MY REQUESTS ---------------- */
+  const fetchMyRequests = async () => {
+    const payload = { requestType: "FILE_TYPE_MASTER" };
+    try {
+      setLoading(true);
+      const res = await callApi("/CR/my-requests", payload, "POST");
+      console.log(res.data);
+      setRows(res.data);
+      // const fileRequests =
+      //   res?.data?.filter((r) => r.requestType === "FILE_TYPE_MASTER") || [];
+
+      // setRows(fileRequests);
+      const list = Array.isArray(res?.data)
+        ? res.data
+        : res?.data?.content
+          ? res.data.content
+          : res?.data
+            ? [res.data]
+            : [];
+      const fileRequests = list.filter((r) => r.reqType === "FILE_TYPE_MASTER");
+      // setRows(fileRequests);
+    } catch (err) {
+      snackbar("Failed to fetch file requests", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMyRequests();
+  }, []);
+
+  /* ---------------- CANCEL REQUEST ---------------- */
+  const handleCancelRequest = async () => {
+    try {
+      const payload = {
+        requestId,
+        remarks: "User canceled this Request",
+      };
+
+      const response = await callApi("/CR/cancel-request", payload, "PATCH");
+      if (response?.success) {
+        snackbar(`Request Id ${requestId} Cancelled Successfully.`, "success");
+      } else {
+        snackbar(
+          response?.message
+            ? response?.message
+            : "Failed to process your cancel request, Kindly try again",
+          "error",
+        );
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      fetchData();
+      setConfirmDialog(false);
+    }
+  };
+
+  const FREQUENCY_MAP = {
+    D: "Daily",
+    M: "Monthly",
+    Y: "Yearly",
+  };
+
+  const INCLUDE_MAP = {
+    Y: "Yes",
+    N: "No",
+  };
+
+  const handleViewClick = (data) => {
+    console.log("Raw Data", data);
+    const { type, filePattern, frequency } = data;
+
+    const showData = {
+      // type: data?.payload?.type,
+      filePattern: data?.payload?.filePattern,
+      frequency: data?.payload?.frequency
+        ? data.payload.frequency
+            .toUpperCase()
+            .replaceAll("/", ",")
+            .split(",")
+            .map((f) => FREQUENCY_MAP[f.trim()] || f)
+            .join("/")
+        : "",
+      includeFile:
+        INCLUDE_MAP[data?.payload?.includeFile] || data?.payload?.includeFile,
+    };
+    // console.log("type", type);
+
+    data.showData = showData;
+    setViewData(data);
+    setViewOpen(true);
+  };
+
+  /* ---------------- COLUMNS ---------------- */
+  const columns = useMemo(
+    () => [
+      {
+        field: "id",
+        headerName: "Request ID",
+        flex: 0.8,
+      },
+      // {
+      //   field: "type",
+      //   headerName: "File Type",
+      //   flex: 1,
+      //   renderCell: (p) => p.row.payload.type,
+      // },
+      // {
+      //   field: "subType",
+      //   headerName: "Sub Type",
+      //   flex: 1,
+      //   valueGetter: (params) => params?.row?.payload?.subType || "",
+      // },
+      {
+        field: "filePattern",
+        headerName: "File Pattern",
+        flex: 1,
+        renderCell: (p) => p.row.payload.filePattern,
+      },
+      // {
+      //   field: "stream",
+      //   headerName: "Stream",
+      //   flex: 1.5,
+      //   valueGetter: (params) => params?.row?.payload?.stream || "",
+      // },
+      {
+        field: "frequency",
+        headerName: "Frequency",
+        flex: 1,
+        // renderCell: (p) => p.row.payload.frequency,
+        renderCell: (params) => {
+          if (!params.row.payload.frequency) return "";
+
+          return params.row.payload.frequency
+            .split(/[/,]/)
+            .map((f) => {
+              if (f === "D") return "Daily";
+              if (f === "M") return "Monthly";
+              if (f === "Y") return "Yearly";
+              return f;
+            })
+            .join(" / ");
+        },
+      },
+      {
+        field: "includeFile",
+        headerName: "Include",
+        flex: 0.5,
+        // renderCell: (p) => p.row.payload.includeFile,
+        renderCell: (params) =>
+          params.row.payload.includeFile === "Y"
+            ? "Yes"
+            : params.row.payload.includeFile === "N"
+              ? "No"
+              : "",
+      },
+
+      {
+        field: "changeType",
+        headerName: "Request Type",
+        flex: 1,
+        headerAlign: "center",
+        align: "center",
+        filterable: false,
+        sortable: false,
+        disableColumnMenu: true,
+        renderCell: (params) => {
+          const val = params.value;
+          const color =
+            val === "ADD" ? "success" : val === "DELETE" ? "error" : "warning";
+          const icon =
+            val === "ADD" ? (
+              <AddBoxIcon />
+            ) : val === "DELETE" ? (
+              <AutoDeleteIcon />
+            ) : (
+              <EditDocumentIcon />
+            );
+          return (
+            <CustomChip
+              icon={icon}
+              label={
+                val === "ADD"
+                  ? "Added"
+                  : val === "DELETE"
+                    ? "Deleted"
+                    : "Modified"
+              }
+              color={color}
+              variant="outlined"
+            />
+          );
+        },
+      },
+      {
+        field: "reqDate",
+        headerName: "Date of Submission",
+        flex: 1,
+        filterable: false,
+        disableColumnMenu: true,
+        renderCell: (params) => (
+          <Box>
+            <Chip
+              sx={{ color: "text.secondary" }}
+              icon={<DateRangeIcon />}
+              label={params.value.split("T")[0]}
+            />
+          </Box>
+        ),
+      },
+      {
+        field: "reqStatus",
+        headerName: "Status",
+        flex: 0.7,
+        headerAlign: "center",
+        align: "center",
+        filterable: false,
+        sortable: false,
+        disableColumnMenu: true,
+        renderCell: (params) => (
+          <Box
+            sx={{
+              color:
+                params.value === "REJECTED"
+                  ? "error.main"
+                  : params.value === "ACCEPTED"
+                    ? "success.dark"
+                    : "warning.main",
+              // fontWeight: "bold",
+            }}
+          >
+            <CustomChip
+              variant="outlined"
+              icon={
+                params.value === "REJECTED" ? (
+                  <BlockFlippedIcon />
+                ) : params.value === "ACCEPTED" ? (
+                  <CheckCircleIcon />
+                ) : params.value === "CANCELLED" ? (
+                  <GppBadIcon />
+                ) : (
+                  <PendingActionsIcon />
+                )
+              }
+              label={
+                params.value === "REJECTED"
+                  ? "Rejected"
+                  : params.value === "ACCEPTED"
+                    ? "Approved"
+                    : params.value === "CANCELLED"
+                      ? "Cancelled"
+                      : "Pending"
+              }
+              sx={{
+                color:
+                  params.value === "REJECTED"
+                    ? "error.dark"
+                    : params.value === "ACCEPTED"
+                      ? "success.dark"
+                      : params.value === "CANCELLED"
+                        ? "primary.dark"
+                        : "warning.light",
+
+                "& .MuiChip-icon": {
+                  color:
+                    params.value === "REJECTED"
+                      ? "error.dark"
+                      : params.value === "ACCEPTED"
+                        ? "success.dark"
+                        : params.value === "CANCELLED"
+                          ? "primary.dark"
+                          : "warning.light",
+                },
+              }}
+            />
+          </Box>
+        ),
+      },
+      {
+        field: "action",
+        headerName: "Action",
+        flex: 1,
+        headerAlign: "center",
+        align: "center",
+        filterable: false,
+        sortable: false,
+        disableColumnMenu: true,
+        renderCell: (params) => {
+          return (
+            <Stack
+              direction="row"
+              spacing={1}
+              justifyContent="center"
+              alignItems="center"
+              sx={{ height: "100%" }}
+            >
+              {permissions.view && (
+                <Tooltip title="View">
+                  <IconButton
+                    // color="primary"
+                    onClick={() => handleViewClick(params.row)}
+                  >
+                    <VisibilityIcon />
+                  </IconButton>
+                </Tooltip>
+              )}
+
+              {params.row.reqStatus === "PENDING" && permissions.cancel && (
+                <Tooltip title={"Cancel Request"}>
+                  <IconButton
+                    onClick={() => {
+                      setConfirmDialog(true);
+                      setRequestId(params.row.id);
+                    }}
+                  >
+                    <CancelIcon fontSize="inherit" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Stack>
+          );
+        },
+      },
+      // {
+      //   field: "actions",
+      //   headerName: "Actions",
+      //   flex: 1,
+      //   align: "center",
+      //   headerAlign: "center",
+      //   renderCell: (params) =>
+      //     params?.row?.reqStatus === "PENDING" ? (
+      //       <Tooltip title="Cancel Request">
+      //         <IconButton
+      //           color="error"
+      //           onClick={() => handleCancel(params?.row?.id)}
+      //         >
+      //           <CancelIcon />
+      //         </IconButton>
+      //       </Tooltip>
+      //     ) : (
+      //       <Typography variant="body2">—</Typography>
+      //     ),
+      // },
+    ],
+    [permissions.cancel, permissions.view],
+  );
+  const filteredColumns = useMemo(() => {
+    if (permissions.view || permissions.cancel) {
+      return columns;
+    }
+    // Otherwise, filter out the column where field name is 'action'.
+    else {
+      return columns.filter((column) => column.field !== "action");
+    }
+  }, [columns, permissions]);
+  /* ---------------- UI ---------------- */
+  return (
+    <>
+      <Box>
+        <Box>
+          <DataGrid
+            rows={rows}
+            columns={columns}
+            getRowId={(row) => row.id}
+            loading={loading}
+            disableRowSelectionOnClick
+            pageSizeOptions={[5, 10, 25, 50]}
+            initialState={{
+              pagination: {
+                paginationModel: { pageSize: 10, page: 0 },
+              },
+              sorting: {
+                sortModel: [{ field: "id", sort: "desc" }],
+              },
+            }}
+            slots={{
+              noRowsOverlay: CustomNoRowsOverlay,
+            }}
+          />
+        </Box>
+      </Box>
+      <ViewMyRequestDialog
+        open={viewOpen}
+        handleClose={() => setViewOpen(false)}
+        data={viewData}
+      />
+
+      {/* Cancel Dialog */}
+      <Dialog
+        open={confirmDialog}
+        onClose={() => {
+          setConfirmDialog(false);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600 }}>
+          Cancel Request ID: {requestId}
+        </DialogTitle>
+        <DialogContent>
+          <Typography sx={{ p: 1 }}>
+            Are you sure you want to cancel this request Please confirm ?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setConfirmDialog(false);
+            }}
+            variant="outlined"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              handleCancelRequest;
+              setConfirmDialog(false);
+            }}
+            color="error"
+            variant="contained"
+          >
+            Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+}
+
