@@ -1,131 +1,379 @@
-1. Overview
-The Circle Management module is designed to allow users to create, update, view, approve, and manage Circle-related information in a structured and controlled workflow.
-The module ensures that:
-All new circle creations and updates go through a request process.
-Every action is tracked with a Request ID and status.
-Approvals and rejections are handled by authorized users.
-Transparency is maintained across all user activities.
-2. Accessing Circle Management
-After logging into the system:
-Navigate to Circle Management from the main menu.
-You will see two primary options:
-Circle Management
-Circle Request
-🔵 SECTION 1: Circle Management
-When the user clicks on Circle Management, two tabs will be displayed:
-Manage Circle
-My Requests
-3. Manage Circle Tab
-This tab displays all approved (accepted) Circle records in a table format.
-3.1 Table Columns
-The table includes the following columns:
-Circle Code
-Circle Name
-Zone
-Action
-3.2 Actions Available
-In the Action column, users can:
-Edit – Modify Circle Name and Zone for an existing circle.
-Note: Circle Code is typically non-editable to maintain data integrity.
-4. Creating a New Circle
-4.1 Steps to Create a Circle
-Click on the Create button.
-A form will open.
-Fill in all required fields:
-Circle Code
-Circle Name
-Zone
-Ensure all mandatory fields are completed.
-Click Submit / Add.
-4.2 After Submission
-The request is not directly added to the Manage Circle table.
-It is sent for approval.
-The newly created request will appear in the My Requests tab.
-The request will have a status such as:
-Pending
-Approved
-Rejected
-Cancelled
-5. Editing an Existing Circle
-5.1 Steps to Update a Circle
-Go to the Manage Circle tab.
-Locate the circle record.
-Click Edit in the Action column.
-Modify the required fields (Circle Name / Zone).
-Click Update.
-5.2 After Update
-The update is treated as a new request.
-The modification request appears in the My Requests tab.
-It must be approved before changes reflect in the main Manage Circle list.
-🟢 My Requests Tab
-The My Requests tab displays all requests submitted by the logged-in user.
-6.1 Table Columns
-The table includes:
-Request ID
-Circle Code
-Circle Name
-Zone
-Request Type (Create / Update)
-Date of Submission
-Status
-Action
-6.2 Actions in My Requests
-Users can:
-View – See full details of the request.
-Cancel – Cancel a pending request.
-Note: Once approved or rejected, a request cannot be cancelled.
-🟠 SECTION 2: Circle Request
-This section is used by authorized users (approvers).
-It allows users to review and take action on requests submitted by other users.
-7. Circle Request Screen
-In this section, users can:
-View all circle creation and update requests.
-Review request details.
-Approve or Reject requests.
-7.1 Table Columns
-Request ID
-Circle Code
-Circle Name
-Zone
-Request Type
-Submitted By
-Date of Submission
-Status
-Action
-8. Approving or Rejecting Requests
-8.1 Steps to Approve
-Open Circle Request.
-Locate the request.
-Click View to check details.
-Click Approve.
-Confirm the action.
-Result:
-The circle will be added or updated in the Manage Circle tab.
-Status will change to Approved.
-8.2 Steps to Reject
-Open the request.
-Review details.
-Click Reject.
-Provide a reason (if required).
-Confirm.
-Result:
-Status will change to Rejected.
-Changes will not be applied to the main data.
-🔄 Workflow Summary
-Create Flow
-User → Create Circle → Goes to My Requests → Approver Reviews → Approve → Appears in Manage Circle
-Update Flow
-User → Edit Circle → Goes to My Requests → Approver Reviews → Approve → Updated in Manage Circle
-📌 Important Notes
-Direct modification of circle data is not allowed without approval.
-Every request is assigned a unique Request ID.
-Users can only cancel their own pending requests.
-Only authorized users can approve or reject requests.
-Approved requests automatically reflect in the Manage Circle tab.
-✅ Conclusion
-The Circle Management module ensures:
-Proper validation and data control
-Transparent approval workflow
-Full tracking of create and update activities
-Secure and role-based access
-This structured process maintains accuracy, accountability, and operational efficiency within the system.
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Box,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogActions,
+  MenuItem,
+  Stack,
+  TextField,
+  Typography,
+  Checkbox,
+  FormControlLabel,
+  Tooltip,
+  IconButton,
+  Container,
+  styled,
+} from "@mui/material";
+import {
+  Add as AddIcon,
+  Edit as EditIcon,
+  Close as CloseIcon,
+  Delete as DeleteIcon,
+} from "@mui/icons-material";
+import { DataGrid } from "@mui/x-data-grid";
+import useApi from "../../hooks/useApi";
+import useCustomSnackbar from "../../utils/useCustomSnackbar";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+
+import {
+  CircleTab1Fab,
+  CircleTab1Addicon,
+  CircleTab1Container,
+} from "./FileMasterStyle";
+
+const checkDataEquality = (current, original) => {
+  if (!original) return true;
+
+  return (
+    current.type === original.type &&
+    current.subType === original.subType &&
+    current.filePattern === original.filePattern &&
+    current.stream === original.stream &&
+    current.includeFile === original.includeFile &&
+    JSON.stringify(current.frequency) === JSON.stringify(original.frequency)
+  );
+};
+
+const TYPE_OPTIONS = [
+  { value: "bancs24", label: "Bancs24" },
+  { value: "glif", label: "GLIF" },
+];
+
+const FREQUENCY_MAP = [
+  { label: "Daily", key: "D" },
+  { label: "Monthly", key: "M" },
+  { label: "Yearly", key: "Y" },
+];
+
+const EMPTY_FORM = {
+  type: "",
+  subType: "",
+  filePattern: "",
+  stream: "",
+  includeFile: "",
+  frequency: { D: false, M: false, Y: false },
+};
+
+const OverlayBox = styled(Box)(() => ({
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  justifyContent: "center",
+  alignItems: "center",
+}));
+
+const CustomNoRowsOverlay = () => {
+  return (
+    <OverlayBox>
+      <ErrorOutlineIcon fontSize="large" />
+      <Typography variant="h5" fontSize="1.2rem">
+        Data is not available
+      </Typography>
+    </OverlayBox>
+  );
+};
+
+export default function FileManagementTab() {
+  const { callApi } = useApi();
+  const snackbar = useCustomSnackbar();
+
+  const [rows, setRows] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [formData, setFormData] = useState(EMPTY_FORM);
+  const [originalData, setOriginalData] = useState(null);
+  const [isDataSame, setIsDataSame] = useState(true);
+  const [errors, setErrors] = useState({});
+
+  // ✅ NEW STATE FOR DELETE CONFIRMATION
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [rowToDelete, setRowToDelete] = useState(null);
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const res = await callApi("/CM/common-master/files", null, "GET");
+      setRows(res?.data || []);
+    } catch (err) {
+      console.error(err);
+      snackbar("Failed to load file configurations", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const subTypeOptions = useMemo(() => {
+    const map = {};
+    rows.forEach((r) => {
+      if (!map[r.type]) map[r.type] = new Set();
+      if (r.subType) map[r.type].add(r.subType);
+    });
+
+    const result = {};
+    Object.keys(map).forEach((k) => {
+      result[k] = Array.from(map[k]);
+    });
+
+    return result;
+  }, [rows]);
+
+  useEffect(() => {
+    if (editingId && originalData) {
+      setIsDataSame(checkDataEquality(formData, originalData));
+    }
+  }, [formData, originalData, editingId]);
+
+  const parseFrequency = (freq) => {
+    const result = { D: false, M: false, Y: false };
+    if (!freq) return result;
+
+    const parts = freq.toUpperCase().split("/");
+    parts.forEach((p) => {
+      if (p === "D") result.D = true;
+      if (p === "M") result.M = true;
+      if (p === "Y") result.Y = true;
+    });
+
+    return result;
+  };
+
+  const reDesc = /^(?!.* {2})[a-zA-Z0-9_]*$/;
+
+  const validateField = (name, value) => {
+    switch (name) {
+      case "type":
+        if (!value) return "Type is required";
+        break;
+      case "subType":
+        if (!value) return "Sub Type is required";
+        break;
+      case "filePattern":
+        if (!value?.trim()) return "File Pattern is required";
+        if (value.length < 3) return "Minimum 3 characters required";
+        if (!reDesc.test(value))
+          return "Only alphabets, numbers, spaces and ,()&/- allowed";
+        break;
+      case "stream":
+        if (!value) return "Stream is required";
+        break;
+      case "includeFile":
+        if (!value) return "Include selection is required";
+        break;
+      case "frequency":
+        if (!Object.values(value).some((v) => v))
+          return "Select at least one frequency";
+        break;
+      default:
+        return "";
+    }
+    return "";
+  };
+
+  const isFormValid = useMemo(
+    () =>
+      !validateField("filePattern", formData.filePattern) &&
+      !validateField("type", formData.type) &&
+      !validateField("subType", formData.subType) &&
+      !validateField("frequency", formData.frequency) &&
+      !validateField("stream", formData.stream) &&
+      !validateField("includeFile", formData.includeFile),
+    [formData],
+  );
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+
+    if (name === "type") {
+      setFormData((prev) => ({
+        ...prev,
+        type: value,
+        subType: value === "glif" ? "GLIF" : "",
+      }));
+      return;
+    }
+
+    if (name === "filePattern") {
+      const upperValue = value.toUpperCase();
+      setFormData((prev) => ({
+        ...prev,
+        filePattern: upperValue,
+      }));
+      return;
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  const handleFrequencyChange = (key) => {
+    setFormData((prev) => ({
+      ...prev,
+      frequency: {
+        ...prev.frequency,
+        [key]: !prev.frequency[key],
+      },
+    }));
+  };
+
+  const handleEdit = (row) => {
+    const init = {
+      type: row.type || "",
+      subType: row.subType || "",
+      filePattern: row.filePattern || "",
+      stream: row.stream || "",
+      includeFile: row.includeFile || "",
+      frequency: parseFrequency(row.frequency),
+    };
+
+    setFormData(init);
+    setOriginalData(init);
+    setEditingId(row.fileId);
+    setOpen(true);
+  };
+
+  // ✅ DELETE CONFIRM OPEN
+  const openDeleteDialog = (row) => {
+    setRowToDelete(row);
+    setDeleteDialogOpen(true);
+  };
+
+  // ✅ CONFIRM DELETE
+  const confirmDelete = async () => {
+    if (!rowToDelete) return;
+
+    try {
+      const payload = {
+        requestType: "FILE_TYPE_MASTER",
+        changeType: "DELETE",
+        targetId: rowToDelete.filePattern,
+        payload: {
+          type: rowToDelete.type,
+          subType: rowToDelete.subType,
+          filePattern: rowToDelete.filePattern,
+          stream: rowToDelete.stream,
+          includeFile: rowToDelete.includeFile,
+          frequency: rowToDelete.frequency,
+        },
+      };
+
+      const response = await callApi("/CR/create-request", payload, "POST");
+      snackbar(
+        "Delete request submitted successfully with request id " +
+          response?.data?.id,
+        "success",
+      );
+      fetchData();
+    } catch (err) {
+      snackbar(err?.message || "Delete failed", "error");
+    } finally {
+      setDeleteDialogOpen(false);
+      setRowToDelete(null);
+    }
+  };
+
+  const handleClose = () => {
+    setOpen(false);
+    setEditingId(null);
+    setOriginalData(null);
+    setErrors({});
+    setFormData(EMPTY_FORM);
+  };
+
+  const columns = useMemo(
+    () => [
+      { field: "type", headerName: "File Type", flex: 1 },
+      { field: "filePattern", headerName: "File Pattern", flex: 1 },
+      {
+        field: "actions",
+        headerName: "Actions",
+        flex: 1,
+        align: "center",
+        renderCell: (params) => (
+          <Stack direction="row" spacing={1}>
+            <Tooltip title="Edit">
+              <IconButton
+                color="primary"
+                onClick={() => handleEdit(params.row)}
+              >
+                <EditIcon />
+              </IconButton>
+            </Tooltip>
+
+            <Tooltip title="Delete">
+              <IconButton
+                color="error"
+                onClick={() => openDeleteDialog(params.row)}   {/* ✅ CHANGED */}
+              >
+                <DeleteIcon />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        ),
+      },
+    ],
+    [],
+  );
+
+  return (
+    <CircleTab1Container>
+      <DataGrid
+        loading={loading}
+        rows={rows}
+        columns={columns}
+        getRowId={(row) => row.fileId}
+        pageSizeOptions={[5, 10, 25]}
+      />
+
+      {/* ✅ DELETE CONFIRMATION DIALOG */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => setDeleteDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogContent>
+          <Typography variant="h6" gutterBottom>
+            Confirm Delete
+          </Typography>
+          <Typography>
+            Are you sure you want to delete this file configuration?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setDeleteDialogOpen(false)}
+            variant="outlined"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={confirmDelete}
+            variant="contained"
+            color="error"
+          >
+            Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </CircleTab1Container>
+  );
+}
