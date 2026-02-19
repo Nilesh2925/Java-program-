@@ -4,109 +4,65 @@ import {
   Button,
   Dialog,
   DialogContent,
-  DialogActions,
-  MenuItem,
+  Grid,
+  IconButton,
   Stack,
   TextField,
   Typography,
+  Tooltip,
+  MenuItem,
+  DialogActions,
+  Divider,
   Checkbox,
   FormControlLabel,
-  Tooltip,
-  IconButton,
-  Container,
-  styled,
 } from "@mui/material";
+
 import {
-  Add as AddIcon,
   Edit as EditIcon,
+  Add as AddIcon,
   Close as CloseIcon,
   Delete as DeleteIcon,
 } from "@mui/icons-material";
+
 import { DataGrid } from "@mui/x-data-grid";
 import useApi from "../../hooks/useApi";
 import useCustomSnackbar from "../../utils/useCustomSnackbar";
-import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 
-import {
-  CircleTab1Fab,
-  CircleTab1Addicon,
-  CircleTab1Container,
-} from "./FileMasterStyle";
-import { type } from "@testing-library/user-event/dist/cjs/utility/type.js";
-
-const checkDataEquality = (current, original) => {
-  if (!original) return true;
-
-  return (
-    current.type === original.type &&
-    current.subType === original.subType &&
-    current.filePattern === original.filePattern &&
-    current.stream === original.stream &&
-    current.includeFile === original.includeFile &&
-    JSON.stringify(current.frequency) === JSON.stringify(original.frequency)
-  );
-};
-const TYPE_OPTIONS = [
-  { value: "bancs24", label: "Bancs24" },
-  { value: "glif", label: "GLIF" },
-];
-
-const FREQUENCY_MAP = [
-  { label: "Daily", key: "D" },
-  { label: "Monthly", key: "M" },
-  { label: "Yearly", key: "Y" },
-];
-
-const EMPTY_FORM = {
-  type: "",
-  subType: "",
-  filePattern: "",
-  stream: "",
-  includeFile: "",
-  frequency: { D: false, M: false, Y: false },
-};
-
-const OverlayBox = styled(Box)(() => ({
-  display: "flex",
-  flexDirection: "column",
-  height: "100%",
-  justifyContent: "center",
-  alignItems: "center",
-}));
-
-const CustomNoRowsOverlay = () => {
-  return (
-    <OverlayBox>
-      <ErrorOutlineIcon fontSize="large" />
-      <Typography variant="h5" fontSize="1.2rem">
-        Data is not available
-      </Typography>
-    </OverlayBox>
-  );
-};
-
-export default function FileManagementTab() {
+export default function FileTypeMasterTab() {
   const { callApi } = useApi();
   const snackbar = useCustomSnackbar();
 
   const [rows, setRows] = useState([]);
+  const [fileTypes, setFileTypes] = useState([]);
   const [open, setOpen] = useState(false);
-  const [editingId, setEditingId] = useState(null);
+  const [editingKey, setEditingKey] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [formData, setFormData] = useState(EMPTY_FORM);
-  const [originalData, setOriginalData] = useState(null);
-  const [isDataSame, setIsDataSame] = useState(true);
+
+  const [formData, setFormData] = useState({
+    columnName: "",
+    startValue: "",
+    endValue: "",
+    toBeIncluded: false,
+    fileType: "",
+  });
+
   const [errors, setErrors] = useState({});
 
-  // --- Fetch Data ---
+  // ================= FETCH =================
+
   const fetchData = async () => {
     try {
       setLoading(true);
-      const res = await callApi("/CM/common-master/files", null, "GET");
-      setRows(res?.data || []);
+
+      const [fileTypeRes, masterRes] = await Promise.all([
+        callApi("/CM/common-master/file-types", null, "GET"),
+        callApi("/CM/common-master/file-config", null, "GET"),
+      ]);
+
+      setFileTypes(fileTypeRes?.data ?? []);
+      setRows(masterRes?.data ?? []);
     } catch (err) {
-      console.error(err);
-      snackbar("Failed to load file configurations", "error");
+      snackbar("Failed to fetch data", "error");
     } finally {
       setLoading(false);
     }
@@ -116,1051 +72,274 @@ export default function FileManagementTab() {
     fetchData();
   }, []);
 
-  const subTypeOptions = useMemo(() => {
-    const map = {};
+  // ================= VALIDATION =================
 
-    rows.forEach((r) => {
-      if (!map[r.type]) map[r.type] = new Set();
-      if (r.subType) map[r.type].add(r.subType);
-    });
+  const validate = () => {
+    const newErrors = {};
 
-    const result = {};
-    Object.keys(map).forEach((k) => {
-      result[k] = Array.from(map[k]);
-    });
+    if (!formData.columnName.trim())
+      newErrors.columnName = "Column Name required";
+    else if (!/^[A-Za-z\s]+$/.test(formData.columnName))
+      newErrors.columnName = "Characters only allowed";
 
-    return result;
-  }, [rows]);
+    if (!formData.startValue)
+      newErrors.startValue = "Start Value required";
+    else if (!/^[0-9]+$/.test(formData.startValue))
+      newErrors.startValue = "Numbers only allowed";
 
-  useEffect(() => {
-    if (editingId && originalData) {
-      //   setIsDataSame(JSON.stringify(formData) === JSON.stringify(originalData));
-      setIsDataSame(checkDataEquality(formData, originalData));
-    }
-  }, [formData, originalData, editingId]);
+    if (!formData.endValue)
+      newErrors.endValue = "End Value required";
+    else if (!/^[0-9]+$/.test(formData.endValue))
+      newErrors.endValue = "Numbers only allowed";
 
-  const parseFrequency = (freq) => {
-    const result = { D: false, M: false, Y: false };
+    if (
+      formData.startValue &&
+      formData.endValue &&
+      Number(formData.startValue) >= Number(formData.endValue)
+    )
+      newErrors.endValue = "End Value must be greater than Start Value";
 
-    if (!freq) return result;
+    if (!formData.fileType)
+      newErrors.fileType = "File Type required";
 
-    const parts = freq.toUpperCase().split("/");
+    if (formData.toBeIncluded === null)
+      newErrors.toBeIncluded = "Required";
 
-    parts.forEach((p) => {
-      if (p === "D") result.D = true;
-      if (p === "M") result.M = true;
-      if (p === "Y") result.Y = true;
-    });
-
-    return result;
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
-  const reDesc = /^(?!.* {2})[a-zA-Z0-9_]*$/;
-  // const validateField = (name, value) => {
-  //   switch (name) {
-  //     case "filePattern":
-  //       if (!value) return " filePattern is required";
-  //       // if (!reDesc.test(value))
-  //       //   return "Invalid Format, Only alphabets, numbers, spaces(single spaces only between words) and ,()&/- are allowed!";
-  //       break;
-
-  //     case "type":
-  //       if (!String(value).trim()) return "Type is required";
-  //       break;
-
-  //     case "subType":
-  //       if (!String(value).trim()) return "subType is required";
-  //       break;
-  //     case "includeFile":
-  //       if (!String(value).trim()) return "Include is required";
-  //       break;
-
-  //     case "frequency":
-  //       if (!Object.values(value).some((v) => v))
-  //         return "Select at least one frequency";
-  //       break;
-
-  //     // case "frequency":
-  //     //   if (!String(value).trim()) return "frequency is required";
-  //     //   break;
-
-  //     case "stream":
-  //       if (!String(value).trim()) return "stream is required";
-  //       break;
-
-  //     default:
-  //       return "";
-  //   }
-  //   return "";
-  // };
-  const validateField = (name, value) => {
-    switch (name) {
-      case "type":
-        if (!value) return "Type is required";
-        break;
-      case "subType":
-        if (!value) return "Sub Type is required";
-        break;
-      case "filePattern":
-        if (!value?.trim()) return "File Pattern is required";
-        if (value.length < 3) return "Minimum 3 characters required";
-        if (!reDesc.test(value))
-          return "Only alphabets, numbers, spaces and ,()&/- allowed";
-        break;
-      case "stream":
-        if (!value) return "Stream is required";
-        break;
-      case "includeFile":
-        if (!value) return "Include selection is required";
-        break;
-      case "frequency":
-        if (!Object.values(value).some((v) => v))
-          return "Select at least one frequency";
-        break;
-      default:
-        return "";
-    }
-    return "";
-  };
-
-  const isFormValid = useMemo(
-    () =>
-      !validateField("filePattern", formData.filePattern) &&
-      !validateField("type", formData.type) &&
-      !validateField("subType", formData.subType) &&
-      !validateField("frequency", formData.frequency) &&
-      !validateField("stream", formData.stream) &&
-      !validateField("includeFile", formData.includeFile),
-    [formData],
-  );
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-
-    if (name === "type") {
-      setFormData((prev) => ({
-        ...prev,
-        type: value,
-        subType: value === "glif" ? "GLIF" : "",
-      }));
-      setErrors((prev) => ({
-        ...prev,
-        type: validateField("type", value),
-        subType: "",
-      }));
-      return;
-    }
-    if (name == "filePattern") {
-      const upperValue = value.toUpperCase();
-      if (upperValue && !/^[A-Za-z0-9]$/.test(upperValue[0])) {
-        snackbar("Should not start with special character", "warning");
-        return;
-      }
-      // value = value?.toUpperCase();
-      if (!reDesc.test(upperValue)) {
-        snackbar(
-          "Invalid Format, Only alphabets, spaces(single spaces only between words) and ,()&/- are allowed!",
-          "warning",
-        );
-        return;
-      }
-      setFormData((prev) => ({
-        ...prev,
-        filePattern: upperValue,
-      }));
-      // setErrors((prev) => ({ ...prev, [name]: validateField(name, value) }));
-      setErrors((prev) => ({
-        ...prev,
-        filePattern: validateField("filePattern", upperValue),
-      }));
-      return;
-    }
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
-    // setErrors((prev) => ({ ...prev, [name]: validateField(name, value) }));
-    setErrors((prev) => ({
-      ...prev,
-      [name]: validateField(name, value),
-    }));
-  };
-
-  const handleFrequencyChange = (key) => {
-    setFormData((prev) => {
-      const updated = {
-        ...prev,
-        frequency: {
-          ...prev.frequency,
-          [key]: !prev.frequency[key],
-        },
-      };
-      setErrors((err) => ({
-        ...err,
-        frequency: validateField("frequency", updated.frequency),
-      }));
-      return updated;
-    });
-  };
-
-  const handleEdit = (row) => {
-    const init = {
-      type: row.type || "",
-      subType: row.subType || "",
-      filePattern: row.filePattern || "",
-      stream: row.stream || "",
-      includeFile: row.includeFile || "",
-      frequency: parseFrequency(row.frequency),
-    };
-
-    setFormData(init);
-    setOriginalData(init);
-    setEditingId(row.fileId);
-    setOpen(true);
-  };
-
-  const handleDelete = async (row) => {
-    try {
-      const payload = {
-        requestType: "FILE_TYPE_MASTER",
-        changeType: "DELETE",
-        targetId: row.filePattern,
-        payload: {
-          type: row.type,
-          subType: row.subType,
-          filePattern: row.filePattern,
-          stream: row.stream,
-          includeFile: row.includeFile,
-          frequency: row.frequency,
-        },
-      };
-
-      const response = await callApi("/CR/create-request", payload, "POST");
-      snackbar(
-        " delete request submitted successfully with request id " +
-          response?.data?.id,
-        "success",
-      );
-      fetchData();
-    } catch (err) {
-      snackbar(err?.message || "Delete failed", "error");
-    }
-  };
-
-  const handleClose = () => {
-    // false;
-    setOpen(false);
-    setEditingId(null);
-    setOriginalData(null);
-    setErrors({});
-    setFormData(EMPTY_FORM);
-  };
+  // ================= HANDLE SUBMIT =================
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (editingId && isDataSame) {
-      snackbar("No changes detected", "warning");
-      return;
-    }
 
-    // const allErrors = {
-    //   filePattern: validateField("filePattern", formData.filePattern),
-    //   type: validateField("type", formData.type),
-    //   subType: validateField("subType", formData.subType),
-    //   frequency: validateField("frequency", formData.frequency),
-    //   stream: validateField("stream", formData.stream),
-    //   includeFile: validateField("includeFile", formData.includeFile),
-    // };
-    // setErrors(allErrors);
+    if (!validate()) return;
 
-    // const valid = Object.values(allErrors).every((v) => !v);
-    // if (!valid) {
-    //   // notifyOnce("Please fix validation errors", "error");
-    //   snackbar("Please fix validation errors", "error");
-    //   return;
-    // }
-    const allErrors = {
-      filePattern: validateField("filePattern", formData.filePattern),
-      type: validateField("type", formData.type),
-      subType: validateField("subType", formData.subType),
-      frequency: validateField("frequency", formData.frequency),
-      stream: validateField("stream", formData.stream),
-      includeFile: validateField("includeFile", formData.includeFile),
-    };
-    setErrors(allErrors);
-    const valid = Object.values(allErrors).every((v) => !v);
-    if (!valid) {
-      snackbar("Please fix validation errors", "error");
-      return;
+    const uniqueKey = `${formData.columnName}_${formData.fileType}`;
+
+    // Duplicate check only for ADD
+    if (!editingKey) {
+      const exists = rows.some(
+        (r) =>
+          r.columnName === formData.columnName &&
+          r.fileType === formData.fileType
+      );
+
+      if (exists) {
+        snackbar("Record already exists for this Column & File Type", "warning");
+        return;
+      }
     }
 
     const payload = {
-      requestType: "FILE_TYPE_MASTER",
-      changeType: editingId ? "UPDATE" : "ADD",
-      targetId: formData.filePattern,
-      payload: {
-        ...formData,
-        frequency: Object.keys(formData.frequency)
-          .filter((k) => formData.frequency[k])
-          .join("/"),
-      },
+      requestType: "FILE_CONFIG",
+      changeType: editingKey ? "UPDATE" : "ADD",
+      targetId: uniqueKey,
+      payload: formData,
     };
 
     try {
       const response = await callApi("/CR/create-request", payload, "POST");
 
       snackbar(
-        editingId
-          ? " update request submitted successfully with request id " +
-              response?.data?.id
-          : "creation request submitted successfully with request id " +
-              response?.data?.id,
-        "success",
+        `Request submitted successfully with ID ${response?.data?.id}`,
+        "success"
       );
 
       handleClose();
       fetchData();
     } catch (err) {
-      snackbar(err?.message || "Request failed", "error");
+      snackbar("Request failed", "error");
     }
   };
 
+  // ================= DELETE =================
+
+  const handleDelete = async (row) => {
+    const uniqueKey = `${row.columnName}_${row.fileType}`;
+
+    const payload = {
+      requestType: "FILE_CONFIG",
+      changeType: "DELETE",
+      targetId: uniqueKey,
+      payload: row,
+    };
+
+    try {
+      await callApi("/CR/create-request", payload, "POST");
+      snackbar("Delete request submitted", "success");
+      fetchData();
+    } catch (err) {
+      snackbar("Delete failed", "error");
+    }
+  };
+
+  // ================= EDIT =================
+
+  const handleEdit = (row) => {
+    setFormData({
+      columnName: row.columnName,
+      startValue: row.startValue,
+      endValue: row.endValue,
+      toBeIncluded: row.toBeIncluded,
+      fileType: row.fileType,
+    });
+
+    setEditingKey(`${row.columnName}_${row.fileType}`);
+    setOpen(true);
+  };
+
+  const handleClose = () => {
+    setOpen(false);
+    setEditingKey(null);
+    setErrors({});
+    setFormData({
+      columnName: "",
+      startValue: "",
+      endValue: "",
+      toBeIncluded: false,
+      fileType: "",
+    });
+  };
+
+  // ================= COLUMNS =================
+
   const columns = useMemo(
     () => [
-      { field: "type", headerName: "File Type", flex: 1 },
-      { field: "filePattern", headerName: "File Pattern", flex: 1 },
-
+      { field: "columnName", headerName: "Column Name", flex: 1.5 },
+      { field: "startValue", headerName: "Start Value", flex: 1 },
+      { field: "endValue", headerName: "End Value", flex: 1 },
       {
-        field: "stream",
-        headerName: "Stream",
+        field: "toBeIncluded",
+        headerName: "To Be Included",
         flex: 1,
-        renderCell: (params) =>
-          params.value === "Y" ? "Yes" : params.value === "N" ? "No" : "",
+        renderCell: (params) => (params.value ? "Yes" : "No"),
       },
-
-      {
-        field: "frequency",
-        headerName: "Frequency",
-        flex: 1,
-        renderCell: (params) => {
-          if (!params.value) return "";
-
-          return params.value
-            .split(/[/,]/)
-            .map((f) => {
-              if (f === "D") return "Daily";
-              if (f === "M") return "Monthly";
-              if (f === "Y") return "Yearly";
-              return f;
-            })
-            .join(" / ");
-        },
-      },
-
-      {
-        field: "includeFile",
-        headerName: "Include",
-        flex: 1,
-        renderCell: (params) =>
-          params.value === "Y" ? "Yes" : params.value === "N" ? "No" : "",
-      },
-
+      { field: "fileType", headerName: "File Type", flex: 1.5 },
       {
         field: "actions",
         headerName: "Actions",
         flex: 1,
         align: "center",
         renderCell: (params) => (
-          <Stack direction="row" spacing={1}>
-            <Tooltip title="Edit">
-              <IconButton
-                color="primary"
-                onClick={() => handleEdit(params.row)}
-              >
-                <EditIcon />
-              </IconButton>
-            </Tooltip>
-
-            <Tooltip title="Delete">
-              <IconButton
-                color="error"
-                onClick={() => handleDelete(params.row)}
-              >
-                <DeleteIcon />
-              </IconButton>
-            </Tooltip>
-          </Stack>
+          <>
+            <IconButton onClick={() => handleEdit(params.row)}>
+              <EditIcon />
+            </IconButton>
+            <IconButton onClick={() => handleDelete(params.row)}>
+              <DeleteIcon />
+            </IconButton>
+          </>
         ),
       },
     ],
-    [],
+    [rows]
   );
 
   return (
-    <CircleTab1Container>
+    <>
       <DataGrid
         loading={loading}
         rows={rows}
         columns={columns}
-        disableRowSelectionOnClick
-        getRowId={(row) => row.fileId}
-        pageSizeOptions={[5, 10, 25, 50]}
-        initialState={{
-          pagination: { paginationModel: { pageSize: 10, page: 0 } },
-          // sorting: { sortModel: [{ field: "circleCode", sort: "asc" }] },
-        }}
-        sx={{
-          minHeight: 520,
-          width: "100%",
-          "& .MuiDataGrid-columnHeaders": { outline: "none" },
-        }}
-        localeText={{
-          noRowsLabel: "No file Records Found",
-        }}
-        slots={{
-          noRowsOverlay: CustomNoRowsOverlay,
-        }}
+        getRowId={(row) => `${row.columnName}_${row.fileType}`}
+        autoHeight
+        pageSizeOptions={[5, 10, 25]}
       />
 
-      <CircleTab1Fab
-        variant="extended"
-        color="primary"
-        // startIcon={<AddIcon />}
-        onClick={() => {
-          setOpen(true);
-          setEditingId(null);
-          setOriginalData(null);
-          setErrors({});
-          setFormData(EMPTY_FORM);
-        }}
+      <Button
+        variant="contained"
+        startIcon={<AddIcon />}
+        sx={{ mt: 2 }}
+        onClick={() => setOpen(true)}
       >
-        <CircleTab1Addicon />
         Create
-      </CircleTab1Fab>
-      {/* Dialog Form */}
+      </Button>
 
-      <Dialog open={open} maxWidth="sm" fullWidth onClose={handleClose}>
+      <Dialog open={open} maxWidth="sm" fullWidth>
         <Box component="form" onSubmit={handleSubmit}>
           <DialogContent>
-            <Stack spacing={2}>
-              <Stack direction="row" justifyContent="space-between">
-                <Typography variant="h6">
-                  {editingId
-                    ? "Edit File Configuration"
-                    : "Add File Configuration"}
-                </Typography>
-                <IconButton onClick={handleClose}>
-                  <CloseIcon />
-                </IconButton>
-              </Stack>
-              <TextField
-                select
-                label="Type *"
-                name="type"
-                value={formData.type || ""}
-                onChange={handleChange}
-                error={!!errors.type}
-                helperText={errors.type}
-                disabled={!!editingId}
-              >
-                {TYPE_OPTIONS.map((opt) => (
-                  <MenuItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </MenuItem>
-                ))}
-              </TextField>
 
-              <TextField
-                select
-                label="Sub Type *"
-                name="subType"
-                value={formData.subType || ""}
-                onChange={handleChange}
-                error={!!errors.subType}
-                helperText={errors.subType}
-                disabled={formData.type === "GLIF"}
-              >
-                {(subTypeOptions[formData.type] || []).map((v) => (
-                  <MenuItem key={v} value={v}>
-                    {v}
-                  </MenuItem>
-                ))}
-              </TextField>
+            <TextField
+              fullWidth
+              label="Column Name *"
+              value={formData.columnName}
+              onChange={(e) =>
+                setFormData({ ...formData, columnName: e.target.value })
+              }
+              error={!!errors.columnName}
+              helperText={errors.columnName}
+              disabled={!!editingKey}
+              margin="normal"
+            />
 
-              <TextField
-                label="File Pattern *"
-                name="filePattern"
-                value={formData.filePattern || ""}
-                onChange={handleChange}
-                error={!!errors.filePattern}
-                helperText={
-                  errors.filePattern || "Allowed 3-30 characters (A-Z, 0-9, _ )"
-                }
-                inputProps={{ maxLength: 30 }}
-              />
+            <TextField
+              fullWidth
+              label="Start Value *"
+              value={formData.startValue}
+              onChange={(e) =>
+                setFormData({ ...formData, startValue: e.target.value })
+              }
+              error={!!errors.startValue}
+              helperText={errors.startValue}
+              margin="normal"
+            />
 
-              <TextField
-                select
-                label="Stream *"
-                name="stream"
-                value={formData.stream || ""}
-                onChange={handleChange}
-                error={!!errors.stream}
-                helperText={errors.stream}
-              >
-                <MenuItem value="Y">Yes</MenuItem>
-                <MenuItem value="N">No</MenuItem>
-              </TextField>
+            <TextField
+              fullWidth
+              label="End Value *"
+              value={formData.endValue}
+              onChange={(e) =>
+                setFormData({ ...formData, endValue: e.target.value })
+              }
+              error={!!errors.endValue}
+              helperText={errors.endValue}
+              margin="normal"
+            />
 
-              <Box>
-                <Typography>Frequency *</Typography>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={formData.toBeIncluded}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      toBeIncluded: e.target.checked,
+                    })
+                  }
+                />
+              }
+              label="To Be Included *"
+            />
 
-                {FREQUENCY_MAP.map(({ label, key }) => (
-                  <FormControlLabel
-                    key={key}
-                    control={
-                      <Checkbox
-                        checked={formData.frequency[key]}
-                        onChange={() => handleFrequencyChange(key)}
-                      />
-                    }
-                    label={label}
-                  />
-                ))}
-                {errors.frequency && (
-                  <Typography color="error" variant="body2">
-                    {errors.frequency}
-                  </Typography>
-                )}
-              </Box>
-
-              <TextField
-                select
-                label="Include *"
-                name="includeFile"
-                value={formData.includeFile || ""}
-                onChange={handleChange}
-                error={!!errors.includeFile}
-                helperText={errors.includeFile}
-              >
-                <MenuItem value="Y">Yes</MenuItem>
-                <MenuItem value="N">No</MenuItem>
-              </TextField>
-            </Stack>
+            <TextField
+              fullWidth
+              select
+              label="File Type *"
+              value={formData.fileType}
+              onChange={(e) =>
+                setFormData({ ...formData, fileType: e.target.value })
+              }
+              error={!!errors.fileType}
+              helperText={errors.fileType}
+              margin="normal"
+            >
+              {fileTypes.map((ft) => (
+                <MenuItem key={ft.id} value={ft.id}>
+                  {ft.description}
+                </MenuItem>
+              ))}
+            </TextField>
           </DialogContent>
 
           <DialogActions>
-            {/* <Button
-            variant="contained"
-            onClick={handleSubmit}
-            disabled={!isFormValid}
-          >
-            {editingId ? "Update" : "Add"}
-          </Button> */}
-            {/* <Button onClick={handleClose}>Cancel</Button> */}
-            <Button
-              type="submit"
-              variant="contained"
-              startIcon={editingId ? <EditIcon /> : <AddIcon />}
-              disabled={!isFormValid || (editingId && isDataSame)}
-            >
-              {editingId ? "Update" : "Add"}
+            <Button type="submit" variant="contained">
+              {editingKey ? "Update" : "Add"}
             </Button>
           </DialogActions>
         </Box>
       </Dialog>
-    </CircleTab1Container>
-  );
-}
-
-
-
-
-/// my request tab
-
-import React, { useEffect, useMemo, useState } from "react";
-import {
-  Box,
-  Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  IconButton,
-  Stack,
-  Tooltip,
-  Typography,
-} from "@mui/material";
-import { Cancel as CancelIcon } from "@mui/icons-material";
-import { DataGrid } from "@mui/x-data-grid";
-import useApi from "../../hooks/useApi";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import useCustomSnackbar from "../../utils/useCustomSnackbar";
-import { getPermissions } from "../../utils/CommonUtilities";
-import ViewMyRequestDialog from "../common/ViewMyRequestDialog";
-import { useSelector } from "react-redux";
-import CustomChip from "../../utils/CustomChip";
-import PendingActionsIcon from "@mui/icons-material/PendingActions";
-import AddBoxIcon from "@mui/icons-material/AddBox";
-import AutoDeleteIcon from "@mui/icons-material/AutoDelete";
-import EditDocumentIcon from "@mui/icons-material/EditDocument";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import GppBadIcon from "@mui/icons-material/GppBad";
-import DateRangeIcon from "@mui/icons-material/DateRange";
-import BlockFlippedIcon from "@mui/icons-material/BlockFlipped";
-import InfoIcon from "@mui/icons-material/Info";
-function CustomNoRowsOverlay() {
-  return (
-    <Stack height="100%" alignItems="center" justifyContent="center">
-      <InfoIcon sx={{ fontSize: 48, color: "text.secondary", mb: 2 }} />
-      <Typography variant="h6">No file Requests Found</Typography>
-      <Typography>You have not created any requests.</Typography>
-    </Stack>
-  );
-}
-
-export default function FileMyRequests() {
-  const { callApi } = useApi();
-  const snackbar = useCustomSnackbar();
-
-  const [rows, setRows] = useState([]);
-  const [viewOpen, setViewOpen] = useState(false);
-  const [viewData, setViewData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [requestId, setRequestId] = useState(null);
-  const [confirmDialog, setConfirmDialog] = useState(false);
-  const selectedMenuItem = useSelector((s) => s.menus.selectedMenuItem);
-  const permissions = getPermissions(selectedMenuItem);
-
-  /* ---------------- FETCH MY REQUESTS ---------------- */
-  const fetchMyRequests = async () => {
-    const payload = { requestType: "FILE_TYPE_MASTER" };
-    try {
-      setLoading(true);
-      const res = await callApi("/CR/my-requests", payload, "POST");
-      console.log(res.data);
-      setRows(res.data);
-      // const fileRequests =
-      //   res?.data?.filter((r) => r.requestType === "FILE_TYPE_MASTER") || [];
-
-      // setRows(fileRequests);
-      const list = Array.isArray(res?.data)
-        ? res.data
-        : res?.data?.content
-          ? res.data.content
-          : res?.data
-            ? [res.data]
-            : [];
-      const fileRequests = list.filter((r) => r.reqType === "FILE_TYPE_MASTER");
-      // setRows(fileRequests);
-    } catch (err) {
-      snackbar("Failed to fetch file requests", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchMyRequests();
-  }, []);
-
-  /* ---------------- CANCEL REQUEST ---------------- */
-  const handleCancelRequest = async () => {
-    try {
-      const payload = {
-        requestId,
-        remarks: "User canceled this Request",
-      };
-
-      const response = await callApi("/CR/cancel-request", payload, "PATCH");
-      if (response?.success) {
-        snackbar(`Request Id ${requestId} Cancelled Successfully.`, "success");
-      } else {
-        snackbar(
-          response?.message
-            ? response?.message
-            : "Failed to process your cancel request, Kindly try again",
-          "error",
-        );
-      }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      fetchData();
-      setConfirmDialog(false);
-    }
-  };
-
-  const FREQUENCY_MAP = {
-    D: "Daily",
-    M: "Monthly",
-    Y: "Yearly",
-  };
-
-  const INCLUDE_MAP = {
-    Y: "Yes",
-    N: "No",
-  };
-
-  const handleViewClick = (data) => {
-    console.log("Raw Data", data);
-    const { type, filePattern, frequency } = data;
-
-    const showData = {
-      // type: data?.payload?.type,
-      filePattern: data?.payload?.filePattern,
-      frequency: data?.payload?.frequency
-        ? data.payload.frequency
-            .toUpperCase()
-            .replaceAll("/", ",")
-            .split(",")
-            .map((f) => FREQUENCY_MAP[f.trim()] || f)
-            .join("/")
-        : "",
-      includeFile:
-        INCLUDE_MAP[data?.payload?.includeFile] || data?.payload?.includeFile,
-    };
-    // console.log("type", type);
-
-    data.showData = showData;
-    setViewData(data);
-    setViewOpen(true);
-  };
-
-  /* ---------------- COLUMNS ---------------- */
-  const columns = useMemo(
-    () => [
-      {
-        field: "id",
-        headerName: "Request ID",
-        flex: 0.8,
-      },
-      // {
-      //   field: "type",
-      //   headerName: "File Type",
-      //   flex: 1,
-      //   renderCell: (p) => p.row.payload.type,
-      // },
-      // {
-      //   field: "subType",
-      //   headerName: "Sub Type",
-      //   flex: 1,
-      //   valueGetter: (params) => params?.row?.payload?.subType || "",
-      // },
-      {
-        field: "filePattern",
-        headerName: "File Pattern",
-        flex: 1,
-        renderCell: (p) => p.row.payload.filePattern,
-      },
-      // {
-      //   field: "stream",
-      //   headerName: "Stream",
-      //   flex: 1.5,
-      //   valueGetter: (params) => params?.row?.payload?.stream || "",
-      // },
-      {
-        field: "frequency",
-        headerName: "Frequency",
-        flex: 1,
-        // renderCell: (p) => p.row.payload.frequency,
-        renderCell: (params) => {
-          if (!params.row.payload.frequency) return "";
-
-          return params.row.payload.frequency
-            .split(/[/,]/)
-            .map((f) => {
-              if (f === "D") return "Daily";
-              if (f === "M") return "Monthly";
-              if (f === "Y") return "Yearly";
-              return f;
-            })
-            .join(" / ");
-        },
-      },
-      {
-        field: "includeFile",
-        headerName: "Include",
-        flex: 0.5,
-        // renderCell: (p) => p.row.payload.includeFile,
-        renderCell: (params) =>
-          params.row.payload.includeFile === "Y"
-            ? "Yes"
-            : params.row.payload.includeFile === "N"
-              ? "No"
-              : "",
-      },
-
-      {
-        field: "changeType",
-        headerName: "Request Type",
-        flex: 1,
-        headerAlign: "center",
-        align: "center",
-        filterable: false,
-        sortable: false,
-        disableColumnMenu: true,
-        renderCell: (params) => {
-          const val = params.value;
-          const color =
-            val === "ADD" ? "success" : val === "DELETE" ? "error" : "warning";
-          const icon =
-            val === "ADD" ? (
-              <AddBoxIcon />
-            ) : val === "DELETE" ? (
-              <AutoDeleteIcon />
-            ) : (
-              <EditDocumentIcon />
-            );
-          return (
-            <CustomChip
-              icon={icon}
-              label={
-                val === "ADD"
-                  ? "Added"
-                  : val === "DELETE"
-                    ? "Deleted"
-                    : "Modified"
-              }
-              color={color}
-              variant="outlined"
-            />
-          );
-        },
-      },
-      {
-        field: "reqDate",
-        headerName: "Date of Submission",
-        flex: 1,
-        filterable: false,
-        disableColumnMenu: true,
-        renderCell: (params) => (
-          <Box>
-            <Chip
-              sx={{ color: "text.secondary" }}
-              icon={<DateRangeIcon />}
-              label={params.value.split("T")[0]}
-            />
-          </Box>
-        ),
-      },
-      {
-        field: "reqStatus",
-        headerName: "Status",
-        flex: 0.7,
-        headerAlign: "center",
-        align: "center",
-        filterable: false,
-        sortable: false,
-        disableColumnMenu: true,
-        renderCell: (params) => (
-          <Box
-            sx={{
-              color:
-                params.value === "REJECTED"
-                  ? "error.main"
-                  : params.value === "ACCEPTED"
-                    ? "success.dark"
-                    : "warning.main",
-              // fontWeight: "bold",
-            }}
-          >
-            <CustomChip
-              variant="outlined"
-              icon={
-                params.value === "REJECTED" ? (
-                  <BlockFlippedIcon />
-                ) : params.value === "ACCEPTED" ? (
-                  <CheckCircleIcon />
-                ) : params.value === "CANCELLED" ? (
-                  <GppBadIcon />
-                ) : (
-                  <PendingActionsIcon />
-                )
-              }
-              label={
-                params.value === "REJECTED"
-                  ? "Rejected"
-                  : params.value === "ACCEPTED"
-                    ? "Approved"
-                    : params.value === "CANCELLED"
-                      ? "Cancelled"
-                      : "Pending"
-              }
-              sx={{
-                color:
-                  params.value === "REJECTED"
-                    ? "error.dark"
-                    : params.value === "ACCEPTED"
-                      ? "success.dark"
-                      : params.value === "CANCELLED"
-                        ? "primary.dark"
-                        : "warning.light",
-
-                "& .MuiChip-icon": {
-                  color:
-                    params.value === "REJECTED"
-                      ? "error.dark"
-                      : params.value === "ACCEPTED"
-                        ? "success.dark"
-                        : params.value === "CANCELLED"
-                          ? "primary.dark"
-                          : "warning.light",
-                },
-              }}
-            />
-          </Box>
-        ),
-      },
-      {
-        field: "action",
-        headerName: "Action",
-        flex: 1,
-        headerAlign: "center",
-        align: "center",
-        filterable: false,
-        sortable: false,
-        disableColumnMenu: true,
-        renderCell: (params) => {
-          return (
-            <Stack
-              direction="row"
-              spacing={1}
-              justifyContent="center"
-              alignItems="center"
-              sx={{ height: "100%" }}
-            >
-              {permissions.view && (
-                <Tooltip title="View">
-                  <IconButton
-                    // color="primary"
-                    onClick={() => handleViewClick(params.row)}
-                  >
-                    <VisibilityIcon />
-                  </IconButton>
-                </Tooltip>
-              )}
-
-              {params.row.reqStatus === "PENDING" && permissions.cancel && (
-                <Tooltip title={"Cancel Request"}>
-                  <IconButton
-                    onClick={() => {
-                      setConfirmDialog(true);
-                      setRequestId(params.row.id);
-                    }}
-                  >
-                    <CancelIcon fontSize="inherit" />
-                  </IconButton>
-                </Tooltip>
-              )}
-            </Stack>
-          );
-        },
-      },
-      // {
-      //   field: "actions",
-      //   headerName: "Actions",
-      //   flex: 1,
-      //   align: "center",
-      //   headerAlign: "center",
-      //   renderCell: (params) =>
-      //     params?.row?.reqStatus === "PENDING" ? (
-      //       <Tooltip title="Cancel Request">
-      //         <IconButton
-      //           color="error"
-      //           onClick={() => handleCancel(params?.row?.id)}
-      //         >
-      //           <CancelIcon />
-      //         </IconButton>
-      //       </Tooltip>
-      //     ) : (
-      //       <Typography variant="body2">—</Typography>
-      //     ),
-      // },
-    ],
-    [permissions.cancel, permissions.view],
-  );
-  const filteredColumns = useMemo(() => {
-    if (permissions.view || permissions.cancel) {
-      return columns;
-    }
-    // Otherwise, filter out the column where field name is 'action'.
-    else {
-      return columns.filter((column) => column.field !== "action");
-    }
-  }, [columns, permissions]);
-  /* ---------------- UI ---------------- */
-  return (
-    <>
-      <Box>
-        <Box>
-          <DataGrid
-            rows={rows}
-            columns={columns}
-            getRowId={(row) => row.id}
-            loading={loading}
-            disableRowSelectionOnClick
-            pageSizeOptions={[5, 10, 25, 50]}
-            initialState={{
-              pagination: {
-                paginationModel: { pageSize: 10, page: 0 },
-              },
-              sorting: {
-                sortModel: [{ field: "id", sort: "desc" }],
-              },
-            }}
-            slots={{
-              noRowsOverlay: CustomNoRowsOverlay,
-            }}
-          />
-        </Box>
-      </Box>
-      <ViewMyRequestDialog
-        open={viewOpen}
-        handleClose={() => setViewOpen(false)}
-        data={viewData}
-      />
-
-      {/* Cancel Dialog */}
-      <Dialog
-        open={confirmDialog}
-        onClose={() => {
-          setConfirmDialog(false);
-        }}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle sx={{ fontWeight: 600 }}>
-          Cancel Request ID: {requestId}
-        </DialogTitle>
-        <DialogContent>
-          <Typography sx={{ p: 1 }}>
-            Are you sure you want to cancel this request Please confirm ?
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button
-            onClick={() => {
-              setConfirmDialog(false);
-            }}
-            variant="outlined"
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={() => {
-              handleCancelRequest;
-              setConfirmDialog(false);
-            }}
-            color="error"
-            variant="contained"
-          >
-            Confirm
-          </Button>
-        </DialogActions>
-      </Dialog>
     </>
   );
 }
-
