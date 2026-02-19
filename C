@@ -343,3 +343,320 @@ export default function FileTypeMasterTab() {
     </>
   );
 }
+
+
+
+
+
+
+
+// request 
+
+
+import {
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Stack,
+  Typography,
+  Tooltip,
+  IconButton,
+  Chip,
+} from "@mui/material";
+import { DataGrid } from "@mui/x-data-grid";
+import { useEffect, useMemo, useState } from "react";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import PendingActionsIcon from "@mui/icons-material/PendingActions";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import BlockFlippedIcon from "@mui/icons-material/BlockFlipped";
+import CancelIcon from "@mui/icons-material/Cancel";
+import DateRangeIcon from "@mui/icons-material/DateRange";
+import GppBadIcon from "@mui/icons-material/GppBad";
+import AddBoxIcon from "@mui/icons-material/AddBox";
+import AutoDeleteIcon from "@mui/icons-material/AutoDelete";
+import EditDocumentIcon from "@mui/icons-material/EditDocument";
+
+import useApi from "../../hooks/useApi";
+import useCustomSnackbar from "../../utils/useCustomSnackbar";
+import CustomChip from "../../utils/CustomChip";
+import ViewMyRequestDialog from "../common/ViewMyRequestDialog";
+
+export default function MyFileConfigRequestsTab() {
+  const { callApi } = useApi();
+  const snackbar = useCustomSnackbar();
+
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [confirmDialog, setConfirmDialog] = useState(false);
+  const [requestId, setRequestId] = useState(null);
+  const [viewOpen, setViewOpen] = useState(false);
+  const [viewData, setViewData] = useState(null);
+
+  // ================= FETCH =================
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+
+      const payload = { requestType: "FILE_CONFIG" };
+
+      const response = await callApi("/CR/my-requests", payload, "POST");
+
+      if (response?.data) {
+        const result = response.data.map((row) => {
+          const parsedPayload = {
+            ...row.payload,
+            id: row.id,
+            reqStatus: row.reqStatus,
+            reqDate: row.reqDate,
+            changeType: row.changeType,
+          };
+
+          return parsedPayload;
+        });
+
+        // Pending first, then latest date
+        result.sort((a, b) => {
+          if (a.reqStatus === "PENDING" && b.reqStatus !== "PENDING") return -1;
+          if (a.reqStatus !== "PENDING" && b.reqStatus === "PENDING") return 1;
+          return new Date(b.reqDate) - new Date(a.reqDate);
+        });
+
+        setRows(result);
+      } else {
+        setRows([]);
+      }
+    } catch (error) {
+      snackbar("Failed to fetch requests", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  // ================= CANCEL =================
+
+  const handleCancelRequest = async () => {
+    try {
+      const payload = {
+        requestId,
+        remarks: "User cancelled this request",
+      };
+
+      const response = await callApi("/CR/cancel-request", payload, "PATCH");
+
+      if (response?.success) {
+        snackbar(`Request ${requestId} cancelled successfully`, "success");
+      } else {
+        snackbar(response?.message || "Cancel failed", "error");
+      }
+    } catch (error) {
+      snackbar("Cancel failed", "error");
+    } finally {
+      setConfirmDialog(false);
+      fetchData();
+    }
+  };
+
+  // ================= VIEW =================
+
+  const handleViewClick = (row) => {
+    const showData = {
+      columnName: row.columnName,
+      startValue: row.startValue,
+      endValue: row.endValue,
+      toBeIncluded: row.toBeIncluded ? "Yes" : "No",
+      fileType: row.fileType,
+    };
+
+    row.showData = showData;
+    setViewData(row);
+    setViewOpen(true);
+  };
+
+  // ================= COLUMNS =================
+
+  const columns = useMemo(
+    () => [
+      { field: "id", headerName: "Request Id", flex: 0.7 },
+      { field: "columnName", headerName: "Column Name", flex: 1.5 },
+      { field: "startValue", headerName: "Start Value", flex: 1 },
+      { field: "endValue", headerName: "End Value", flex: 1 },
+      {
+        field: "toBeIncluded",
+        headerName: "To Be Included",
+        flex: 1,
+        renderCell: (params) => (params.value ? "Yes" : "No"),
+      },
+      { field: "fileType", headerName: "File Type", flex: 1.5 },
+
+      // Change Type
+      {
+        field: "changeType",
+        headerName: "Request Type",
+        flex: 1,
+        align: "center",
+        renderCell: (params) => {
+          const val = params.value;
+
+          const icon =
+            val === "ADD" ? (
+              <AddBoxIcon />
+            ) : val === "DELETE" ? (
+              <AutoDeleteIcon />
+            ) : (
+              <EditDocumentIcon />
+            );
+
+          const label =
+            val === "ADD"
+              ? "Added"
+              : val === "DELETE"
+              ? "Deleted"
+              : "Modified";
+
+          return (
+            <CustomChip
+              variant="outlined"
+              icon={icon}
+              label={label}
+            />
+          );
+        },
+      },
+
+      // Date
+      {
+        field: "reqDate",
+        headerName: "Submitted On",
+        flex: 1,
+        renderCell: (params) => (
+          <Chip
+            icon={<DateRangeIcon />}
+            label={params.value?.split("T")[0]}
+          />
+        ),
+      },
+
+      // Status
+      {
+        field: "reqStatus",
+        headerName: "Status",
+        flex: 1,
+        align: "center",
+        renderCell: (params) => {
+          const val = params.value;
+
+          const icon =
+            val === "REJECTED" ? (
+              <BlockFlippedIcon />
+            ) : val === "ACCEPTED" ? (
+              <CheckCircleIcon />
+            ) : val === "CANCELLED" ? (
+              <GppBadIcon />
+            ) : (
+              <PendingActionsIcon />
+            );
+
+          const label =
+            val === "REJECTED"
+              ? "Rejected"
+              : val === "ACCEPTED"
+              ? "Approved"
+              : val === "CANCELLED"
+              ? "Cancelled"
+              : "Pending";
+
+          return (
+            <CustomChip
+              variant="outlined"
+              icon={icon}
+              label={label}
+            />
+          );
+        },
+      },
+
+      // Actions
+      {
+        field: "actions",
+        headerName: "Action",
+        flex: 1,
+        align: "center",
+        renderCell: (params) => (
+          <Stack direction="row" spacing={1}>
+            <Tooltip title="View">
+              <IconButton onClick={() => handleViewClick(params.row)}>
+                <VisibilityIcon />
+              </IconButton>
+            </Tooltip>
+
+            {params.row.reqStatus === "PENDING" && (
+              <Tooltip title="Cancel">
+                <IconButton
+                  onClick={() => {
+                    setRequestId(params.row.id);
+                    setConfirmDialog(true);
+                  }}
+                >
+                  <CancelIcon />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Stack>
+        ),
+      },
+    ],
+    []
+  );
+
+  return (
+    <>
+      <DataGrid
+        rows={rows}
+        columns={columns}
+        loading={loading}
+        getRowId={(row) => row.id}
+        pageSizeOptions={[5, 10, 25]}
+        autoHeight
+      />
+
+      {/* View Dialog */}
+      <ViewMyRequestDialog
+        open={viewOpen}
+        handleClose={() => setViewOpen(false)}
+        data={viewData}
+      />
+
+      {/* Cancel Dialog */}
+      <Dialog open={confirmDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          Cancel Request ID: {requestId}
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to cancel this request?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDialog(false)}>
+            Close
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleCancelRequest}
+          >
+            Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+}
