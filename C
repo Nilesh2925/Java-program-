@@ -660,3 +660,48 @@ export default function MyFileConfigRequestsTab() {
     </>
   );
 }
+
+
+
+
+
+
+
+
+<FormControl
+  component="fieldset"
+  margin="normal"
+  error={!!errors.toBeIncluded}
+>
+  <FormLabel component="legend">
+    To Be Included *
+  </FormLabel>
+
+  <RadioGroup
+    row
+    value={formData.toBeIncluded}
+    onChange={(e) =>
+      setFormData({
+        ...formData,
+        toBeIncluded: e.target.value,
+      })
+    }
+  >
+    <FormControlLabel
+      value="YES"
+      control={<Radio />}
+      label="Yes"
+    />
+    <FormControlLabel
+      value="NO"
+      control={<Radio />}
+      label="No"
+    />
+  </RadioGroup>
+
+  {errors.toBeIncluded && (
+    <Typography variant="caption" color="error">
+      {errors.toBeIncluded}
+    </Typography>
+  )}
+</FormControl>
