@@ -37,6 +37,7 @@ export default function DataParametersDialog({
 
   const isView = mode === "VIEW";
   const isEdit = mode === "EDIT";
+  const isCreate = mode === "CREATE";
 
   const { callApi } = useApi();
   const snackbar = useCustomSnackbar();
@@ -58,45 +59,44 @@ export default function DataParametersDialog({
     name: "rows"
   });
 
-  /* ---------------- EDIT / VIEW PRE-FILL ---------------- */
+  /* ---------------- MODE HANDLING ---------------- */
 
   useEffect(() => {
+    if (isCreate) {
+      setValue("fileType", "");
+      replace([]);
+    }
+
     if ((isEdit || isView) && data) {
       setValue("fileType", data.fileType);
       replace(data.rows || []);
     }
-  }, [data]);
 
-  /* ---------------- AUTO POPULATE ON DROPDOWN CHANGE ---------------- */
+  }, [mode, data]);
 
-  const selectedFileType = watch("fileType");
+  /* ---------------- ADD ROW WITH AUTO START ---------------- */
 
-  useEffect(() => {
-    if (!selectedFileType) {
-      replace([]);
-      return;
+  const handleAddRow = () => {
+
+    const currentRows = getValues("rows");
+
+    let nextStart = 1;
+
+    if (currentRows.length > 0) {
+      const lastRow = currentRows[currentRows.length - 1];
+      nextStart = Number(lastRow.endValue || 0) + 1;
     }
 
-    const selected = allData?.find(
-      (item) => item.fileType === selectedFileType
-    );
-
-    if (selected) {
-      replace(
-        selected.rows.map((r) => ({
-          ...r,
-          toBeIncluded:
-            r.toBeIncluded === true ||
-            r.toBeIncluded === "true" ||
-            r.toBeIncluded === "YES",
-          dataType: r.dataType?.toUpperCase()
-        }))
-      );
-    } else {
-      replace([]);
-    }
-
-  }, [selectedFileType]);
+    append({
+      columnId: null,
+      columnName: "",
+      startValue: nextStart,
+      endValue: "",
+      toBeIncluded: true,
+      dataType: "STRING",
+      decimalCount: null
+    });
+  };
 
   /* ---------------- VALIDATION ---------------- */
 
@@ -107,7 +107,7 @@ export default function DataParametersDialog({
       return false;
     }
 
-    if (!formData.rows || formData.rows.length === 0) {
+    if (formData.rows.length === 0) {
       snackbar("At least one row required", "error");
       return false;
     }
@@ -118,16 +118,6 @@ export default function DataParametersDialog({
 
       if (!r.columnName) {
         snackbar(`Column Name required (Row ${i + 1})`, "error");
-        return false;
-      }
-
-      if (r.startValue === "" || r.startValue == null) {
-        snackbar(`Start Value required (Row ${i + 1})`, "error");
-        return false;
-      }
-
-      if (r.endValue === "" || r.endValue == null) {
-        snackbar(`End Value required (Row ${i + 1})`, "error");
         return false;
       }
 
@@ -145,18 +135,6 @@ export default function DataParametersDialog({
       }
     }
 
-    // Overlap check
-    const sorted = [...formData.rows].sort(
-      (a, b) => Number(a.startValue) - Number(b.startValue)
-    );
-
-    for (let i = 0; i < sorted.length - 1; i++) {
-      if (Number(sorted[i].endValue) >= Number(sorted[i + 1].startValue)) {
-        snackbar("Overlapping ranges not allowed", "error");
-        return false;
-      }
-    }
-
     return true;
   };
 
@@ -165,7 +143,6 @@ export default function DataParametersDialog({
   const onSubmit = async () => {
 
     const formData = getValues();
-
     if (!validateForm(formData)) return;
 
     const payload = {
@@ -174,14 +151,11 @@ export default function DataParametersDialog({
       payload: formData
     };
 
-    try {
-      await callApi("api/common-request", payload, "POST");
-      snackbar("Request submitted successfully", "success");
-      refresh();
-      onClose();
-    } catch {
-      snackbar("Submission failed", "error");
-    }
+    await callApi("api/common-request", payload, "POST");
+
+    snackbar("Request submitted successfully", "success");
+    refresh();
+    onClose();
   };
 
   return (
@@ -190,47 +164,54 @@ export default function DataParametersDialog({
 
       <DialogContent>
 
-        {/* FILE TYPE DROPDOWN */}
-        <Controller
-          name="fileType"
-          control={control}
-          render={({ field }) => (
-            <TextField
-              {...field}
-              select
-              label="File Type"
-              fullWidth
-              margin="normal"
-              disabled={isView}
-            >
-              {allData?.map((item) => (
-                <MenuItem key={item.fileType} value={item.fileType}>
-                  {item.fileType}
-                </MenuItem>
-              ))}
-            </TextField>
-          )}
-        />
+        {/* FILE TYPE FIELD */}
+
+        {isCreate ? (
+          <Controller
+            name="fileType"
+            control={control}
+            render={({ field }) => (
+              <TextField
+                {...field}
+                label="File Type"
+                fullWidth
+                margin="normal"
+              />
+            )}
+          />
+        ) : (
+          <Controller
+            name="fileType"
+            control={control}
+            render={({ field }) => (
+              <TextField
+                {...field}
+                select
+                label="File Type"
+                fullWidth
+                margin="normal"
+                disabled
+              >
+                {allData?.map((item) => (
+                  <MenuItem key={item.fileType} value={item.fileType}>
+                    {item.fileType}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+          />
+        )}
 
         {!isView && (
           <Button
             startIcon={<AddIcon />}
-            onClick={() =>
-              append({
-                columnId: null,
-                columnName: "",
-                startValue: "",
-                endValue: "",
-                toBeIncluded: true,
-                dataType: "STRING",
-                decimalCount: null
-              })
-            }
+            onClick={handleAddRow}
           >
             Add Row
           </Button>
         )}
 
+        {/* VIEW MODE TABLE */}
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -247,87 +228,99 @@ export default function DataParametersDialog({
 
           <TableBody>
             {fields.map((row, index) => {
+
               const dataType = watch(`rows.${index}.dataType`);
 
               return (
                 <TableRow key={row.id}>
-
                   <TableCell>{row.columnId || "-"}</TableCell>
 
                   <TableCell>
-                    <Controller
-                      name={`rows.${index}.columnName`}
-                      control={control}
-                      render={({ field }) =>
-                        <TextField {...field} disabled={isView} />
-                      }
-                    />
+                    {isView ? row.columnName :
+                      <Controller
+                        name={`rows.${index}.columnName`}
+                        control={control}
+                        render={({ field }) =>
+                          <TextField {...field} />
+                        }
+                      />
+                    }
                   </TableCell>
 
                   <TableCell>
-                    <Controller
-                      name={`rows.${index}.startValue`}
-                      control={control}
-                      render={({ field }) =>
-                        <TextField type="number" {...field} disabled={isView} />
-                      }
-                    />
+                    {isView ? row.startValue :
+                      <Controller
+                        name={`rows.${index}.startValue`}
+                        control={control}
+                        render={({ field }) =>
+                          <TextField type="number" {...field} />
+                        }
+                      />
+                    }
                   </TableCell>
 
                   <TableCell>
-                    <Controller
-                      name={`rows.${index}.endValue`}
-                      control={control}
-                      render={({ field }) =>
-                        <TextField type="number" {...field} disabled={isView} />
-                      }
-                    />
+                    {isView ? row.endValue :
+                      <Controller
+                        name={`rows.${index}.endValue`}
+                        control={control}
+                        render={({ field }) =>
+                          <TextField type="number" {...field} />
+                        }
+                      />
+                    }
                   </TableCell>
 
                   <TableCell>
-                    <Controller
-                      name={`rows.${index}.toBeIncluded`}
-                      control={control}
-                      render={({ field }) => (
-                        <RadioGroup
-                          row
-                          value={field.value ? "YES" : "NO"}
-                          onChange={(e) =>
-                            field.onChange(e.target.value === "YES")
-                          }
-                        >
-                          <FormControlLabel value="YES" control={<Radio />} label="Yes" disabled={isView}/>
-                          <FormControlLabel value="NO" control={<Radio />} label="No" disabled={isView}/>
-                        </RadioGroup>
-                      )}
-                    />
+                    {isView ? (row.toBeIncluded ? "YES" : "NO") :
+                      <Controller
+                        name={`rows.${index}.toBeIncluded`}
+                        control={control}
+                        render={({ field }) => (
+                          <RadioGroup
+                            row
+                            value={field.value ? "YES" : "NO"}
+                            onChange={(e) =>
+                              field.onChange(e.target.value === "YES")
+                            }
+                          >
+                            <FormControlLabel value="YES" control={<Radio />} label="Yes"/>
+                            <FormControlLabel value="NO" control={<Radio />} label="No"/>
+                          </RadioGroup>
+                        )}
+                      />
+                    }
                   </TableCell>
 
                   <TableCell>
-                    <Controller
-                      name={`rows.${index}.dataType`}
-                      control={control}
-                      render={({ field }) =>
-                        <TextField select {...field} disabled={isView}>
-                          <MenuItem value="STRING">STRING</MenuItem>
-                          <MenuItem value="AMOUNT">AMOUNT</MenuItem>
-                        </TextField>
-                      }
-                    />
+                    {isView ? row.dataType :
+                      <Controller
+                        name={`rows.${index}.dataType`}
+                        control={control}
+                        render={({ field }) =>
+                          <TextField select {...field}>
+                            <MenuItem value="STRING">STRING</MenuItem>
+                            <MenuItem value="AMOUNT">AMOUNT</MenuItem>
+                          </TextField>
+                        }
+                      />
+                    }
                   </TableCell>
 
                   <TableCell>
-                    <Controller
-                      name={`rows.${index}.decimalCount`}
-                      control={control}
-                      render={({ field }) =>
-                        <TextField
-                          type="number"
-                          {...field}
-                          disabled={isView || dataType !== "AMOUNT"}
-                        />
-                      }
-                    />
+                    {isView ? row.decimalCount :
+                      <Controller
+                        name={`rows.${index}.decimalCount`}
+                        control={control}
+                        render={({ field }) =>
+                          <TextField
+                            type="number"
+                            {...field}
+                            disabled={dataType !== "AMOUNT"}
+                          />
+                        }
+                      />
+                    }
                   </TableCell>
 
                   {!isView && (
