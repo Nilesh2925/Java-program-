@@ -1,663 +1,124 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  Box,
-  Button,
-  Dialog,
-  DialogContent,
-  Grid,
-  IconButton,
-  Stack,
-  TextField,
-  Typography,
-  Tooltip,
-  MenuItem,
-  DialogActions,
-  Divider,
-  Checkbox,
-  FormControlLabel,
+  Box, Table, TableHead, TableRow,
+  TableCell, TableBody, IconButton, Button
 } from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import EditIcon from "@mui/icons-material/Edit";
+import { useApi } from "hooks/useApi";
+import { useCustomSnackbar } from "hooks/useCustomSnackbar";
+import DataParametersDialog from "./DataParametersDialog";
 
-import {
-  Edit as EditIcon,
-  Add as AddIcon,
-  Close as CloseIcon,
-  Delete as DeleteIcon,
-} from "@mui/icons-material";
+export default function ManageDataTab() {
 
-import { DataGrid } from "@mui/x-data-grid";
-import useApi from "../../hooks/useApi";
-import useCustomSnackbar from "../../utils/useCustomSnackbar";
-
-export default function FileTypeMasterTab() {
   const { callApi } = useApi();
   const snackbar = useCustomSnackbar();
 
   const [rows, setRows] = useState([]);
-  const [fileTypes, setFileTypes] = useState([]);
-  const [open, setOpen] = useState(false);
-  const [editingKey, setEditingKey] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [mode, setMode] = useState("CREATE");
+  const [selectedData, setSelectedData] = useState(null);
 
-  const [formData, setFormData] = useState({
-    columnName: "",
-    startValue: "",
-    endValue: "",
-    toBeIncluded: false,
-    fileType: "",
-  });
-
-  const [errors, setErrors] = useState({});
-
-  // ================= FETCH =================
+  const normalizeRows = (rows) =>
+    rows.map((r) => ({
+      ...r,
+      toBeIncluded:
+        r.toBeIncluded === true ||
+        r.toBeIncluded === "true" ||
+        r.toBeIncluded === "YES",
+      dataType: r.dataType?.toUpperCase()
+    }));
 
   const fetchData = async () => {
     try {
-      setLoading(true);
+      const res = await callApi(
+        "api/common-master/data-parameters",
+        {},
+        "GET"
+      );
 
-      const [fileTypeRes, masterRes] = await Promise.all([
-        callApi("/CM/common-master/file-types", null, "GET"),
-        callApi("/CM/common-master/file-config", null, "GET"),
-      ]);
+      const data = res?.data || {};
 
-      setFileTypes(fileTypeRes?.data ?? []);
-      setRows(masterRes?.data ?? []);
-    } catch (err) {
-      snackbar("Failed to fetch data", "error");
-    } finally {
-      setLoading(false);
+      const formatted = Object.keys(data).map((key) => ({
+        fileType: key,
+        rows: normalizeRows(data[key])
+      }));
+
+      setRows(formatted);
+
+    } catch {
+      snackbar("Failed to load data", "error");
     }
   };
 
   useEffect(() => {
     fetchData();
   }, []);
-
-  // ================= VALIDATION =================
-
-  const validate = () => {
-    const newErrors = {};
-
-    if (!formData.columnName.trim())
-      newErrors.columnName = "Column Name required";
-    else if (!/^[A-Za-z\s]+$/.test(formData.columnName))
-      newErrors.columnName = "Characters only allowed";
-
-    if (!formData.startValue)
-      newErrors.startValue = "Start Value required";
-    else if (!/^[0-9]+$/.test(formData.startValue))
-      newErrors.startValue = "Numbers only allowed";
-
-    if (!formData.endValue)
-      newErrors.endValue = "End Value required";
-    else if (!/^[0-9]+$/.test(formData.endValue))
-      newErrors.endValue = "Numbers only allowed";
-
-    if (
-      formData.startValue &&
-      formData.endValue &&
-      Number(formData.startValue) >= Number(formData.endValue)
-    )
-      newErrors.endValue = "End Value must be greater than Start Value";
-
-    if (!formData.fileType)
-      newErrors.fileType = "File Type required";
-
-    if (formData.toBeIncluded === null)
-      newErrors.toBeIncluded = "Required";
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  // ================= HANDLE SUBMIT =================
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    if (!validate()) return;
-
-    const uniqueKey = `${formData.columnName}_${formData.fileType}`;
-
-    // Duplicate check only for ADD
-    if (!editingKey) {
-      const exists = rows.some(
-        (r) =>
-          r.columnName === formData.columnName &&
-          r.fileType === formData.fileType
-      );
-
-      if (exists) {
-        snackbar("Record already exists for this Column & File Type", "warning");
-        return;
-      }
-    }
-
-    const payload = {
-      requestType: "FILE_CONFIG",
-      changeType: editingKey ? "UPDATE" : "ADD",
-      targetId: uniqueKey,
-      payload: formData,
-    };
-
-    try {
-      const response = await callApi("/CR/create-request", payload, "POST");
-
-      snackbar(
-        `Request submitted successfully with ID ${response?.data?.id}`,
-        "success"
-      );
-
-      handleClose();
-      fetchData();
-    } catch (err) {
-      snackbar("Request failed", "error");
-    }
-  };
-
-  // ================= DELETE =================
-
-  const handleDelete = async (row) => {
-    const uniqueKey = `${row.columnName}_${row.fileType}`;
-
-    const payload = {
-      requestType: "FILE_CONFIG",
-      changeType: "DELETE",
-      targetId: uniqueKey,
-      payload: row,
-    };
-
-    try {
-      await callApi("/CR/create-request", payload, "POST");
-      snackbar("Delete request submitted", "success");
-      fetchData();
-    } catch (err) {
-      snackbar("Delete failed", "error");
-    }
-  };
-
-  // ================= EDIT =================
-
-  const handleEdit = (row) => {
-    setFormData({
-      columnName: row.columnName,
-      startValue: row.startValue,
-      endValue: row.endValue,
-      toBeIncluded: row.toBeIncluded,
-      fileType: row.fileType,
-    });
-
-    setEditingKey(`${row.columnName}_${row.fileType}`);
-    setOpen(true);
-  };
-
-  const handleClose = () => {
-    setOpen(false);
-    setEditingKey(null);
-    setErrors({});
-    setFormData({
-      columnName: "",
-      startValue: "",
-      endValue: "",
-      toBeIncluded: false,
-      fileType: "",
-    });
-  };
-
-  // ================= COLUMNS =================
-
-  const columns = useMemo(
-    () => [
-      { field: "columnName", headerName: "Column Name", flex: 1.5 },
-      { field: "startValue", headerName: "Start Value", flex: 1 },
-      { field: "endValue", headerName: "End Value", flex: 1 },
-      {
-        field: "toBeIncluded",
-        headerName: "To Be Included",
-        flex: 1,
-        renderCell: (params) => (params.value ? "Yes" : "No"),
-      },
-      { field: "fileType", headerName: "File Type", flex: 1.5 },
-      {
-        field: "actions",
-        headerName: "Actions",
-        flex: 1,
-        align: "center",
-        renderCell: (params) => (
-          <>
-            <IconButton onClick={() => handleEdit(params.row)}>
-              <EditIcon />
-            </IconButton>
-            <IconButton onClick={() => handleDelete(params.row)}>
-              <DeleteIcon />
-            </IconButton>
-          </>
-        ),
-      },
-    ],
-    [rows]
-  );
 
   return (
-    <>
-      <DataGrid
-        loading={loading}
-        rows={rows}
-        columns={columns}
-        getRowId={(row) => `${row.columnName}_${row.fileType}`}
-        autoHeight
-        pageSizeOptions={[5, 10, 25]}
-      />
+    <Box mt={2}>
 
-      <Button
-        variant="contained"
-        startIcon={<AddIcon />}
-        sx={{ mt: 2 }}
-        onClick={() => setOpen(true)}
-      >
-        Create
-      </Button>
+      <Box display="flex" justifyContent="flex-end" mb={2}>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => {
+            setMode("CREATE");
+            setSelectedData(null);
+            setDialogOpen(true);
+          }}
+        >
+          Create
+        </Button>
+      </Box>
 
-      <Dialog open={open} maxWidth="sm" fullWidth>
-        <Box component="form" onSubmit={handleSubmit}>
-          <DialogContent>
+      <Table>
+        <TableHead>
+          <TableRow>
+            <TableCell>File Type</TableCell>
+            <TableCell align="right">Actions</TableCell>
+          </TableRow>
+        </TableHead>
 
-            <TextField
-              fullWidth
-              label="Column Name *"
-              value={formData.columnName}
-              onChange={(e) =>
-                setFormData({ ...formData, columnName: e.target.value })
-              }
-              error={!!errors.columnName}
-              helperText={errors.columnName}
-              disabled={!!editingKey}
-              margin="normal"
-            />
-
-            <TextField
-              fullWidth
-              label="Start Value *"
-              value={formData.startValue}
-              onChange={(e) =>
-                setFormData({ ...formData, startValue: e.target.value })
-              }
-              error={!!errors.startValue}
-              helperText={errors.startValue}
-              margin="normal"
-            />
-
-            <TextField
-              fullWidth
-              label="End Value *"
-              value={formData.endValue}
-              onChange={(e) =>
-                setFormData({ ...formData, endValue: e.target.value })
-              }
-              error={!!errors.endValue}
-              helperText={errors.endValue}
-              margin="normal"
-            />
-
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={formData.toBeIncluded}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      toBeIncluded: e.target.checked,
-                    })
-                  }
-                />
-              }
-              label="To Be Included *"
-            />
-
-            <TextField
-              fullWidth
-              select
-              label="File Type *"
-              value={formData.fileType}
-              onChange={(e) =>
-                setFormData({ ...formData, fileType: e.target.value })
-              }
-              error={!!errors.fileType}
-              helperText={errors.fileType}
-              margin="normal"
-            >
-              {fileTypes.map((ft) => (
-                <MenuItem key={ft.id} value={ft.id}>
-                  {ft.description}
-                </MenuItem>
-              ))}
-            </TextField>
-          </DialogContent>
-
-          <DialogActions>
-            <Button type="submit" variant="contained">
-              {editingKey ? "Update" : "Add"}
-            </Button>
-          </DialogActions>
-        </Box>
-      </Dialog>
-    </>
-  );
-}
-
-
-
-
-
-
-
-// request 
-
-
-import {
-  Box,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Stack,
-  Typography,
-  Tooltip,
-  IconButton,
-  Chip,
-} from "@mui/material";
-import { DataGrid } from "@mui/x-data-grid";
-import { useEffect, useMemo, useState } from "react";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import PendingActionsIcon from "@mui/icons-material/PendingActions";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import BlockFlippedIcon from "@mui/icons-material/BlockFlipped";
-import CancelIcon from "@mui/icons-material/Cancel";
-import DateRangeIcon from "@mui/icons-material/DateRange";
-import GppBadIcon from "@mui/icons-material/GppBad";
-import AddBoxIcon from "@mui/icons-material/AddBox";
-import AutoDeleteIcon from "@mui/icons-material/AutoDelete";
-import EditDocumentIcon from "@mui/icons-material/EditDocument";
-
-import useApi from "../../hooks/useApi";
-import useCustomSnackbar from "../../utils/useCustomSnackbar";
-import CustomChip from "../../utils/CustomChip";
-import ViewMyRequestDialog from "../common/ViewMyRequestDialog";
-
-export default function MyFileConfigRequestsTab() {
-  const { callApi } = useApi();
-  const snackbar = useCustomSnackbar();
-
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [confirmDialog, setConfirmDialog] = useState(false);
-  const [requestId, setRequestId] = useState(null);
-  const [viewOpen, setViewOpen] = useState(false);
-  const [viewData, setViewData] = useState(null);
-
-  // ================= FETCH =================
-
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-
-      const payload = { requestType: "FILE_CONFIG" };
-
-      const response = await callApi("/CR/my-requests", payload, "POST");
-
-      if (response?.data) {
-        const result = response.data.map((row) => {
-          const parsedPayload = {
-            ...row.payload,
-            id: row.id,
-            reqStatus: row.reqStatus,
-            reqDate: row.reqDate,
-            changeType: row.changeType,
-          };
-
-          return parsedPayload;
-        });
-
-        // Pending first, then latest date
-        result.sort((a, b) => {
-          if (a.reqStatus === "PENDING" && b.reqStatus !== "PENDING") return -1;
-          if (a.reqStatus !== "PENDING" && b.reqStatus === "PENDING") return 1;
-          return new Date(b.reqDate) - new Date(a.reqDate);
-        });
-
-        setRows(result);
-      } else {
-        setRows([]);
-      }
-    } catch (error) {
-      snackbar("Failed to fetch requests", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  // ================= CANCEL =================
-
-  const handleCancelRequest = async () => {
-    try {
-      const payload = {
-        requestId,
-        remarks: "User cancelled this request",
-      };
-
-      const response = await callApi("/CR/cancel-request", payload, "PATCH");
-
-      if (response?.success) {
-        snackbar(`Request ${requestId} cancelled successfully`, "success");
-      } else {
-        snackbar(response?.message || "Cancel failed", "error");
-      }
-    } catch (error) {
-      snackbar("Cancel failed", "error");
-    } finally {
-      setConfirmDialog(false);
-      fetchData();
-    }
-  };
-
-  // ================= VIEW =================
-
-  const handleViewClick = (row) => {
-    const showData = {
-      columnName: row.columnName,
-      startValue: row.startValue,
-      endValue: row.endValue,
-      toBeIncluded: row.toBeIncluded ? "Yes" : "No",
-      fileType: row.fileType,
-    };
-
-    row.showData = showData;
-    setViewData(row);
-    setViewOpen(true);
-  };
-
-  // ================= COLUMNS =================
-
-  const columns = useMemo(
-    () => [
-      { field: "id", headerName: "Request Id", flex: 0.7 },
-      { field: "columnName", headerName: "Column Name", flex: 1.5 },
-      { field: "startValue", headerName: "Start Value", flex: 1 },
-      { field: "endValue", headerName: "End Value", flex: 1 },
-      {
-        field: "toBeIncluded",
-        headerName: "To Be Included",
-        flex: 1,
-        renderCell: (params) => (params.value ? "Yes" : "No"),
-      },
-      { field: "fileType", headerName: "File Type", flex: 1.5 },
-
-      // Change Type
-      {
-        field: "changeType",
-        headerName: "Request Type",
-        flex: 1,
-        align: "center",
-        renderCell: (params) => {
-          const val = params.value;
-
-          const icon =
-            val === "ADD" ? (
-              <AddBoxIcon />
-            ) : val === "DELETE" ? (
-              <AutoDeleteIcon />
-            ) : (
-              <EditDocumentIcon />
-            );
-
-          const label =
-            val === "ADD"
-              ? "Added"
-              : val === "DELETE"
-              ? "Deleted"
-              : "Modified";
-
-          return (
-            <CustomChip
-              variant="outlined"
-              icon={icon}
-              label={label}
-            />
-          );
-        },
-      },
-
-      // Date
-      {
-        field: "reqDate",
-        headerName: "Submitted On",
-        flex: 1,
-        renderCell: (params) => (
-          <Chip
-            icon={<DateRangeIcon />}
-            label={params.value?.split("T")[0]}
-          />
-        ),
-      },
-
-      // Status
-      {
-        field: "reqStatus",
-        headerName: "Status",
-        flex: 1,
-        align: "center",
-        renderCell: (params) => {
-          const val = params.value;
-
-          const icon =
-            val === "REJECTED" ? (
-              <BlockFlippedIcon />
-            ) : val === "ACCEPTED" ? (
-              <CheckCircleIcon />
-            ) : val === "CANCELLED" ? (
-              <GppBadIcon />
-            ) : (
-              <PendingActionsIcon />
-            );
-
-          const label =
-            val === "REJECTED"
-              ? "Rejected"
-              : val === "ACCEPTED"
-              ? "Approved"
-              : val === "CANCELLED"
-              ? "Cancelled"
-              : "Pending";
-
-          return (
-            <CustomChip
-              variant="outlined"
-              icon={icon}
-              label={label}
-            />
-          );
-        },
-      },
-
-      // Actions
-      {
-        field: "actions",
-        headerName: "Action",
-        flex: 1,
-        align: "center",
-        renderCell: (params) => (
-          <Stack direction="row" spacing={1}>
-            <Tooltip title="View">
-              <IconButton onClick={() => handleViewClick(params.row)}>
-                <VisibilityIcon />
-              </IconButton>
-            </Tooltip>
-
-            {params.row.reqStatus === "PENDING" && (
-              <Tooltip title="Cancel">
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.fileType}>
+              <TableCell>{row.fileType}</TableCell>
+              <TableCell align="right">
                 <IconButton
                   onClick={() => {
-                    setRequestId(params.row.id);
-                    setConfirmDialog(true);
+                    setMode("VIEW");
+                    setSelectedData(row);
+                    setDialogOpen(true);
                   }}
                 >
-                  <CancelIcon />
+                  <VisibilityIcon />
                 </IconButton>
-              </Tooltip>
-            )}
-          </Stack>
-        ),
-      },
-    ],
-    []
-  );
 
-  return (
-    <>
-      <DataGrid
-        rows={rows}
-        columns={columns}
-        loading={loading}
-        getRowId={(row) => row.id}
-        pageSizeOptions={[5, 10, 25]}
-        autoHeight
+                <IconButton
+                  onClick={() => {
+                    setMode("EDIT");
+                    setSelectedData(row);
+                    setDialogOpen(true);
+                  }}
+                >
+                  <EditIcon />
+                </IconButton>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+
+      <DataParametersDialog
+        open={dialogOpen}
+        mode={mode}
+        data={selectedData}
+        refresh={fetchData}
+        onClose={() => setDialogOpen(false)}
       />
-
-      {/* View Dialog */}
-      <ViewMyRequestDialog
-        open={viewOpen}
-        handleClose={() => setViewOpen(false)}
-        data={viewData}
-      />
-
-      {/* Cancel Dialog */}
-      <Dialog open={confirmDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          Cancel Request ID: {requestId}
-        </DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to cancel this request?
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmDialog(false)}>
-            Close
-          </Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={handleCancelRequest}
-          >
-            Confirm
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </>
+    </Box>
   );
 }
 
@@ -668,40 +129,287 @@ export default function MyFileConfigRequestsTab() {
 
 
 
-<FormControl
-  component="fieldset"
-  margin="normal"
-  error={!!errors.toBeIncluded}
->
-  <FormLabel component="legend">
-    To Be Included *
-  </FormLabel>
+// dialogue 
 
-  <RadioGroup
-    row
-    value={formData.toBeIncluded}
-    onChange={(e) =>
-      setFormData({
-        ...formData,
-        toBeIncluded: e.target.value,
-      })
+
+
+
+
+
+
+
+import {
+  Dialog, DialogTitle, DialogContent,
+  DialogActions, Button, TextField,
+  MenuItem, Table, TableHead,
+  TableRow, TableCell, TableBody,
+  RadioGroup, FormControlLabel,
+  Radio, IconButton
+} from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
+import DeleteIcon from "@mui/icons-material/Delete";
+import { useForm, useFieldArray, Controller } from "react-hook-form";
+import { yupResolver } from "@hookform/resolvers/yup";
+import { formSchema, validateOverlap } from "./validation";
+import { useApi } from "hooks/useApi";
+import { useCustomSnackbar } from "hooks/useCustomSnackbar";
+
+export default function DataParametersDialog({
+  open,
+  mode,
+  data,
+  onClose,
+  refresh
+}) {
+
+  const isView = mode === "VIEW";
+  const isEdit = mode === "EDIT";
+
+  const { callApi } = useApi();
+  const snackbar = useCustomSnackbar();
+
+  const {
+    control,
+    handleSubmit,
+    watch
+  } = useForm({
+    resolver: yupResolver(formSchema),
+    defaultValues: {
+      fileType: data?.fileType || "",
+      rows: data?.rows || []
     }
-  >
-    <FormControlLabel
-      value="YES"
-      control={<Radio />}
-      label="Yes"
-    />
-    <FormControlLabel
-      value="NO"
-      control={<Radio />}
-      label="No"
-    />
-  </RadioGroup>
+  });
 
-  {errors.toBeIncluded && (
-    <Typography variant="caption" color="error">
-      {errors.toBeIncluded}
-    </Typography>
-  )}
-</FormControl>
+  const { fields, append, remove } = useFieldArray({
+    control,
+    name: "rows"
+  });
+
+  const onSubmit = async (formData) => {
+
+    const overlapError = validateOverlap(formData.rows);
+    if (overlapError) {
+      snackbar(overlapError, "error");
+      return;
+    }
+
+    const payload = {
+      requestType: "MAIN_DATA_PARAMETERS",
+      changeType: isEdit ? "UPDATE" : "ADD",
+      payload: formData
+    };
+
+    await callApi("api/common-request", payload, "POST");
+
+    snackbar("Request submitted", "success");
+    refresh();
+    onClose();
+  };
+
+  return (
+    <Dialog open={open} fullWidth maxWidth="xl">
+      <DialogTitle>{mode} Data Parameters</DialogTitle>
+
+      <DialogContent>
+
+        <Controller
+          name="fileType"
+          control={control}
+          render={({ field }) => (
+            <TextField
+              {...field}
+              label="File Type"
+              fullWidth
+              margin="normal"
+              disabled={isEdit || isView}
+            />
+          )}
+        />
+
+        {!isView && (
+          <Button
+            startIcon={<AddIcon />}
+            onClick={() =>
+              append({
+                columnId: null,
+                columnName: "",
+                startValue: "",
+                endValue: "",
+                toBeIncluded: true,
+                dataType: "STRING",
+                decimalCount: null
+              })
+            }
+          >
+            Add Row
+          </Button>
+        )}
+
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Column Id</TableCell>
+              <TableCell>Column Name</TableCell>
+              <TableCell>Start</TableCell>
+              <TableCell>End</TableCell>
+              <TableCell>Included</TableCell>
+              <TableCell>Data Type</TableCell>
+              <TableCell>Decimal</TableCell>
+              {!isView && <TableCell />}
+            </TableRow>
+          </TableHead>
+
+          <TableBody>
+            {fields.map((row, index) => {
+              const dataType = watch(`rows.${index}.dataType`);
+
+              return (
+                <TableRow key={row.id}>
+                  <TableCell>{row.columnId || "-"}</TableCell>
+
+                  <TableCell>
+                    <Controller
+                      name={`rows.${index}.columnName`}
+                      control={control}
+                      render={({ field }) =>
+                        <TextField {...field} disabled={isView} />
+                      }
+                    />
+                  </TableCell>
+
+                  <TableCell>
+                    <Controller
+                      name={`rows.${index}.startValue`}
+                      control={control}
+                      render={({ field }) =>
+                        <TextField type="number" {...field} disabled={isView} />
+                      }
+                    />
+                  </TableCell>
+
+                  <TableCell>
+                    <Controller
+                      name={`rows.${index}.endValue`}
+                      control={control}
+                      render={({ field }) =>
+                        <TextField type="number" {...field} disabled={isView} />
+                      }
+                    />
+                  </TableCell>
+
+                  <TableCell>
+                    <Controller
+                      name={`rows.${index}.toBeIncluded`}
+                      control={control}
+                      render={({ field }) => (
+                        <RadioGroup
+                          row
+                          value={field.value ? "YES" : "NO"}
+                          onChange={(e) =>
+                            field.onChange(e.target.value === "YES")
+                          }
+                        >
+                          <FormControlLabel value="YES" control={<Radio />} label="Yes" disabled={isView}/>
+                          <FormControlLabel value="NO" control={<Radio />} label="No" disabled={isView}/>
+                        </RadioGroup>
+                      )}
+                    />
+                  </TableCell>
+
+                  <TableCell>
+                    <Controller
+                      name={`rows.${index}.dataType`}
+                      control={control}
+                      render={({ field }) =>
+                        <TextField select {...field} disabled={isView}>
+                          <MenuItem value="STRING">STRING</MenuItem>
+                          <MenuItem value="AMOUNT">AMOUNT</MenuItem>
+                        </TextField>
+                      }
+                    />
+                  </TableCell>
+
+                  <TableCell>
+                    <Controller
+                      name={`rows.${index}.decimalCount`}
+                      control={control}
+                      render={({ field }) =>
+                        <TextField
+                          type="number"
+                          {...field}
+                          disabled={isView || dataType !== "AMOUNT"}
+                        />
+                      }
+                    />
+                  </TableCell>
+
+                  {!isView && (
+                    <TableCell>
+                      {!row.columnId && (
+                        <IconButton onClick={() => remove(index)}>
+                          <DeleteIcon />
+                        </IconButton>
+                      )}
+                    </TableCell>
+                  )}
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+
+      </DialogContent>
+
+      {!isView && (
+        <DialogActions>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSubmit(onSubmit)} variant="contained">
+            Submit
+          </Button>
+        </DialogActions>
+      )}
+    </Dialog>
+  );
+}
+
+
+
+
+
+////
+
+import * as yup from "yup";
+
+export const formSchema = yup.object().shape({
+  fileType: yup.string().required("FileType required"),
+  rows: yup.array().of(
+    yup.object().shape({
+      columnName: yup.string().required("Column Name required"),
+      startValue: yup
+        .number()
+        .required()
+        .typeError("Required"),
+      endValue: yup
+        .number()
+        .required()
+        .moreThan(yup.ref("startValue"), "End must be greater"),
+      toBeIncluded: yup.boolean().required(),
+      dataType: yup.string().required(),
+      decimalCount: yup.number().when("dataType", {
+        is: "AMOUNT",
+        then: (schema) => schema.required().min(0).max(6),
+        otherwise: (schema) => schema.nullable()
+      })
+    })
+  )
+});
+
+export const validateOverlap = (rows) => {
+  const sorted = [...rows].sort((a, b) => a.startValue - b.startValue);
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (sorted[i].endValue >= sorted[i + 1].startValue) {
+      return "Overlapping ranges not allowed";
+    }
+  }
+  return null;
+};
