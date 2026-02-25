@@ -1,35 +1,361 @@
-const fetchData = async () => {
-  try {
-    const res = await callApi(
-      "api/common-master/data-parameters",
-      {},
-      "GET"
-    );
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  TextField,
+  MenuItem,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  RadioGroup,
+  FormControlLabel,
+  Radio,
+  IconButton
+} from "@mui/material";
 
-    if (!res?.data?.success) {
-      snackbar("Failed to fetch data", "error");
+import AddIcon from "@mui/icons-material/Add";
+import DeleteIcon from "@mui/icons-material/Delete";
+
+import { useForm, useFieldArray, Controller } from "react-hook-form";
+import { useEffect } from "react";
+
+import useApi from "../../hooks/useApi";
+import useCustomSnackbar from "../../hooks/useCustomSnackbar";
+
+export default function DataParametersDialog({
+  open,
+  mode,
+  data,
+  allData,
+  onClose,
+  refresh
+}) {
+
+  const isView = mode === "VIEW";
+  const isEdit = mode === "EDIT";
+
+  const { callApi } = useApi();
+  const snackbar = useCustomSnackbar();
+
+  const {
+    control,
+    watch,
+    setValue,
+    getValues
+  } = useForm({
+    defaultValues: {
+      fileType: "",
+      rows: []
+    }
+  });
+
+  const { fields, append, remove, replace } = useFieldArray({
+    control,
+    name: "rows"
+  });
+
+  /* ---------------- EDIT / VIEW PRE-FILL ---------------- */
+
+  useEffect(() => {
+    if ((isEdit || isView) && data) {
+      setValue("fileType", data.fileType);
+      replace(data.rows || []);
+    }
+  }, [data]);
+
+  /* ---------------- AUTO POPULATE ON DROPDOWN CHANGE ---------------- */
+
+  const selectedFileType = watch("fileType");
+
+  useEffect(() => {
+    if (!selectedFileType) {
+      replace([]);
       return;
     }
 
-    const apiData = res.data.data || [];
+    const selected = allData?.find(
+      (item) => item.fileType === selectedFileType
+    );
 
-    // Normalize rows
-    const formatted = apiData.map((item) => ({
-      fileType: item.fileType,
-      rows: item.rows.map((r) => ({
-        ...r,
-        toBeIncluded:
-          r.toBeIncluded === true ||
-          r.toBeIncluded === "true" ||
-          r.toBeIncluded === "YES",
-        dataType: r.dataType?.toUpperCase()
-      }))
-    }));
+    if (selected) {
+      replace(
+        selected.rows.map((r) => ({
+          ...r,
+          toBeIncluded:
+            r.toBeIncluded === true ||
+            r.toBeIncluded === "true" ||
+            r.toBeIncluded === "YES",
+          dataType: r.dataType?.toUpperCase()
+        }))
+      );
+    } else {
+      replace([]);
+    }
 
-    setRows(formatted);
-    setFileTypeOptions(apiData.map((item) => item.fileType));
+  }, [selectedFileType]);
 
-  } catch (error) {
-    snackbar("Failed to load data", "error");
-  }
-};
+  /* ---------------- VALIDATION ---------------- */
+
+  const validateForm = (formData) => {
+
+    if (!formData.fileType) {
+      snackbar("File Type is required", "error");
+      return false;
+    }
+
+    if (!formData.rows || formData.rows.length === 0) {
+      snackbar("At least one row required", "error");
+      return false;
+    }
+
+    for (let i = 0; i < formData.rows.length; i++) {
+
+      const r = formData.rows[i];
+
+      if (!r.columnName) {
+        snackbar(`Column Name required (Row ${i + 1})`, "error");
+        return false;
+      }
+
+      if (r.startValue === "" || r.startValue == null) {
+        snackbar(`Start Value required (Row ${i + 1})`, "error");
+        return false;
+      }
+
+      if (r.endValue === "" || r.endValue == null) {
+        snackbar(`End Value required (Row ${i + 1})`, "error");
+        return false;
+      }
+
+      if (Number(r.startValue) >= Number(r.endValue)) {
+        snackbar(`End must be greater than Start (Row ${i + 1})`, "error");
+        return false;
+      }
+
+      if (
+        r.dataType === "AMOUNT" &&
+        (r.decimalCount === null || r.decimalCount === "")
+      ) {
+        snackbar(`Decimal required for AMOUNT (Row ${i + 1})`, "error");
+        return false;
+      }
+    }
+
+    // Overlap check
+    const sorted = [...formData.rows].sort(
+      (a, b) => Number(a.startValue) - Number(b.startValue)
+    );
+
+    for (let i = 0; i < sorted.length - 1; i++) {
+      if (Number(sorted[i].endValue) >= Number(sorted[i + 1].startValue)) {
+        snackbar("Overlapping ranges not allowed", "error");
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  /* ---------------- SUBMIT ---------------- */
+
+  const onSubmit = async () => {
+
+    const formData = getValues();
+
+    if (!validateForm(formData)) return;
+
+    const payload = {
+      requestType: "MAIN_DATA_PARAMETERS",
+      changeType: isEdit ? "UPDATE" : "ADD",
+      payload: formData
+    };
+
+    try {
+      await callApi("api/common-request", payload, "POST");
+      snackbar("Request submitted successfully", "success");
+      refresh();
+      onClose();
+    } catch {
+      snackbar("Submission failed", "error");
+    }
+  };
+
+  return (
+    <Dialog open={open} fullWidth maxWidth="xl">
+      <DialogTitle>{mode} Data Parameters</DialogTitle>
+
+      <DialogContent>
+
+        {/* FILE TYPE DROPDOWN */}
+        <Controller
+          name="fileType"
+          control={control}
+          render={({ field }) => (
+            <TextField
+              {...field}
+              select
+              label="File Type"
+              fullWidth
+              margin="normal"
+              disabled={isView}
+            >
+              {allData?.map((item) => (
+                <MenuItem key={item.fileType} value={item.fileType}>
+                  {item.fileType}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
+        />
+
+        {!isView && (
+          <Button
+            startIcon={<AddIcon />}
+            onClick={() =>
+              append({
+                columnId: null,
+                columnName: "",
+                startValue: "",
+                endValue: "",
+                toBeIncluded: true,
+                dataType: "STRING",
+                decimalCount: null
+              })
+            }
+          >
+            Add Row
+          </Button>
+        )}
+
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Column Id</TableCell>
+              <TableCell>Column Name</TableCell>
+              <TableCell>Start</TableCell>
+              <TableCell>End</TableCell>
+              <TableCell>Included</TableCell>
+              <TableCell>Data Type</TableCell>
+              <TableCell>Decimal</TableCell>
+              {!isView && <TableCell />}
+            </TableRow>
+          </TableHead>
+
+          <TableBody>
+            {fields.map((row, index) => {
+              const dataType = watch(`rows.${index}.dataType`);
+
+              return (
+                <TableRow key={row.id}>
+
+                  <TableCell>{row.columnId || "-"}</TableCell>
+
+                  <TableCell>
+                    <Controller
+                      name={`rows.${index}.columnName`}
+                      control={control}
+                      render={({ field }) =>
+                        <TextField {...field} disabled={isView} />
+                      }
+                    />
+                  </TableCell>
+
+                  <TableCell>
+                    <Controller
+                      name={`rows.${index}.startValue`}
+                      control={control}
+                      render={({ field }) =>
+                        <TextField type="number" {...field} disabled={isView} />
+                      }
+                    />
+                  </TableCell>
+
+                  <TableCell>
+                    <Controller
+                      name={`rows.${index}.endValue`}
+                      control={control}
+                      render={({ field }) =>
+                        <TextField type="number" {...field} disabled={isView} />
+                      }
+                    />
+                  </TableCell>
+
+                  <TableCell>
+                    <Controller
+                      name={`rows.${index}.toBeIncluded`}
+                      control={control}
+                      render={({ field }) => (
+                        <RadioGroup
+                          row
+                          value={field.value ? "YES" : "NO"}
+                          onChange={(e) =>
+                            field.onChange(e.target.value === "YES")
+                          }
+                        >
+                          <FormControlLabel value="YES" control={<Radio />} label="Yes" disabled={isView}/>
+                          <FormControlLabel value="NO" control={<Radio />} label="No" disabled={isView}/>
+                        </RadioGroup>
+                      )}
+                    />
+                  </TableCell>
+
+                  <TableCell>
+                    <Controller
+                      name={`rows.${index}.dataType`}
+                      control={control}
+                      render={({ field }) =>
+                        <TextField select {...field} disabled={isView}>
+                          <MenuItem value="STRING">STRING</MenuItem>
+                          <MenuItem value="AMOUNT">AMOUNT</MenuItem>
+                        </TextField>
+                      }
+                    />
+                  </TableCell>
+
+                  <TableCell>
+                    <Controller
+                      name={`rows.${index}.decimalCount`}
+                      control={control}
+                      render={({ field }) =>
+                        <TextField
+                          type="number"
+                          {...field}
+                          disabled={isView || dataType !== "AMOUNT"}
+                        />
+                      }
+                    />
+                  </TableCell>
+
+                  {!isView && (
+                    <TableCell>
+                      {!row.columnId && (
+                        <IconButton onClick={() => remove(index)}>
+                          <DeleteIcon />
+                        </IconButton>
+                      )}
+                    </TableCell>
+                  )}
+
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+
+      </DialogContent>
+
+      {!isView && (
+        <DialogActions>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onSubmit} variant="contained">
+            Submit
+          </Button>
+        </DialogActions>
+      )}
+    </Dialog>
+  );
+}
