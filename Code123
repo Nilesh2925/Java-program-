@@ -40,4 +40,36 @@ if (!form.USERID) {
 
 
 
+const handleUserIdChange = (value) => {
 
+  // allow typing letters and numbers
+  if (!/^[a-zA-Z0-9]*$/.test(value)) {
+    snackbar("Only letters and digits are allowed", "error");
+    return;
+  }
+
+  // max length = vtcs + 7 digits
+  if (value.length > 11) return;
+
+  setForm((p) => ({
+    ...p,
+    USERID: value,
+  }));
+
+  if (value && !USERID_REGEX.test(value)) {
+    setFieldError(
+      "USERID",
+      "Allowed formats: 1234567, v1234567, tcs1234567, vtcs1234567"
+    );
+  } else {
+    clearFieldError("USERID");
+  }
+};
+
+
+if (!form.USERID) {
+  e.USERID = "User ID is required";
+} else if (!USERID_REGEX.test(form.USERID)) {
+  e.USERID =
+    "Allowed formats: 1234567, v1234567, tcs1234567, vtcs1234567";
+}
