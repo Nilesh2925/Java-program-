@@ -72,4 +72,31 @@ if (!form.USERID) {
 } else if (!USERID_REGEX.test(form.USERID)) {
   e.USERID =
     "Allowed formats: 1234567, v1234567, tcs1234567, vtcs1234567";
-}
+const handleUserIdChange = (value) => {
+
+  const typingRegex = /^(?:\d{0,7}|v\d{0,7}|tcs\d{0,7}|vtcs\d{0,7}|v|t|tc|tcs|vt|vtc|vtcs)$/i;
+
+  if (!typingRegex.test(value)) {
+    snackbar(
+      "User ID must start with digits, v, tcs, or vtcs only",
+      "error"
+    );
+    return;
+  }
+
+  if (value.length > 11) return;
+
+  setForm((p) => ({
+    ...p,
+    USERID: value,
+  }));
+
+  if (value && !USERID_REGEX.test(value)) {
+    setFieldError(
+      "USERID",
+      "Allowed formats: 1234567, v1234567, tcs1234567, vtcs1234567"
+    );
+  } else {
+    clearFieldError("USERID");
+  }
+};
