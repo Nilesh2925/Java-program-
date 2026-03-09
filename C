@@ -1,717 +1,715 @@
-import { useEffect, useState } from "react";
-import {
-  Box, Table, TableHead, TableRow,
-  TableCell, TableBody, IconButton, Button
-} from "@mui/material";
+import React, { useEffect, useState, useCallback } from "react";
+import { Box, Fab } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import EditIcon from "@mui/icons-material/Edit";
-import { useApi } from "hooks/useApi";
-import { useCustomSnackbar } from "hooks/useCustomSnackbar";
-import DataParametersDialog from "./DataParametersDialog";
+import useApi from "../../../hooks/useApi";
+import useCustomSnackbar from "../../../utils/useCustomSnackbar";
+import UsersTable from "../components/UsersTable";
+import UserDialog from "../components/UserDialog";
+import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
 
-export default function ManageDataTab() {
-
-  const { callApi } = useApi();
+export default function UserManagement() {
+  const { callApi, loading } = useApi();
   const snackbar = useCustomSnackbar();
-
   const [rows, setRows] = useState([]);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [mode, setMode] = useState("CREATE");
-  const [selectedData, setSelectedData] = useState(null);
+  const [roles, setRoles] = useState([]);
 
-  const normalizeRows = (rows) =>
-    rows.map((r) => ({
-      ...r,
-      toBeIncluded:
-        r.toBeIncluded === true ||
-        r.toBeIncluded === "true" ||
-        r.toBeIncluded === "YES",
-      dataType: r.dataType?.toUpperCase()
-    }));
-
-  const fetchData = async () => {
-    try {
-      const res = await callApi(
-        "api/common-master/data-parameters",
-        {},
-        "GET"
-      );
-
-      const data = res?.data || {};
-
-      const formatted = Object.keys(data).map((key) => ({
-        fileType: key,
-        rows: normalizeRows(data[key])
-      }));
-
-      setRows(formatted);
-
-    } catch {
-      snackbar("Failed to load data", "error");
-    }
+  const emptyForm = {
+    id: null,
+    USERID: "",
+    FIRST_NAME: "",
+    MIDDLE_NAME: "",
+    LAST_NAME: "",
+    EMAIL: "@sbi.co.in",
+    PHONE_NUMBER: "",
+    ROLE_NAME: "",
+    ROLE_ID: "",
+    ACCOUNT_STATUS: "",
   };
 
-  useEffect(() => {
-    fetchData();
+  const [form, setForm] = useState(emptyForm);
+  const [initialState, setInitialState] = useState({});
+  const [openEdit, setOpenEdit] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+
+  const normalizeUsers = useCallback((users = []) => {
+    return users.map((u, idx) => ({
+      id: u.USERID || String(idx + 1),
+      USERID: u.USERID,
+      FIRST_NAME: u.FIRST_NAME,
+      MIDDLE_NAME: u.MIDDLE_NAME,
+      LAST_NAME: u.LAST_NAME,
+      EMAIL: u.EMAIL,
+      PHONE_NUMBER: u.PHONE_NUMBER,
+      ROLE_NAME: u.ROLE_NAME,
+      ROLE_ID: u.ROLE_ID,
+      ACCOUNT_STATUS: u.ACCOUNT_STATUS,
+      __name: `${u.FIRST_NAME || ""} ${u.MIDDLE_NAME || ""} ${
+        u.LAST_NAME || ""
+      }`.trim(),
+    }));
   }, []);
 
+  const fetchUsers = useCallback(async () => {
+    try {
+      const data = await callApi("/UM/user/user-details", null, "GET");
+      setRows(normalizeUsers(data?.result?.users || []));
+    } catch {
+      setRows([]);
+      snackbar("Failed to load users", "error");
+    }
+  }, [callApi, normalizeUsers, snackbar]);
+
+  const fetchRoles = useCallback(async () => {
+    try {
+      const data = await callApi(
+        "/UM/role/get-roles",
+        { permissions: false },
+        "GET"
+      );
+      setRoles(
+        (data?.result?.roles || []).map((r) => ({
+          id: r.roleId,
+          name: r.roleName,
+        }))
+      );
+    } catch {
+      snackbar("Failed to load roles", "error");
+    }
+  }, [callApi, snackbar]);
+
+  useEffect(() => {
+    fetchUsers();
+    fetchRoles();
+  }, [fetchUsers, fetchRoles]);
+
+  const handleDelete = useCallback(async () => {
+    const payload = {
+      targetUserId: deleteTarget.USERID,
+      requestType: "DELETE",
+      requestPayload: JSON.stringify({
+        userId: deleteTarget.USERID,
+        firstName: deleteTarget.FIRST_NAME,
+        middleName: deleteTarget.MIDDLE_NAME,
+        lastName: deleteTarget.LAST_NAME,
+        email: deleteTarget.EMAIL,
+        phoneNumber: deleteTarget.PHONE_NUMBER,
+        roleId: deleteTarget.ROLE_ID,
+        roleName: deleteTarget.ROLE_NAME,
+        accountStatus: deleteTarget.ACCOUNT_STATUS || "ACTIVE",
+      }),
+    };
+    try {
+      const response = await callApi(
+        "/UM/user/create-request",
+        payload,
+        "POST"
+      );
+      if (response) {
+        fetchUsers();
+        fetchRoles();
+        setDeleteTarget(null);
+      }
+      snackbar("User delete request submitted successfully", "success");
+    } catch (error) {
+      snackbar(
+        error?.message ||
+          "Something went wrong while deleting user, Kindly try again",
+        "error"
+      );
+    }
+  }, [callApi, deleteTarget, fetchRoles, fetchUsers, snackbar]);
+
   return (
-    <Box mt={2}>
-
-      <Box display="flex" justifyContent="flex-end" mb={2}>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => {
-            setMode("CREATE");
-            setSelectedData(null);
-            setDialogOpen(true);
-          }}
-        >
-          Create
-        </Button>
-      </Box>
-
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>File Type</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.fileType}>
-              <TableCell>{row.fileType}</TableCell>
-              <TableCell align="right">
-                <IconButton
-                  onClick={() => {
-                    setMode("VIEW");
-                    setSelectedData(row);
-                    setDialogOpen(true);
-                  }}
-                >
-                  <VisibilityIcon />
-                </IconButton>
-
-                <IconButton
-                  onClick={() => {
-                    setMode("EDIT");
-                    setSelectedData(row);
-                    setDialogOpen(true);
-                  }}
-                >
-                  <EditIcon />
-                </IconButton>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-
-      <DataParametersDialog
-        open={dialogOpen}
-        mode={mode}
-        data={selectedData}
-        refresh={fetchData}
-        onClose={() => setDialogOpen(false)}
+    <Box>
+      <UsersTable
+        rows={rows}
+        roles={roles}
+        loading={loading}
+        onEditRow={(row) => {
+          setForm(row);
+          setInitialState(row);
+          setOpenEdit(true);
+        }}
+        onDeleteRow={(row) => setDeleteTarget(row)}
       />
+
+      <UserDialog
+        open={openEdit}
+        roles={roles}
+        form={form}
+        setForm={setForm}
+        initialState={initialState}
+        onClose={() => setOpenEdit(false)}
+      />
+
+      <DeleteConfirmDialog
+        open={!!deleteTarget}
+        name={deleteTarget?.__name}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => handleDelete()}
+      />
+
+      <Fab
+        color="primary"
+        variant="extended"
+        onClick={() => {
+          setForm(emptyForm);
+          setInitialState({});
+          setOpenEdit(true);
+        }}
+        sx={{
+          position: "fixed",
+          bottom: 15,
+          right: 30,
+          borderRadius: 1,
+        }}
+      >
+        <AddIcon sx={{ mr: 1 }} />
+        Create
+      </Fab>
     </Box>
   );
 }
 
 
 
+/// user dialog 
 
-
-
-
-
-// dialogue 
-
-
-
-
-
-
-
-
+import React, { useEffect, useState } from "react";
 import {
-  Dialog, DialogTitle, DialogContent,
-  DialogActions, Button, TextField,
-  MenuItem, Table, TableHead,
-  TableRow, TableCell, TableBody,
-  RadioGroup, FormControlLabel,
-  Radio, IconButton
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  FormControl,
+  Grid,
+  InputAdornment,
+  InputLabel,
+  MenuItem,
+  Select,
+  Stack,
+  TextField,
+  Typography,
 } from "@mui/material";
-import AddIcon from "@mui/icons-material/Add";
-import DeleteIcon from "@mui/icons-material/Delete";
-import { useForm, useFieldArray, Controller } from "react-hook-form";
-import { yupResolver } from "@hookform/resolvers/yup";
-import { formSchema, validateOverlap } from "./validation";
-import { useApi } from "hooks/useApi";
-import { useCustomSnackbar } from "hooks/useCustomSnackbar";
+import PersonIcon from "@mui/icons-material/Person";
+import VerifiedUserIcon from "@mui/icons-material/VerifiedUser";
+import GppBadIcon from "@mui/icons-material/GppBad";
+import LockOutlineIcon from "@mui/icons-material/LockOutline";
+import useApi from "../../../hooks/useApi";
+import useCustomSnackbar from "../../../utils/useCustomSnackbar";
+import _ from "lodash";
 
-export default function DataParametersDialog({
+/* ================= CONSTANTS ================= */
+
+//const USERID_REGEX = /^(?:\d{7}|v\d{7}|tcs\d{7}|tcsv\d{7})$/i;
+// const NAME_REGEX = /^[a-zA-Z\s.]*$/;
+const NAME_REGEX = /^(?!.* {2})[a-zA-Z\s.]*$/;
+const DIGITS_REGEX = /^[0-9]*$/;
+const EMAIL_DOMAIN = "@sbi.co.in";
+const EMAIL_PREFIX_REGEX = /^[a-zA-Z0-9._]+$/;
+const USERID_REGEX = /^[0-9]*$/;
+const EMAIL_PREFIX_MAX = 50;
+
+// Restricted role
+const FORBIDDEN_ROLE_ID = 11; // f1bog
+
+const STATUS_OPTIONS = [
+  {
+    value: "ACTIVE",
+    label: "Active",
+    icon: <VerifiedUserIcon color="success" />,
+  },
+  {
+    value: "INACTIVE",
+    label: "Inactive",
+    icon: <GppBadIcon color="warning" />,
+  },
+  {
+    value: "LOCKED",
+    label: "Locked",
+    icon: <LockOutlineIcon color="error" />,
+  },
+];
+
+/* ================= COMPONENT ================= */
+
+export default function UserDialog({
   open,
-  mode,
-  data,
   onClose,
-  refresh
+  roles,
+  form,
+  setForm,
+  initialState,
 }) {
-
-  const isView = mode === "VIEW";
-  const isEdit = mode === "EDIT";
-
   const { callApi } = useApi();
   const snackbar = useCustomSnackbar();
+  const [errors, setErrors] = useState({});
+  const isEdit = Boolean(form.id);
 
-  const {
-    control,
-    handleSubmit,
-    watch
-  } = useForm({
-    resolver: yupResolver(formSchema),
-    defaultValues: {
-      fileType: data?.fileType || "",
-      rows: data?.rows || []
+  useEffect(() => {
+    setErrors({});
+  }, [open]);
+
+  /* ---------- ROLE STATE ---------- */
+  const isOriginalF1BOG = initialState?.ROLE_ID === FORBIDDEN_ROLE_ID;
+  const isDowngradingF1BOG =
+    isOriginalF1BOG && form.ROLE_ID !== FORBIDDEN_ROLE_ID;
+
+  /* ================= ERROR HELPERS ================= */
+
+  const setFieldError = (name, msg) =>
+    setErrors((p) => ({ ...p, [name]: msg }));
+
+  const clearFieldError = (name) => setErrors((p) => ({ ...p, [name]: "" }));
+
+  /* ================= USER ID ================= */
+
+  const handleUserIdChange = (value) => {
+    if (!USERID_REGEX.test(value)) {
+      snackbar("Only digits are allowed", "error");
+      return;
     }
-  });
 
-  const { fields, append, remove } = useFieldArray({
-    control,
-    name: "rows"
-  });
+    if (value && value.length < 7) {
+      setFieldError("USERID", "User ID must be exactly 7 digits");
+    } else {
+      clearFieldError("USERID");
+    }
+    if (value.length <= 7) {
+      setForm((p) => ({
+        ...p,
+        USERID: value,
+      }));
+    }
+  };
 
-  const onSubmit = async (formData) => {
+  const fetchUserOnBlur = async () => {
+    try {
+      const res = await callApi(
+        "/UM/user/validate/userid",
+        { userId: form.USERID },
+        "GET"
+      );
+      console.log("response", res.result);
+      const isExists = res?.result?.exists || false;
+      console.log(isExists);
 
-    const overlapError = validateOverlap(formData.rows);
-    if (overlapError) {
-      snackbar(overlapError, "error");
+      if (!isExists) return;
+      snackbar("User already exists, Kindly change user ID.", "warning");
+      setFieldError("USERID", "User already exists");
+    } catch {
+      snackbar("User lookup failed", "error");
+    }
+  };
+
+  /* ================= NAME ================= */
+
+  const handleNameChange = (name, value, mandatory) => {
+    if (value === "") {
+      setForm((p) => ({ ...p, [name]: "" }));
+      clearFieldError(name);
+      return;
+    }
+    if (value && !/[A-Za-z]/.test(value[0])) {
+      snackbar("Should not start with special character", "error");
+      return;
+    }
+
+    if (!NAME_REGEX.test(value)) {
+      snackbar(
+        "only letters, spaces(single spaces only between words) and dot are allowed",
+        "error"
+      );
+      return;
+    }
+
+    if (!value && mandatory) {
+      setFieldError(name, "This field is required");
+    } else if (value && value.length < 3 && mandatory) {
+      setFieldError(name, "Minimum 3 characters required");
+    } else if (value && value.length < 1 && !mandatory) {
+      setFieldError(name, "Minimum 3 characters required");
+    } else if (value.length > 30) {
+      setFieldError(name, "Maximum 30 characters allowed");
+    } else {
+      clearFieldError(name);
+    }
+
+    setForm((p) => ({ ...p, [name]: value }));
+  };
+
+  /* ================= EMAIL ================= */
+
+  const handleEmailChange = (value) => {
+    if (value.includes("@")) return;
+    if (value.length > EMAIL_PREFIX_MAX) return;
+
+    if (value && !EMAIL_PREFIX_REGEX.test(value)) {
+      snackbar(
+        "Only letters, numbers, dot (.) and underscore (_) allowed",
+        "error"
+      );
+      return;
+    }
+
+    if (value.length < 3) {
+      setFieldError("EMAIL", "Minimum 3 characters required before @");
+    } else {
+      clearFieldError("EMAIL");
+    }
+
+    setForm((p) => ({ ...p, EMAIL: value }));
+  };
+
+  /* ================= MOBILE ================= */
+
+  // const isAllZeros = (str) => {
+  //   return /^0+$/.test(str);
+  // };
+
+  const handleMobileChange = (value = "") => {
+    if (value && !/^[1-9]$/.test(value[0])) {
+      snackbar(
+        "Mobile Number should start only with greater than zero",
+        "error"
+      );
+      return;
+    }
+    if (!DIGITS_REGEX.test(value)) {
+      snackbar("Only digits are allowed", "error");
+      return;
+    }
+
+    if (value && value.length !== 10) {
+      setFieldError("PHONE_NUMBER", "Mobile Number must be exactly 10 digits");
+    } else {
+      clearFieldError("PHONE_NUMBER");
+    }
+
+    if (value.length <= 10) {
+      setForm((p) => ({
+        ...p,
+        PHONE_NUMBER: value,
+      }));
+    }
+  };
+
+  /* ================= FINAL VALIDATION ================= */
+
+  const validateFinal = () => {
+    const e = {};
+
+    if (!USERID_REGEX.test(form.USERID)) e.USERID = "Valid User ID required";
+    if (!form.USERID) e.USERID = "User ID is required";
+    if (form.USERID && form.USERID.length !== 7) {
+      e.USERID = "User ID must be exactly 7 digits";
+      //snackbar("User ID must be exactly 7 digits","error");
+    }
+
+    if (!form.FIRST_NAME || form.FIRST_NAME.trim().length < 3)
+      e.FIRST_NAME = "First Name must be at least 3 characters";
+
+    const email = form.EMAIL.replace(EMAIL_DOMAIN, "") || "";
+
+    if (!email) e.EMAIL = "Email is required";
+    else if (email.length < 3) e.EMAIL = "Email must be at least 3 characters";
+    else if (!EMAIL_PREFIX_REGEX.test(email))
+      e.EMAIL = "Only letters, numbers, dot (.) and underscore (_) allowed";
+
+    if (form.PHONE_NUMBER && form.PHONE_NUMBER.length !== 10)
+      e.PHONE_NUMBER = "Mobile Number must be exactly 10 digits";
+
+    if (!form.ROLE_ID) e.ROLE_ID = "Role is required";
+    if (isEdit && !form.ACCOUNT_STATUS) e.ACCOUNT_STATUS = "Status is required";
+
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  /* ================= SAVE ================= */
+
+  const onSave = async () => {
+    if (!validateFinal()) {
+      snackbar("Please enter required fields", "error");
+      return;
+    }
+
+    if (_.isEqual(form, initialState)) {
+      snackbar("No Changes detected, Kindly modify before saving", "warning");
+      return;
+    }
+
+    const wasF1BOG = initialState?.ROLE_ID === FORBIDDEN_ROLE_ID;
+    const isF1BOGNow = form?.ROLE_ID === FORBIDDEN_ROLE_ID;
+
+    if (!wasF1BOG && isF1BOGNow) {
+      snackbar(
+        "Assignment of role 'f1bog' is restricted and not allowed",
+        "error"
+      );
       return;
     }
 
     const payload = {
-      requestType: "MAIN_DATA_PARAMETERS",
-      changeType: isEdit ? "UPDATE" : "ADD",
-      payload: formData
-    };
-
-    await callApi("api/common-request", payload, "POST");
-
-    snackbar("Request submitted", "success");
-    refresh();
-    onClose();
-  };
-
-  return (
-    <Dialog open={open} fullWidth maxWidth="xl">
-      <DialogTitle>{mode} Data Parameters</DialogTitle>
-
-      <DialogContent>
-
-        <Controller
-          name="fileType"
-          control={control}
-          render={({ field }) => (
-            <TextField
-              {...field}
-              label="File Type"
-              fullWidth
-              margin="normal"
-              disabled={isEdit || isView}
-            />
-          )}
-        />
-
-        {!isView && (
-          <Button
-            startIcon={<AddIcon />}
-            onClick={() =>
-              append({
-                columnId: null,
-                columnName: "",
-                startValue: "",
-                endValue: "",
-                toBeIncluded: true,
-                dataType: "STRING",
-                decimalCount: null
-              })
-            }
-          >
-            Add Row
-          </Button>
-        )}
-
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Column Id</TableCell>
-              <TableCell>Column Name</TableCell>
-              <TableCell>Start</TableCell>
-              <TableCell>End</TableCell>
-              <TableCell>Included</TableCell>
-              <TableCell>Data Type</TableCell>
-              <TableCell>Decimal</TableCell>
-              {!isView && <TableCell />}
-            </TableRow>
-          </TableHead>
-
-          <TableBody>
-            {fields.map((row, index) => {
-              const dataType = watch(`rows.${index}.dataType`);
-
-              return (
-                <TableRow key={row.id}>
-                  <TableCell>{row.columnId || "-"}</TableCell>
-
-                  <TableCell>
-                    <Controller
-                      name={`rows.${index}.columnName`}
-                      control={control}
-                      render={({ field }) =>
-                        <TextField {...field} disabled={isView} />
-                      }
-                    />
-                  </TableCell>
-
-                  <TableCell>
-                    <Controller
-                      name={`rows.${index}.startValue`}
-                      control={control}
-                      render={({ field }) =>
-                        <TextField type="number" {...field} disabled={isView} />
-                      }
-                    />
-                  </TableCell>
-
-                  <TableCell>
-                    <Controller
-                      name={`rows.${index}.endValue`}
-                      control={control}
-                      render={({ field }) =>
-                        <TextField type="number" {...field} disabled={isView} />
-                      }
-                    />
-                  </TableCell>
-
-                  <TableCell>
-                    <Controller
-                      name={`rows.${index}.toBeIncluded`}
-                      control={control}
-                      render={({ field }) => (
-                        <RadioGroup
-                          row
-                          value={field.value ? "YES" : "NO"}
-                          onChange={(e) =>
-                            field.onChange(e.target.value === "YES")
-                          }
-                        >
-                          <FormControlLabel value="YES" control={<Radio />} label="Yes" disabled={isView}/>
-                          <FormControlLabel value="NO" control={<Radio />} label="No" disabled={isView}/>
-                        </RadioGroup>
-                      )}
-                    />
-                  </TableCell>
-
-                  <TableCell>
-                    <Controller
-                      name={`rows.${index}.dataType`}
-                      control={control}
-                      render={({ field }) =>
-                        <TextField select {...field} disabled={isView}>
-                          <MenuItem value="STRING">STRING</MenuItem>
-                          <MenuItem value="AMOUNT">AMOUNT</MenuItem>
-                        </TextField>
-                      }
-                    />
-                  </TableCell>
-
-                  <TableCell>
-                    <Controller
-                      name={`rows.${index}.decimalCount`}
-                      control={control}
-                      render={({ field }) =>
-                        <TextField
-                          type="number"
-                          {...field}
-                          disabled={isView || dataType !== "AMOUNT"}
-                        />
-                      }
-                    />
-                  </TableCell>
-
-                  {!isView && (
-                    <TableCell>
-                      {!row.columnId && (
-                        <IconButton onClick={() => remove(index)}>
-                          <DeleteIcon />
-                        </IconButton>
-                      )}
-                    </TableCell>
-                  )}
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-
-      </DialogContent>
-
-      {!isView && (
-        <DialogActions>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSubmit(onSubmit)} variant="contained">
-            Submit
-          </Button>
-        </DialogActions>
-      )}
-    </Dialog>
-  );
-}
-
-
-
-
-
-////
-
-import * as yup from "yup";
-
-export const formSchema = yup.object().shape({
-  fileType: yup.string().required("FileType required"),
-  rows: yup.array().of(
-    yup.object().shape({
-      columnName: yup.string().required("Column Name required"),
-      startValue: yup
-        .number()
-        .required()
-        .typeError("Required"),
-      endValue: yup
-        .number()
-        .required()
-        .moreThan(yup.ref("startValue"), "End must be greater"),
-      toBeIncluded: yup.boolean().required(),
-      dataType: yup.string().required(),
-      decimalCount: yup.number().when("dataType", {
-        is: "AMOUNT",
-        then: (schema) => schema.required().min(0).max(6),
-        otherwise: (schema) => schema.nullable()
-      })
-    })
-  )
-});
-
-export const validateOverlap = (rows) => {
-  const sorted = [...rows].sort((a, b) => a.startValue - b.startValue);
-  for (let i = 0; i < sorted.length - 1; i++) {
-    if (sorted[i].endValue >= sorted[i + 1].startValue) {
-      return "Overlapping ranges not allowed";
-    }
-  }
-  return null;
-};
-
-
-
-
-
-
-updated dialog 
-
-import {
-  Dialog, DialogTitle, DialogContent,
-  DialogActions, Button, TextField,
-  MenuItem, Table, TableHead,
-  TableRow, TableCell, TableBody,
-  RadioGroup, FormControlLabel,
-  Radio, IconButton
-} from "@mui/material";
-import AddIcon from "@mui/icons-material/Add";
-import DeleteIcon from "@mui/icons-material/Delete";
-import { useForm, useFieldArray, Controller } from "react-hook-form";
-import { useApi } from "hooks/useApi";
-import { useCustomSnackbar } from "hooks/useCustomSnackbar";
-
-export default function DataParametersDialog({
-  open,
-  mode,
-  data,
-  onClose,
-  refresh
-}) {
-
-  const isView = mode === "VIEW";
-  const isEdit = mode === "EDIT";
-
-  const { callApi } = useApi();
-  const snackbar = useCustomSnackbar();
-
-  const {
-    control,
-    handleSubmit,
-    watch,
-    getValues
-  } = useForm({
-    defaultValues: {
-      fileType: data?.fileType || "",
-      rows: data?.rows || []
-    }
-  });
-
-  const { fields, append, remove } = useFieldArray({
-    control,
-    name: "rows"
-  });
-
-  /* ---------------- VALIDATION ---------------- */
-
-  const validateForm = (formData) => {
-
-    if (!formData.fileType) {
-      snackbar("File Type is required", "error");
-      return false;
-    }
-
-    if (!formData.rows || formData.rows.length === 0) {
-      snackbar("At least one row is required", "error");
-      return false;
-    }
-
-    for (let i = 0; i < formData.rows.length; i++) {
-
-      const row = formData.rows[i];
-
-      if (!row.columnName) {
-        snackbar(`Column Name required in row ${i + 1}`, "error");
-        return false;
-      }
-
-      if (row.startValue === "" || row.startValue == null) {
-        snackbar(`Start Value required in row ${i + 1}`, "error");
-        return false;
-      }
-
-      if (row.endValue === "" || row.endValue == null) {
-        snackbar(`End Value required in row ${i + 1}`, "error");
-        return false;
-      }
-
-      if (Number(row.startValue) >= Number(row.endValue)) {
-        snackbar(`End Value must be greater than Start Value (Row ${i + 1})`, "error");
-        return false;
-      }
-
-      if (row.dataType === "AMOUNT" &&
-          (row.decimalCount === null || row.decimalCount === "")) {
-        snackbar(`Decimal Count required for AMOUNT (Row ${i + 1})`, "error");
-        return false;
-      }
-    }
-
-    // Overlap Validation
-    const sorted = [...formData.rows].sort(
-      (a, b) => a.startValue - b.startValue
-    );
-
-    for (let i = 0; i < sorted.length - 1; i++) {
-      if (Number(sorted[i].endValue) >= Number(sorted[i + 1].startValue)) {
-        snackbar("Overlapping ranges are not allowed", "error");
-        return false;
-      }
-    }
-
-    return true;
-  };
-
-  /* ---------------- SUBMIT ---------------- */
-
-  const onSubmit = async () => {
-
-    const formData = getValues();
-
-    if (!validateForm(formData)) return;
-
-    const payload = {
-      requestType: "MAIN_DATA_PARAMETERS",
-      changeType: isEdit ? "UPDATE" : "ADD",
-      payload: formData
+      targetUserId: form.USERID,
+      requestType: isEdit ? "MODIFY" : "CREATE",
+      requestPayload: JSON.stringify({
+        userId: form.USERID,
+        firstName: form.FIRST_NAME,
+        middleName: form.MIDDLE_NAME,
+        lastName: form.LAST_NAME,
+        email: isEdit ? form.EMAIL : form.EMAIL + EMAIL_DOMAIN,
+        phoneNumber: form.PHONE_NUMBER,
+        roleId: form.ROLE_ID,
+        roleName: form.ROLE_NAME,
+        accountStatus: form.ACCOUNT_STATUS || "ACTIVE",
+      }),
     };
 
     try {
-      await callApi("api/common-request", payload, "POST");
-      snackbar("Request submitted successfully", "success");
-      refresh();
+      const response = await callApi(
+        "/UM/user/create-request",
+        payload,
+        "POST"
+      );
+      snackbar(
+        isEdit
+          ? "User update request submitted successfully with request id " +
+              response?.result?.userRequest?.requestId
+          : "User creation request submitted successfully with request id " +
+              response?.result?.userRequest?.requestId,
+        "success"
+      );
       onClose();
-    } catch {
-      snackbar("Submission failed", "error");
+    } catch (error) {
+      console.error(error);
+      snackbar(
+        error?.message || "Something went wrong, Kindly try again",
+        "error"
+      );
     }
   };
 
+  /* ================= RENDER ================= */
+
   return (
-    <Dialog open={open} fullWidth maxWidth="xl">
-      <DialogTitle>{mode} Data Parameters</DialogTitle>
+    <Dialog open={open} fullWidth maxWidth="md">
+      <DialogTitle>{isEdit ? "Edit User" : "Create User"}</DialogTitle>
 
       <DialogContent>
+        <Stack spacing={2} mt={1}>
+          {/* Row 1 */}
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 8 }}>
+              <TextField
+                label="User ID *"
+                placeholder="eg: 1234567"
+                value={form.USERID}
+                onChange={(e) => handleUserIdChange(e.target.value)}
+                onBlur={fetchUserOnBlur}
+                disabled={isEdit}
+                error={!!errors.USERID}
+                helperText={errors.USERID || "Allowed 7 numeric digits only"}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PersonIcon />
+                    </InputAdornment>
+                  ),
+                }}
+                fullWidth
+                inputProps={{ maxLength: 11 }}
+              />
+            </Grid>
+            {/* spacer to keep nice balance on first row */}
+            <Grid item xs={12} md={4} />
+          </Grid>
 
-        <Controller
-          name="fileType"
-          control={control}
-          render={({ field }) => (
-            <TextField
-              {...field}
-              label="File Type"
-              fullWidth
-              margin="normal"
-              disabled={isEdit || isView}
-            />
-          )}
-        />
+          <Divider />
 
-        {!isView && (
-          <Button
-            startIcon={<AddIcon />}
-            onClick={() =>
-              append({
-                columnId: null,
-                columnName: "",
-                startValue: "",
-                endValue: "",
-                toBeIncluded: true,
-                dataType: "STRING",
-                decimalCount: null
-              })
-            }
-          >
-            Add Row
-          </Button>
-        )}
+          {/* Row 2 */}
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 4 }}>
+              <TextField
+                label="First Name *"
+                value={form.FIRST_NAME ?? ""}
+                error={!!errors.FIRST_NAME}
+                helperText={
+                  errors.FIRST_NAME ||
+                  "Allowed 3-30 characters (letters,spaces, .)"
+                }
+                onChange={(e) =>
+                  handleNameChange("FIRST_NAME", e.target.value, true)
+                }
+                fullWidth
+                slotProps={{ htmlInput: { maxLength: 30 } }}
+              />
+            </Grid>
 
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Column Id</TableCell>
-              <TableCell>Column Name</TableCell>
-              <TableCell>Start</TableCell>
-              <TableCell>End</TableCell>
-              <TableCell>Included</TableCell>
-              <TableCell>Data Type</TableCell>
-              <TableCell>Decimal</TableCell>
-              {!isView && <TableCell />}
-            </TableRow>
-          </TableHead>
+            <Grid size={{ xs: 4 }}>
+              <TextField
+                label="Middle Name"
+                value={form.MIDDLE_NAME ?? ""}
+                error={!!errors.MIDDLE_NAME}
+                helperText={
+                  errors.MIDDLE_NAME ||
+                  "Allowed 1-30 characters (letters,spaces, .)"
+                }
+                onChange={(e) =>
+                  handleNameChange("MIDDLE_NAME", e.target.value, false)
+                }
+                fullWidth
+                slotProps={{ htmlInput: { maxLength: 30 } }}
+              />
+            </Grid>
 
-          <TableBody>
-            {fields.map((row, index) => {
-              const dataType = watch(`rows.${index}.dataType`);
+            <Grid size={{ xs: 4 }}>
+              <TextField
+                label="Last Name"
+                value={form.LAST_NAME ?? ""}
+                error={!!errors.LAST_NAME}
+                helperText={
+                  errors.LAST_NAME ||
+                  "Allowed 1-30 characters (letters,spaces, .)"
+                }
+                onChange={(e) =>
+                  handleNameChange("LAST_NAME", e.target.value, false)
+                }
+                fullWidth
+                slotProps={{ htmlInput: { maxLength: 30 } }}
+              />
+            </Grid>
+          </Grid>
 
-              return (
-                <TableRow key={row.id}>
-                  <TableCell>{row.columnId || "-"}</TableCell>
+          {/* Row 3 */}
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 6 }}>
+              <TextField
+                label="Email *"
+                value={form.EMAIL.replace(EMAIL_DOMAIN, "")}
+                error={!!errors.EMAIL}
+                helperText={
+                  errors.EMAIL ||
+                  "Allowed 3-40 characters(. and _) and domain will be auto set"
+                }
+                onChange={(e) => handleEmailChange(e.target.value)}
+                fullWidth
+                slotProps={{ htmlInput: { maxLength: 50 } }}
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <Typography
+                        variant="body1"
+                        sx={{
+                          color: "text.disabled",
+                          cursor: "default",
+                          userSelect: "none",
+                        }}
+                      >
+                        {EMAIL_DOMAIN}
+                      </Typography>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Grid>
 
-                  <TableCell>
-                    <Controller
-                      name={`rows.${index}.columnName`}
-                      control={control}
-                      render={({ field }) =>
-                        <TextField {...field} disabled={isView} />
-                      }
-                    />
-                  </TableCell>
+            <Grid size={{ xs: 6 }}>
+              <TextField
+                label="Mobile Number"
+                value={form.PHONE_NUMBER ?? ""}
+                error={!!errors.PHONE_NUMBER}
+                helperText={
+                  errors.PHONE_NUMBER || "Allowed 10 numeric digits only"
+                }
+                onChange={(e) => handleMobileChange(e.target.value)}
+                inputProps={{ maxLength: 10 }}
+                fullWidth
+              />
+            </Grid>
+          </Grid>
 
-                  <TableCell>
-                    <Controller
-                      name={`rows.${index}.startValue`}
-                      control={control}
-                      render={({ field }) =>
-                        <TextField type="number" {...field} disabled={isView} />
-                      }
-                    />
-                  </TableCell>
+          {/* Row 4 */}
+          {/* Row 4 */}
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 6 }}>
+              <FormControl fullWidth error={!!errors.ROLE_ID}>
+                <InputLabel>Role *</InputLabel>
+                <Select
+                  label="Role *"
+                  value={form.ROLE_ID || ""}
+                  onChange={(e) => {
+                    const r = roles.find((x) => x.id === e.target.value);
+                    setForm({ ...form, ROLE_ID: r.id, ROLE_NAME: r.name });
+                    clearFieldError("ROLE_ID");
+                  }}
+                >
+                  {roles.map((r) => (
+                    <MenuItem
+                      key={r.id}
+                      value={r.id}
+                      disabled={r.id === FORBIDDEN_ROLE_ID}
+                    >
+                      {r.name}
+                    </MenuItem>
+                  ))}
+                </Select>
 
-                  <TableCell>
-                    <Controller
-                      name={`rows.${index}.endValue`}
-                      control={control}
-                      render={({ field }) =>
-                        <TextField type="number" {...field} disabled={isView} />
-                      }
-                    />
-                  </TableCell>
+                {isDowngradingF1BOG && (
+                  <Typography
+                    variant="caption"
+                    color="warning.main"
+                    sx={{ mt: 0.5 }}
+                  >
+                    ⚠️ This user currently has the <b>f1bog</b> role. Once
+                    changed, it cannot be assigned again.
+                  </Typography>
+                )}
 
-                  <TableCell>
-                    <Controller
-                      name={`rows.${index}.toBeIncluded`}
-                      control={control}
-                      render={({ field }) => (
-                        <RadioGroup
-                          row
-                          value={field.value ? "YES" : "NO"}
-                          onChange={(e) =>
-                            field.onChange(e.target.value === "YES")
-                          }
-                        >
-                          <FormControlLabel value="YES" control={<Radio />} label="Yes" disabled={isView}/>
-                          <FormControlLabel value="NO" control={<Radio />} label="No" disabled={isView}/>
-                        </RadioGroup>
-                      )}
-                    />
-                  </TableCell>
+                <Typography variant="caption" color="error">
+                  {errors.ROLE_ID}
+                </Typography>
+              </FormControl>
+            </Grid>
 
-                  <TableCell>
-                    <Controller
-                      name={`rows.${index}.dataType`}
-                      control={control}
-                      render={({ field }) =>
-                        <TextField select {...field} disabled={isView}>
-                          <MenuItem value="STRING">STRING</MenuItem>
-                          <MenuItem value="AMOUNT">AMOUNT</MenuItem>
-                        </TextField>
-                      }
-                    />
-                  </TableCell>
-
-                  <TableCell>
-                    <Controller
-                      name={`rows.${index}.decimalCount`}
-                      control={control}
-                      render={({ field }) =>
-                        <TextField
-                          type="number"
-                          {...field}
-                          disabled={isView || dataType !== "AMOUNT"}
-                        />
-                      }
-                    />
-                  </TableCell>
-
-                  {!isView && (
-                    <TableCell>
-                      {!row.columnId && (
-                        <IconButton onClick={() => remove(index)}>
-                          <DeleteIcon />
-                        </IconButton>
-                      )}
-                    </TableCell>
-                  )}
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-
+            {/* {isEdit && (
+              <Grid size={{ xs: 6 }}>
+                <FormControl fullWidth error={!!errors.ACCOUNT_STATUS}>
+                  <InputLabel>Status *</InputLabel>
+                  <Select
+                    label="Status *"
+                    value={form.ACCOUNT_STATUS || ""}
+                    onChange={(e) =>
+                      setForm({ ...form, ACCOUNT_STATUS: e.target.value })
+                    }
+                  >
+                    {STATUS_OPTIONS.map((s) => (
+                      <MenuItem key={s.value} value={s.value}>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          {s.icon}
+                          <Typography>{s.label}</Typography>
+                        </Stack>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  <Typography variant="caption" color="error">
+                    {errors.ACCOUNT_STATUS}
+                  </Typography>
+                </FormControl>
+              </Grid>
+            )} */}
+          </Grid>
+        </Stack>
       </DialogContent>
 
-      {!isView && (
-        <DialogActions>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSubmit(onSubmit)} variant="contained">
-            Submit
-          </Button>
-        </DialogActions>
-      )}
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={onSave}>
+          {isEdit ? "Save Changes" : "Create User"}
+        </Button>
+      </DialogActions>
     </Dialog>
   );
 }
