@@ -1,160 +1,43 @@
-import {
-  Box,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-  IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  Button
-} from "@mui/material";
+const USERID_REGEX = /^(?:\d{7}|v\d{7}|tcs\d{7}|tcsv\d{7})$/i;
 
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import { useEffect, useState } from "react";
 
-import useApi from "../../hooks/useApi";
-import useCustomSnackbar from "../../hooks/useCustomSnackbar";
 
-export default function DataParametersRequestTab() {
+const handleUserIdChange = (value) => {
 
-  const { callApi } = useApi();
-  const snackbar = useCustomSnackbar();
+  const allowedTyping = /^(?:\d{0,7}|v\d{0,7}|tcs\d{0,7}|tcsv\d{0,7})$/i;
 
-  const [requests, setRequests] = useState([]);
-  const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState(null);
+  if (!allowedTyping.test(value)) {
+    snackbar(
+      "User ID must be 7 digits OR v/tcs/tcsv followed by 7 digits",
+      "error"
+    );
+    return;
+  }
 
-  /* ---------------- FETCH REQUESTS ---------------- */
+  if (value && !USERID_REGEX.test(value)) {
+    setFieldError(
+      "USERID",
+      "Allowed formats: 1234567, v1234567, tcs1234567, tcsv1234567"
+    );
+  } else {
+    clearFieldError("USERID");
+  }
 
-  const fetchRequests = async () => {
-    try {
-      const res = await callApi(
-        "api/common-request?requestType=MAIN_DATA_PARAMETERS",
-        {},
-        "GET"
-      );
+  setForm((p) => ({
+    ...p,
+    USERID: value,
+  }));
+};
 
-      if (!res?.data?.success) {
-        snackbar("Failed to load requests", "error");
-        return;
-      }
 
-      setRequests(res.data.data || []);
-
-    } catch {
-      snackbar("Failed to load requests", "error");
-    }
-  };
-
-  useEffect(() => {
-    fetchRequests();
-  }, []);
-
-  return (
-    <Box mt={2}>
-
-      {/* -------- MAIN TABLE -------- */}
-
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>File Type</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-
-        <TableBody>
-          {requests.map((req) => (
-            <TableRow key={req.id}>
-              <TableCell>
-                {req.payload?.fileType}
-              </TableCell>
-
-              <TableCell align="right">
-                <IconButton
-                  onClick={() => {
-                    setSelected(req);
-                    setOpen(true);
-                  }}
-                >
-                  <VisibilityIcon />
-                </IconButton>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-
-      {/* -------- VIEW DIALOG -------- */}
-
-      <Dialog open={open} fullWidth maxWidth="lg">
-        <DialogTitle>Request Details</DialogTitle>
-
-        <DialogContent>
-
-          {selected && (
-            <Box>
-
-              {/* Request Info */}
-              <Box mb={2}>
-                <p><b>File Type:</b> {selected.payload?.fileType}</p>
-                <p><b>Creator ID:</b> {selected.creatorId}</p>
-                <p><b>Change Type:</b> {selected.changeType}</p>
-                <p><b>Request Status:</b> {selected.reqStatus}</p>
-                <p><b>Requested Date:</b> {selected.reqDate}</p>
-              </Box>
-
-              {/* Data Table */}
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Column Id</TableCell>
-                    <TableCell>Column Name</TableCell>
-                    <TableCell>Start</TableCell>
-                    <TableCell>End</TableCell>
-                    <TableCell>Included</TableCell>
-                    <TableCell>Data Type</TableCell>
-                    <TableCell>Decimal</TableCell>
-                  </TableRow>
-                </TableHead>
-
-                <TableBody>
-                  {selected.payload?.rows?.map((row, index) => (
-                    <TableRow key={index}>
-                      <TableCell>{row.columnId || "-"}</TableCell>
-                      <TableCell>{row.columnName}</TableCell>
-                      <TableCell>{row.startValue}</TableCell>
-                      <TableCell>{row.endValue}</TableCell>
-                      <TableCell>
-                        {row.toBeIncluded === true ||
-                         row.toBeIncluded === "true" ||
-                         row.toBeIncluded === "YES"
-                          ? "YES"
-                          : "NO"}
-                      </TableCell>
-                      <TableCell>{row.dataType}</TableCell>
-                      <TableCell>{row.decimalCount}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-
-            </Box>
-          )}
-
-        </DialogContent>
-
-        <Box textAlign="right" p={2}>
-          <Button onClick={() => setOpen(false)}>
-            Close
-          </Button>
-        </Box>
-
-      </Dialog>
-
-    </Box>
-  );
+if (!form.USERID) {
+  e.USERID = "User ID is required";
+} else if (!USERID_REGEX.test(form.USERID)) {
+  e.USERID =
+    "Allowed formats: 1234567, v1234567, tcs1234567, tcsv1234567";
 }
+
+
+
+
+
