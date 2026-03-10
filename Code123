@@ -1,8 +1,17 @@
-
-
 const handleUserIdChange = (value) => {
 
   const typingRegex = /^(?:\d{0,7}|v\d{0,7}|tcs\d{0,7}|vtcs\d{0,7}|v|t|tc|tcs|vt|vtc|vtcs)$/i;
+
+  const maxLengthReached =
+    form.USERID.startsWith("vtcs") && form.USERID.length === 11 ||
+    form.USERID.startsWith("tcs") && form.USERID.length === 10 ||
+    form.USERID.startsWith("v") && !form.USERID.startsWith("vtcs") && form.USERID.length === 8 ||
+    /^[0-9]{7}$/.test(form.USERID);
+
+  if (maxLengthReached && value.length > form.USERID.length) {
+    snackbar("Maximum allowed length reached", "warning");
+    return;
+  }
 
   if (!typingRegex.test(value)) {
     snackbar(
