@@ -1,15 +1,15 @@
 // USER ID REGEX (FINAL VALIDATION)
-const USERID_REGEX = /^(?:\d{7}|v\d{7}|tcs\d{7})$/i;
+const USERID_REGEX = /^(?:\d{7}|v\d{7}|tcs\d{7}|vtcs\d{7})$/i;
 
 /* ================= USER ID ================= */
 
 const handleUserIdChange = (value) => {
 
-  const typingRegex = /^(?:\d{0,7}|v\d{0,7}|tcs\d{0,7}|v|t|tc|tcs)$/i;
+  const typingRegex = /^(?:\d{0,7}|v\d{0,7}|tcs\d{0,7}|vtcs\d{0,7}|v|t|tc|tcs|vt|vtc|vtcs)$/i;
 
   if (!typingRegex.test(value)) {
     snackbar(
-      "User ID must start with digits, v, or tcs only",
+      "User ID must start with digits, v, tcs, or vtcs only",
       "error"
     );
     return;
@@ -19,7 +19,8 @@ const handleUserIdChange = (value) => {
 
   let maxLength = 7;
 
-  if (lower.startsWith("tcs")) maxLength = 10;
+  if (lower.startsWith("vtcs")) maxLength = 11;
+  else if (lower.startsWith("tcs")) maxLength = 10;
   else if (lower.startsWith("v")) maxLength = 8;
 
   if (value.length > maxLength) {
@@ -35,7 +36,7 @@ const handleUserIdChange = (value) => {
   if (value && !USERID_REGEX.test(value)) {
     setFieldError(
       "USERID",
-      "Allowed formats: 1234567, v1234567, tcs1234567"
+      "Allowed formats: 1234567, v1234567, tcs1234567, vtcs1234567"
     );
   } else {
     clearFieldError("USERID");
