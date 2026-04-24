@@ -5,3 +5,35 @@ Step 2: In the Select a report dropdown, choose the required report type.
 Step 3: In the Select report date field, choose the required date using the calendar.
 Step 4: Click on the Fetch & Download button.
 Step 5: The selected report will be generated and downloaded to your system.
+
+
+
+
+export const GUIDE_DATA = [
+  {
+    permissionId: 10,
+    module: "User Management",
+    steps: [
+      "Navigate to User Management from the main menu.",
+      "Choose one of the available options: User Requests Audit, User Requests, or Manage Users.",
+      "Click on User Requests Audit to view all user audit requests.",
+      "Click on User Requests to review pending user requests and approve or reject them.",
+      "Click on Manage Users to create and manage users in the system.",
+      "Click on any option to access the corresponding User Management feature.",
+
+      "In Manage Users, view the list of all users displayed in a table with User Name, Role, Email, and Action columns.",
+      "Use the Edit icon to modify user details.",
+      "Use the Delete icon to remove an existing user from the system.",
+      "Scroll or use pagination to navigate through the user list.",
+      "Click the + Create button to initiate creation of a new user.",
+
+      "In Create User screen, enter User ID with exactly 7 numeric digits after the prefix.",
+      "Enter First Name, Middle Name (optional), and Last Name.",
+      "Enter Email ID and Mobile Number (10 digits).",
+      "Select Role from the dropdown.",
+      "Ensure all mandatory fields are filled correctly.",
+      "Click Create User to submit the user creation request.",
+      "Click Cancel to discard the user creation process."
+    ]
+  }
+];
