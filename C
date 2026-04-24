@@ -37,3 +37,36 @@ export const GUIDE_DATA = [
     ]
   }
 ];
+
+
+
+[4/24, 12:43] Madhavi TCS: steps: [
+  "Navigate to Calendar Configuration from the main menu.",
+  "Choose one of the available options: View Calendar Details, Calendar Requests, or Calendar Management.",
+  "In View Calendar Details, search for a calendar using the search option to view complete information.",
+  "In Calendar Requests, review pending calendar creation or modification requests raised by other users and approve or reject them.",
+  "In Calendar Management, use the Manage Calendar tab to view all approved and active calendar records.",
+  "Switch to the My Requests tab to view calendar requests created by you along with their current status.",
+  "Click the Create button to initiate a new calendar configuration request.",
+  "Enter all mandatory details such as Calendar Name, Year, Start Date, End Date, and other required fields.",
+  "Configure calendar settings like working days, holidays, and other applicable options.",
+  "Verify all entered details and click Save to submit the calendar configuration request for approval.",
+  "To modify an existing calendar, click on the Edit icon in the Manage Calendar list.",
+  "Update the required fields and click Update to save the changes.",
+  "To deactivate a calendar, use the Disable or Block option. The status will change to Inactive."
+]
+[4/24, 12:45] Madhavi TCS: steps: [
+  "Navigate to Currency Management from the main menu.",
+  "Choose one of the available options: Currency Management or Currency Requests.",
+  "In Currency Management, view all available currencies along with Currency Code, Currency Name, and Currency Rate.",
+  "Use the Manage Currency tab to view all active currency records.",
+  "Switch to the My Requests tab to view currency requests created by you along with their current status.",
+  "Click the Create button to initiate a new currency creation request.",
+  "Enter all mandatory details such as Currency Code, Currency Name, and Currency Rate.",
+  "Ensure the Currency Code is in uppercase (e.g., USD, INR) and follows the required format.",
+  "Verify all entered details and click Add to submit the currency creation request.",
+  "To modify an existing currency, click on the Edit icon in the Manage Currency list.",
+  "Update the required fields such as Currency Name or Currency Rate.",
+  "Click Update to save the changes.",
+  "In Currency Requests, review pending currency requests raised by other users and approve or reject them."
+]
