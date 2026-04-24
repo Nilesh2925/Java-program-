@@ -70,3 +70,32 @@ export const GUIDE_DATA = [
   "Click Update to save the changes.",
   "In Currency Requests, review pending currency requests raised by other users and approve or reject them."
 ]
+
+
+export const GUIDE_DATA = [
+  {
+    permissionId: 11,
+    module: "Role Management",
+    steps: [
+      "Navigate to Role Management from the main menu.",
+      "Choose one of the available options: Role Management or Role Management Requests.",
+      "Click on Role Management to manage roles in the application.",
+      "Click on Role Management Requests to approve or reject role-related requests.",
+      "Click on any option to access the corresponding Role Management feature.",
+
+      "In Manage Roles, view the list of all roles displayed in a table with Role Description and Actions columns.",
+      "Use the View (eye) icon to view role details.",
+      "Use the Edit (pencil) icon to modify role details.",
+      "Scroll or use pagination to navigate through the role list.",
+      "Click the + Create Role button to initiate creation of a new role.",
+
+      "In Create New Role screen, enter Role Name.",
+      "Enter Description for the role.",
+      "Select required Role Permissions from the list.",
+      "Scroll to view and select all necessary permissions.",
+      "Ensure all mandatory fields are filled correctly.",
+      "Click Create Role to submit the role creation request.",
+      "Click Cancel to discard the role creation process."
+    ]
+  }
+];
