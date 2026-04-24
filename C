@@ -99,3 +99,34 @@ export const GUIDE_DATA = [
     ]
   }
 ];
+
+
+
+
+
+
+{
+  permissionId: 12,
+  module: "Process Status",
+  steps: [
+    "Navigate to Process Status from the main menu.",
+    "View the EOD Process Execution Monitor/Overview dashboard.",
+    "Check the EOD Process Triggered By information displayed on the screen.",
+    "Verify the Current ETL Date (System Generated) shown on the top right.",
+
+    "Select or enter the ETL Date using the date picker to view process status for a specific date.",
+    "Click on the calendar icon to choose a valid ETL date.",
+
+    "View the list of processes displayed in the table.",
+    "Check Process Name to identify each ETL process.",
+    "Check Status column to see whether the process is Completed or In Progress.",
+    "Check Stage column to view the current execution stage of the process.",
+    "Check Started and Ended columns to track execution time of each process.",
+
+    "In Actions column, click the Refresh icon to reload the process status.",
+    "Click the View (eye) icon to view detailed information of the selected process.",
+
+    "Scroll or use pagination to navigate through all process records.",
+    "Monitor the overall progress of ETL jobs and reconciliation stages from the dashboard."
+  ]
+}
