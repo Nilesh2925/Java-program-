@@ -130,3 +130,31 @@ export const GUIDE_DATA = [
     "Monitor the overall progress of ETL jobs and reconciliation stages from the dashboard."
   ]
 }
+
+
+
+
+[4/24, 13:03] Madhavi TCS: steps: [
+  "Navigate to Currency Rate Management from the main menu.",
+  "Choose one of the available options: Currency Rate Change or Currency Rate Requests.",
+  "In Currency Rate Change, view all currencies along with Currency Code, Currency Rate, and Last Updated date.",
+  "Use the Manage Currency Rate tab to view all active currency rate records.",
+  "Switch to the My Requests tab to view currency rate change requests created by you along with their current status.",
+  "To update a currency rate, click on the Edit icon in the Manage Currency Rate list.",
+  "Modify the Currency Rate as required.",
+  "Verify the updated value and click Update to submit the currency rate change request.",
+  "In Currency Rate Requests, review pending currency rate change requests raised by other users and approve or reject them."
+]
+[4/24, 13:06] Madhavi TCS: steps: [
+  "Navigate to Year-End Profit Transfer from the main menu.",
+  "Choose one of the available options: Year-End Profit Transfer or Year-End Profit Transfer Requests.",
+  "In Year-End Profit Transfer, view all profit transfer processes along with Process Name, Profit Calculation, Created By, Start Date, and End Date.",
+  "Use the Year-End Profit Transfer tab to view all initiated profit transfer records.",
+  "Switch to the My Requests tab to view profit transfer requests created by you along with their current status.",
+  "Click the Initiate Profit Transfer button to start a new year-end profit transfer process.",
+  "Enter all required details such as Process Name, Start Date, End Date, and other necessary inputs.",
+  "Verify all entered details and submit the profit transfer request for processing.",
+  "In Year-End Profit Transfer Requests, review pending requests raised by other users.",
+  "Approve or reject the requests based on validation and permissions.",
+  "Monitor the status of profit transfer requests through the workflow."
+]
