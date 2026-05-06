@@ -1,20 +1,553 @@
-{
-  permissionId: 13,
-  module: "Calendar Configuration",
-  steps: [
-    "Navigate to Calendar Configuration from the main menu.",
-    "Choose one of the available options: Calendar Configuration or Calendar Config Requests.",
-    "Click on Calendar Configuration to view current financial year details.",
-    "Verify Financial Year Start Date and End Date displayed on the screen.",
+package com.fincore.enquiry_service.model;
 
-    "Click View Approved Financial Year to view approved financial year details.",
-    "Review Start Date, End Date, and Status in the popup.",
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.Setter;
 
-    "Click Raise Request to initiate a new financial year request.",
-    "Select Financial Year and enter Remarks.",
-    "Click Submit Request to raise the request.",
+import java.math.BigDecimal;
+import java.time.LocalDate;
 
-    "Navigate to Calendar Config Requests to view all requests.",
-    "Review request details or verify No Pending Requests message."
-  ]
+@Getter
+@Setter
+@Entity
+@Table(name = "GL_BALANCE_DIFFERENCE")
+public class Difference {
+
+    @Id
+    @GeneratedValue(
+            strategy = GenerationType.SEQUENCE,
+            generator = "gl_balance_seq_gen"
+    )
+    @SequenceGenerator(
+            name = "gl_balance_seq_gen",
+            sequenceName = "GL_BALANCE_SEQ",
+            allocationSize = 1
+    )
+    @Column(name = "ID")
+    private Long id;
+
+    @Column(name = "BALANCE_DATE", nullable = false)
+    private LocalDate balanceDate;
+
+    @Column(name = "BRANCH_CODE", nullable = false, length = 5)
+    private String branchCode;
+
+    @Column(name = "CURRENCY", nullable = false, length = 3)
+    private String currency;
+
+    @Column(name = "CGL", nullable = false, length = 10)
+    private String cgl;
+
+    @Column(name = "BALANCE", nullable = false, precision = 25, scale = 4)
+    private BigDecimal balance;
+
+    @Column(name = "INR_BALANCE", precision = 25, scale = 2)
+    private BigDecimal inrBalance;
+
+    @Column(name = "TYPE", nullable = false, length = 40)
+    private String type;
+
+    @Column(name = "FIRST_ERROR_DATE")
+    private LocalDate firstErrorDate;
 }
+
+
+
+
+
+package com.fincore.enquiry_service.controller;
+
+import com.fincore.enquiry_service.dto.DifferenceRequestDTO;
+import com.fincore.enquiry_service.service.DifferenceService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/difference")
+@RequiredArgsConstructor
+public class DifferenceController {
+
+    private final DifferenceService differenceService;
+
+    /**
+     * Difference Enquiry API
+     */
+    @PostMapping("/search")
+    public ResponseEntity<?> searchDifference(
+            @RequestBody DifferenceRequestDTO requestDTO) {
+
+        return ResponseEntity.ok(
+                differenceService.searchDifference(requestDTO)
+        );
+    }
+
+    /**
+     * Difference Excel Export API
+     */
+    @PostMapping("/export")
+    public ResponseEntity<byte[]> exportDifference(
+            @RequestBody DifferenceRequestDTO requestDTO) {
+
+        byte[] excelData =
+                differenceService.exportDifference(requestDTO);
+
+        return ResponseEntity.ok()
+                .header(
+                        HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=gl_balance_difference.xlsx"
+                )
+                .contentType(
+                        MediaType.APPLICATION_OCTET_STREAM
+                )
+                .body(excelData);
+    }
+}
+
+
+
+
+// ================================
+// DifferenceRequestDTO.java
+// ================================
+
+package com.fincore.enquiry_service.dto;
+
+import lombok.Getter;
+import lombok.Setter;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+
+@Getter
+@Setter
+public class DifferenceRequestDTO {
+
+    private String branchCode;
+
+    private String currency;
+
+    private String cgl;
+
+    private List<String> type;
+
+    private LocalDate fromDate;
+
+    private LocalDate toDate;
+
+    private BigDecimal minBalance;
+
+    private BigDecimal maxBalance;
+
+    private Integer page = 0;
+
+    private Integer size = 10;
+
+    private String sortDirection = "DESC";
+}
+
+
+
+
+// ================================
+// DifferenceResponseDTO.java
+// ================================
+
+package com.fincore.enquiry_service.dto;
+
+import lombok.Getter;
+import lombok.Setter;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+
+@Getter
+@Setter
+public class DifferenceResponseDTO {
+
+    private Long id;
+
+    private LocalDate balanceDate;
+
+    private String branchCode;
+
+    private String currency;
+
+    private String cgl;
+
+    private BigDecimal balance;
+
+    private BigDecimal inrBalance;
+
+    private String type;
+
+    private LocalDate firstErrorDate;
+}
+
+
+
+// ================================
+// DifferenceRepository.java
+// ================================
+
+package com.fincore.enquiry_service.repository;
+
+import com.fincore.enquiry_service.model.Difference;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+
+public interface DifferenceRepository
+        extends JpaRepository<Difference, Long> {
+
+    @Query(
+            value = """
+                    
+                    SELECT *
+                    FROM GL_BALANCE_DIFFERENCE
+                    WHERE
+                        
+                        (:branchCode IS NULL OR BRANCH_CODE = :branchCode)
+                        
+                        AND (:currency IS NULL OR CURRENCY = :currency)
+                        
+                        AND (:cgl IS NULL OR CGL = :cgl)
+                        
+                        AND (:fromDate IS NULL OR BALANCE_DATE >= :fromDate)
+                        
+                        AND (:toDate IS NULL OR BALANCE_DATE <= :toDate)
+                        
+                        AND (:minBalance IS NULL OR BALANCE >= :minBalance)
+                        
+                        AND (:maxBalance IS NULL OR BALANCE <= :maxBalance)
+                        
+                        AND (
+                            :applyType = 0
+                            OR TYPE IN (:type)
+                        )
+                    
+                    """,
+
+            countQuery = """
+                    
+                    SELECT COUNT(*)
+                    FROM GL_BALANCE_DIFFERENCE
+                    WHERE
+                        
+                        (:branchCode IS NULL OR BRANCH_CODE = :branchCode)
+                        
+                        AND (:currency IS NULL OR CURRENCY = :currency)
+                        
+                        AND (:cgl IS NULL OR CGL = :cgl)
+                        
+                        AND (:fromDate IS NULL OR BALANCE_DATE >= :fromDate)
+                        
+                        AND (:toDate IS NULL OR BALANCE_DATE <= :toDate)
+                        
+                        AND (:minBalance IS NULL OR BALANCE >= :minBalance)
+                        
+                        AND (:maxBalance IS NULL OR BALANCE <= :maxBalance)
+                        
+                        AND (
+                            :applyType = 0
+                            OR TYPE IN (:type)
+                        )
+                    
+                    """,
+
+            nativeQuery = true
+    )
+    Page<Difference> searchDifference(
+
+            @Param("branchCode")
+            String branchCode,
+
+            @Param("currency")
+            String currency,
+
+            @Param("cgl")
+            String cgl,
+
+            @Param("type")
+            List<String> type,
+
+            @Param("applyType")
+            Integer applyType,
+
+            @Param("fromDate")
+            LocalDate fromDate,
+
+            @Param("toDate")
+            LocalDate toDate,
+
+            @Param("minBalance")
+            BigDecimal minBalance,
+
+            @Param("maxBalance")
+            BigDecimal maxBalance,
+
+            Pageable pageable
+    );
+}
+
+
+
+// ================================
+// DifferenceService.java
+// ================================
+
+package com.fincore.enquiry_service.service;
+
+import com.fincore.enquiry_service.dto.DifferenceRequestDTO;
+
+public interface DifferenceService {
+
+    Object searchDifference(
+            DifferenceRequestDTO requestDTO);
+
+    byte[] exportDifference(
+            DifferenceRequestDTO requestDTO);
+}
+
+
+
+
+
+
+// ================================
+// DifferenceServiceImpl.java
+// ================================
+
+package com.fincore.enquiry_service.service;
+
+import com.fincore.enquiry_service.dto.DifferenceRequestDTO;
+import com.fincore.enquiry_service.dto.DifferenceResponseDTO;
+import com.fincore.enquiry_service.model.Difference;
+import com.fincore.enquiry_service.repository.DifferenceRepository;
+import lombok.RequiredArgsConstructor;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.data.domain.*;
+import org.springframework.stereotype.Service;
+
+import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class DifferenceServiceImpl
+        implements DifferenceService {
+
+    private final DifferenceRepository differenceRepository;
+
+    @Override
+    public Object searchDifference(
+            DifferenceRequestDTO requestDTO) {
+
+        int applyType = 0;
+
+        if (requestDTO.getType() != null
+                && !requestDTO.getType().isEmpty()
+                && !requestDTO.getType().contains("ALL")) {
+
+            applyType = 1;
+        }
+
+        Pageable pageable = PageRequest.of(
+                requestDTO.getPage(),
+                requestDTO.getSize(),
+                Sort.by("BALANCE_DATE").descending()
+        );
+
+        Page<Difference> differencePage =
+                differenceRepository.searchDifference(
+                        requestDTO.getBranchCode(),
+                        requestDTO.getCurrency(),
+                        requestDTO.getCgl(),
+                        requestDTO.getType(),
+                        applyType,
+                        requestDTO.getFromDate(),
+                        requestDTO.getToDate(),
+                        requestDTO.getMinBalance(),
+                        requestDTO.getMaxBalance(),
+                        pageable
+                );
+
+        List<DifferenceResponseDTO> responseList =
+                new ArrayList<>();
+
+        for (Difference difference : differencePage.getContent()) {
+
+            DifferenceResponseDTO dto =
+                    new DifferenceResponseDTO();
+
+            dto.setId(difference.getId());
+            dto.setBalanceDate(
+                    difference.getBalanceDate());
+            dto.setBranchCode(
+                    difference.getBranchCode());
+            dto.setCurrency(
+                    difference.getCurrency());
+            dto.setCgl(
+                    difference.getCgl());
+            dto.setBalance(
+                    difference.getBalance());
+            dto.setInrBalance(
+                    difference.getInrBalance());
+            dto.setType(
+                    difference.getType());
+            dto.setFirstErrorDate(
+                    difference.getFirstErrorDate());
+
+            responseList.add(dto);
+        }
+
+        return new PageImpl<>(
+                responseList,
+                pageable,
+                differencePage.getTotalElements()
+        );
+    }
+
+    @Override
+    public byte[] exportDifference(
+            DifferenceRequestDTO requestDTO) {
+
+        try {
+
+            requestDTO.setPage(0);
+            requestDTO.setSize(50000);
+
+            Pageable pageable = PageRequest.of(
+                    requestDTO.getPage(),
+                    requestDTO.getSize(),
+                    Sort.by("BALANCE_DATE").descending()
+            );
+
+            int applyType = 0;
+
+            if (requestDTO.getType() != null
+                    && !requestDTO.getType().isEmpty()
+                    && !requestDTO.getType().contains("ALL")) {
+
+                applyType = 1;
+            }
+
+            Page<Difference> page =
+                    differenceRepository.searchDifference(
+                            requestDTO.getBranchCode(),
+                            requestDTO.getCurrency(),
+                            requestDTO.getCgl(),
+                            requestDTO.getType(),
+                            applyType,
+                            requestDTO.getFromDate(),
+                            requestDTO.getToDate(),
+                            requestDTO.getMinBalance(),
+                            requestDTO.getMaxBalance(),
+                            pageable
+                    );
+
+            XSSFWorkbook workbook =
+                    new XSSFWorkbook();
+
+            XSSFSheet sheet =
+                    workbook.createSheet(
+                            "GL Balance Difference");
+
+            int rowNum = 0;
+
+            Row header = sheet.createRow(rowNum++);
+
+            header.createCell(0)
+                    .setCellValue("Balance Date");
+
+            header.createCell(1)
+                    .setCellValue("Branch Code");
+
+            header.createCell(2)
+                    .setCellValue("Currency");
+
+            header.createCell(3)
+                    .setCellValue("CGL");
+
+            header.createCell(4)
+                    .setCellValue("Balance");
+
+            header.createCell(5)
+                    .setCellValue("INR Balance");
+
+            header.createCell(6)
+                    .setCellValue("Type");
+
+            header.createCell(7)
+                    .setCellValue("First Error Date");
+
+            for (Difference difference
+                    : page.getContent()) {
+
+                Row row =
+                        sheet.createRow(rowNum++);
+
+                row.createCell(0).setCellValue(
+                        String.valueOf(
+                                difference.getBalanceDate()));
+
+                row.createCell(1).setCellValue(
+                        difference.getBranchCode());
+
+                row.createCell(2).setCellValue(
+                        difference.getCurrency());
+
+                row.createCell(3).setCellValue(
+                        difference.getCgl());
+
+                row.createCell(4).setCellValue(
+                        difference.getBalance()
+                                .doubleValue());
+
+                row.createCell(5).setCellValue(
+                        difference.getInrBalance() != null
+                                ? difference.getInrBalance()
+                                .doubleValue()
+                                : 0);
+
+                row.createCell(6).setCellValue(
+                        difference.getType());
+
+                row.createCell(7).setCellValue(
+                        String.valueOf(
+                                difference.getFirstErrorDate()));
+            }
+
+            ByteArrayOutputStream out =
+                    new ByteArrayOutputStream();
+
+            workbook.write(out);
+
+            workbook.close();
+
+            return out.toByteArray();
+
+        } catch (Exception ex) {
+
+            throw new RuntimeException(
+                    "Error while exporting difference report",
+                    ex
+            );
+        }
+    }
+}
+
+
+
