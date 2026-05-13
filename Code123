@@ -1,651 +1,319 @@
-package com.fincore.enquiry_service.service;
+package com.fincore.enquiry_service.service.utils;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.sql.Blob;
-import java.sql.Clob;
-import java.text.SimpleDateFormat;
-import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.List;
 
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.CellStyle;
-import org.apache.poi.ss.usermodel.CreationHelper;
-import org.apache.poi.ss.usermodel.Font;
-import org.apache.poi.ss.usermodel.HorizontalAlignment;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.stereotype.Service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fincore.commonutilities.jwt.JwtUtil;
-import com.fincore.enquiry_service.dto.BalanceRequestDTO;
-import com.fincore.enquiry_service.dto.BalanceResponseDTO;
-import com.fincore.enquiry_service.dto.GLBalanceProjection;
-import com.fincore.enquiry_service.dto.GLBalanceResponseDTO;
-import com.fincore.enquiry_service.dto.GetPayloadDTO;
-import com.fincore.enquiry_service.dto.GetResponseDTO;
-import com.fincore.enquiry_service.dto.GlTransactionProjection;
-import com.fincore.enquiry_service.dto.GlTransactionResponseDTO;
-import com.fincore.enquiry_service.dto.MyDownloadsRequestDTO;
-import com.fincore.enquiry_service.dto.PaginatedResponseDTO;
-import com.fincore.enquiry_service.dto.SearchCriteriaDTO;
-import com.fincore.enquiry_service.exception.NoDataFoundException;
-import com.fincore.enquiry_service.model.GLBalance;
 import com.fincore.enquiry_service.model.GlTransactions;
-import com.fincore.enquiry_service.repository.GLBalanceRepository;
-import com.fincore.enquiry_service.repository.GlTransactionsRepository;
-import com.fincore.enquiry_service.service.utils.SourceFlagUtil;
-import com.fincore.enquiry_service.service.utils.TransactionsExcelGenerator;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+public class TransactionsExcelGenerator {
 
-@Slf4j
-@Service("TransactionsService")
-@RequiredArgsConstructor
-public class EnquiryServiceImpl implements EnquiryService {
+	private static final String SHEET_NAME = "Transactions";
+	private static final String SHEET_TITLE = "GL Transactions";
 
-	private final GlTransactionsRepository glTransactionsRepository;
-	private final GLBalanceRepository glBalanceRepository;
-	private final MyDownloadsService myDownloadsService;
+	// private static final Header[] SUMMARY_HEADERS = {
+	// new Header("Branch", Header.Type.NUMERIC, 0),
+	// new Header("Currency", Header.Type.TEXT, 1),
+	// new Header("CGL", Header.Type.NUMERIC, 2),
+	// new Header("From Date", Header.Type.NUMERIC, 4),
+	// new Header("To Date", Header.Type.NUMERIC, 5),
+	// new Header("From Amount", Header.Type.NUMERIC, 6),
+	// new Header("To Amount", Header.Type.NUMERIC, 7)
+	// };
 
-	private static final int TRANSACTIONS_THRESHOLD = 2000;
-	private static final int EXPORT_CHUNK_SIZE = 500;
-	private static final String ZONE_IST = "Asia/Kolkata";
+	private static final Header[] TRANSACTION_HEADERS = {
+			new Header("Date", Header.Type.NUMERIC, 0),
+			new Header("Batch ID", Header.Type.TEXT, 1),
+			new Header("Journal Number", Header.Type.NUMERIC, 2),
+			new Header("Debit Amount", Header.Type.NUMERIC, 3),
+			new Header("Credit Amount", Header.Type.NUMERIC, 4),
+			new Header("Narration", Header.Type.TEXT, 5),
 
-	@Override
-	public PaginatedResponseDTO<GetResponseDTO> getTransactionsData(GetPayloadDTO dto) {
+			new Header("Transaction Type", Header.Type.NUMERIC, 6),
+			new Header("Source Flag", Header.Type.TEXT, 7),
+			new Header("Posted Date", Header.Type.TEXT, 8)
 
-		String branch = dto.getBranch().split("-")[0];
-		String currency = dto.getCurrency();
-		String cgl = dto.getCgl();
-		String fromDate = dto.getFromDate();
-		String toDate = dto.getToDate();
+	};
 
-		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+	private static final int MAX_COLUMNS = 6;
+	private static final int FREEZE_UPTO_ROW = 6;
 
-		Double minAmount = dto.getMinAmount();
-		Double maxAmount = dto.getMaxAmount();
-		List<String> sourceFlag = dto.getSourceFlags();
-		int applySourceFlag = 1;
+	private String branch;
+	private String currency;
+	private String cgl;
+	private String fromDate;
+	private String toDate;
+	private double openingBalance;
+	private double closingBalance;
+	private String openingDate;
+	private String closingDate;
+	private Double minAmount;
+	private Double maxAmount;
+	private List<GlTransactions> transactions;
 
-		LocalDate formattedFromDate = LocalDate.parse(fromDate, formatter);
-		LocalDate formattedToDate = LocalDate.parse(toDate, formatter);
+	private final Workbook workbook = new XSSFWorkbook();
+	private final Sheet transactionsSheet = workbook.createSheet(SHEET_NAME);
 
-		LocalDate fromMinusOneDay = formattedFromDate.minusDays(1);
+	private final Font headerFont = workbook.createFont();
 
-		GLBalance openingGLBalance = glBalanceRepository
-				.getGlBalanceData(fromMinusOneDay.format(formatter), branch, currency, cgl);
+	private final CellStyle textHeaderStyle = workbook.createCellStyle();
+	private final CellStyle textBodyStyle = workbook.createCellStyle();
+	private final CellStyle numericHeaderStyle = workbook.createCellStyle();
+	private final CellStyle numericBodyStyle = workbook.createCellStyle();
+	private final CellStyle amountStyle = workbook.createCellStyle();
 
-		GLBalance closingGLBalance = glBalanceRepository
-				.getGlBalanceData(formattedToDate.format(formatter), branch, currency, cgl);
+	private final DataFormat format = workbook.createDataFormat();
 
-		PaginatedResponseDTO<GetResponseDTO> response = new PaginatedResponseDTO<>();
+	private int rowIndex = 0;
 
-		if (openingGLBalance == null || closingGLBalance == null) {
-			response.setData(Collections.emptyList());
-			return response;
+	private final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+
+	private void createHeaderCell(Row row, int column, String value) {
+
+		Cell cell = row.createCell(column);
+
+		cell.setCellValue(value);
+
+		cell.setCellStyle(textHeaderStyle);
+	}
+
+	private TransactionsExcelGenerator(
+			String branch,
+			String currency,
+			String cgl,
+			String fromDate,
+			String toDate,
+			List<GlTransactions> transactions,
+			double openingBalance,
+			double closingBalance,
+			String openingDate,
+			String closingDate,
+			Double minAmount,
+			Double maxAmount) {
+
+		this.branch = branch;
+		this.currency = currency;
+		this.cgl = cgl;
+		this.fromDate = fromDate;
+		this.toDate = toDate;
+		this.transactions = transactions;
+		this.openingBalance = openingBalance;
+		this.closingBalance = closingBalance;
+		this.openingDate = openingDate;
+		this.closingDate = closingDate;
+		this.minAmount = minAmount;
+		this.maxAmount = maxAmount;
+
+		headerFont.setBold(true);
+
+		textHeaderStyle.setFont(headerFont);
+		numericHeaderStyle.setFont(headerFont);
+		numericHeaderStyle.setAlignment(HorizontalAlignment.RIGHT);
+
+		numericBodyStyle.setAlignment(HorizontalAlignment.RIGHT);
+		amountStyle.setAlignment(HorizontalAlignment.RIGHT);
+		amountStyle.setDataFormat(format.getFormat("0.0000"));
+
+		transactionsSheet.createFreezePane(0, FREEZE_UPTO_ROW);
+	}
+
+	private void addTitle() {
+		Row row = transactionsSheet.createRow(rowIndex++);
+		Cell cell = row.createCell(0);
+		cell.setCellValue(SHEET_TITLE);
+
+		CellStyle style = workbook.createCellStyle();
+		Font font = workbook.createFont();
+		font.setBold(true);
+		font.setFontHeightInPoints((short) 14);
+
+		style.setFont(font);
+		style.setAlignment(HorizontalAlignment.CENTER);
+
+		cell.setCellStyle(style);
+
+		transactionsSheet.addMergedRegion(new CellRangeAddress(0, 0, 0, MAX_COLUMNS));
+
+		rowIndex++;
+	}
+
+	private void addSummaryHeader() {
+
+		Row row = transactionsSheet.createRow(rowIndex++);
+
+		int col = 0;
+
+		createHeaderCell(row, col++, "Branch");
+		createHeaderCell(row, col++, "Currency");
+		createHeaderCell(row, col++, "CGL");
+		createHeaderCell(row, col++, "From Date");
+		createHeaderCell(row, col++, "To Date");
+
+		if (minAmount != null) {
+			createHeaderCell(row, col++, "From Amount");
 		}
 
-		if (sourceFlag == null || sourceFlag.isEmpty() || sourceFlag.contains("ALL")) {
-			applySourceFlag = 0;
-			sourceFlag = List.of("NA");
+		if (maxAmount != null) {
+			createHeaderCell(row, col++, "To Amount");
+		}
+	}
+
+	private void addSummaryValues() {
+
+		Row row = transactionsSheet.createRow(rowIndex++);
+
+		int col = 0;
+
+		row.createCell(col++).setCellValue(branch);
+		row.createCell(col++).setCellValue(currency);
+		row.createCell(col++).setCellValue(cgl);
+		row.createCell(col++).setCellValue(fromDate);
+		row.createCell(col++).setCellValue(toDate);
+
+		if (minAmount != null) {
+
+			Cell cell = row.createCell(col++);
+			cell.setCellValue(minAmount);
+			cell.setCellStyle(amountStyle);
 		}
 
-		if (minAmount != null && maxAmount != null && minAmount > maxAmount) {
-			throw new IllegalArgumentException("minAmount cannot be greater than maxAmount");
+		if (maxAmount != null) {
+
+			Cell cell = row.createCell(col++);
+			cell.setCellValue(maxAmount);
+			cell.setCellStyle(amountStyle);
 		}
 
-		int page = (dto.getPage() == null || dto.getPage() < 0) ? 0 : dto.getPage();
-		int size = (dto.getSize() == null || dto.getSize() <= 0) ? 10 : dto.getSize();
+		rowIndex++;
+	}
 
-		// Sort sort = Sort.by("TRANSACTION_DATE");
-		// Pageable pageable = PageRequest.of(page, size, sort);
-		String sortBy = dto.getSortBy() != null
-				? dto.getSortBy()
-				: "TRANSACTION_DATE";
+	private void addOpeningClosingSection() {
 
-		String sortIn = dto.getSortIn() != null
-				? dto.getSortIn()
-				: "ASC";
+		Row r1 = transactionsSheet.createRow(rowIndex++);
+		r1.createCell(0).setCellValue("Opening Date");
+		r1.createCell(1).setCellValue(openingDate);
+		r1.createCell(2).setCellValue("Opening Balance");
+		Cell openCell = r1.createCell(3);
+		openCell.setCellValue(openingBalance);
+		openCell.setCellStyle(amountStyle);
 
-		Sort.Direction direction = sortIn.equalsIgnoreCase("DESC")
-				? Sort.Direction.DESC
-				: Sort.Direction.ASC;
+		Row r2 = transactionsSheet.createRow(rowIndex++);
+		r2.createCell(0).setCellValue("Closing Date");
+		r2.createCell(1).setCellValue(closingDate);
+		r2.createCell(2).setCellValue("Closing Balance");
+		Cell closeCell = r2.createCell(3);
+		closeCell.setCellValue(closingBalance);
+		closeCell.setCellStyle(amountStyle);
 
-		Sort sort = Sort.by(direction, sortBy)
-				.and(Sort.by("TRANSACTION_ID"));
+		rowIndex++;
+	}
 
-		Pageable pageable = PageRequest.of(page, size, sort);
+	private void addTransactionHeader() {
+		Row row = transactionsSheet.createRow(rowIndex++);
 
-		Page<GlTransactions> pageResult = glTransactionsRepository.getData(
+		for (int i = 0; i < TRANSACTION_HEADERS.length; i++) {
+			Header h = TRANSACTION_HEADERS[i];
+			Cell cell = row.createCell(i);
+			cell.setCellValue(h.title);
+			cell.setCellStyle(h.type == Header.Type.NUMERIC ? numericHeaderStyle : textHeaderStyle);
+		}
+	}
+
+	private void addTransactionRow(GlTransactions txn) {
+
+		Row row = transactionsSheet.createRow(rowIndex++);
+
+		row.createCell(0).setCellValue(formatter.format(txn.getTransactionDate()));
+		row.createCell(1).setCellValue(txn.getBatchId());
+		row.createCell(2).setCellValue(txn.getJournalId());
+
+		Cell debitCell = row.createCell(3);
+		debitCell.setCellValue(
+				txn.getDebitAmount() != null ? Math.abs(txn.getDebitAmount()) : 0);
+		debitCell.setCellStyle(amountStyle);
+
+		Cell creditCell = row.createCell(4);
+		creditCell.setCellValue(
+				txn.getCreditAmount() != null ? Math.abs(txn.getCreditAmount()) : 0);
+		creditCell.setCellStyle(amountStyle);
+		row.createCell(5).setCellValue(txn.getNarration());
+
+		row.createCell(6).setCellValue(
+				txn.getTransactionCount() != null ? txn.getTransactionCount() : 0);
+
+		row.createCell(7).setCellValue(SourceFlagUtil.getSourceFlagDescription(txn.getSourceFlag()));
+		row.createCell(8).setCellValue(
+				txn.getPostDate() != null
+						? txn.getPostDate().toLocalDateTime().format(
+								DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"))
+						: "");
+
+	}
+
+	private void addTransactions() {
+		for (GlTransactions txn : transactions) {
+			addTransactionRow(txn);
+		}
+
+		for (int i = 0; i < TRANSACTION_HEADERS.length; i++) {
+			transactionsSheet.autoSizeColumn(i);
+		}
+	}
+
+	public byte[] getByteArray() throws IOException {
+
+		addTitle();
+		addSummaryHeader();
+		addSummaryValues();
+		addOpeningClosingSection();
+		addTransactionHeader();
+		addTransactions();
+
+		try (ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+			workbook.write(bos);
+			return bos.toByteArray();
+		} finally {
+			workbook.close();
+		}
+	}
+
+	public static byte[] getFileContents(
+			String branch,
+			String currency,
+			String cgl,
+			String fromDate,
+			String toDate,
+			List<GlTransactions> transactions,
+			double openingBalance,
+			double closingBalance,
+			String openingDate,
+			String closingDate,
+			Double minAmount,
+			Double maxAmount) throws IOException {
+
+		return new TransactionsExcelGenerator(
 				branch,
 				currency,
 				cgl,
 				fromDate,
 				toDate,
+				transactions,
+				openingBalance,
+				closingBalance,
+				openingDate,
+				closingDate,
 				minAmount,
-				maxAmount,
-				sourceFlag,
-				applySourceFlag,
-				pageable);
-
-		List<GetResponseDTO> responseList = new ArrayList<>();
-
-		for (GlTransactions txn : pageResult.getContent()) {
-			responseList.add(mapToResponseDTO(txn, formatter));
-		}
-
-		response.setCurrentPage(page);
-		response.setTotalPages(pageResult.getTotalPages());
-		response.setPageSize(size);
-		response.setTotalElements(pageResult.getTotalElements());
-		response.setData(responseList);
-
-		Map<String, Object> extra = new HashMap<>();
-		extra.put("openingBalance", openingGLBalance.getBalance());
-		extra.put("closingBalance", closingGLBalance.getBalance());
-		extra.put("openingDate", formatter.format(formattedFromDate));
-		extra.put("closingDate", formatter.format(formattedToDate));
-
-		response.setExtraData(extra);
-
-		return response;
+				maxAmount).getByteArray();
 	}
 
-	@Override
-	public byte[] getTransactionsFile(GetPayloadDTO dto, String userId) throws IOException {
-
-		log.info("Processing export for user: {}", userId);
-		log.info("GetPayloadDTO>>>>{}", dto);
-
-		String branch = dto.getBranch().split("-")[0];
-		String currency = dto.getCurrency();
-		String cgl = dto.getCgl().split(" -")[0];
-		String fromDate = dto.getFromDate();
-		String toDate = dto.getToDate();
-		Double minAmount = dto.getMinAmount();
-		Double maxAmount = dto.getMaxAmount();
-		List<String> sourceFlag = dto.getSourceFlags();
-		int applySourceFlag = 1;
-
-		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
-
-		LocalDate formattedFromDate = LocalDate.parse(fromDate, formatter);
-		LocalDate fromMinusOneDay = formattedFromDate.minusDays(1);
-		LocalDate formattedToDate = LocalDate.parse(toDate, formatter);
-
-		log.info("fromMinusDay " + fromMinusOneDay.format(formatter));
-
-		GLBalance openingGLBalance = glBalanceRepository
-				.getGlBalanceData(fromMinusOneDay.format(formatter), branch, currency, cgl);
-
-		GLBalance closingGLBalance = glBalanceRepository
-				.getGlBalanceData(formattedToDate.format(formatter), branch, currency, cgl);
-
-		log.info("OpeningBalance " + openingGLBalance);
-
-		if (openingGLBalance == null) {
-			throw new IllegalStateException("Opening Balance missing for date: " + fromMinusOneDay);
+	private record Header(String title, Type type, int columnIndex) {
+		enum Type {
+			TEXT, NUMERIC
 		}
-		if (sourceFlag == null || sourceFlag.isEmpty() || sourceFlag.contains("ALL")) {
-			applySourceFlag = 0;
-			sourceFlag = List.of("NA");
-		}
-
-		int page = 0;
-		int size = 500;
-
-		// Sort sort = Sort.by("TRANSACTION_DATE");
-		String sortBy = dto.getSortBy() != null
-				? dto.getSortBy()
-				: "TRANSACTION_DATE";
-
-		String sortIn = dto.getSortIn() != null
-				? dto.getSortIn()
-				: "ASC";
-
-		Sort.Direction direction = sortIn.equalsIgnoreCase("DESC")
-				? Sort.Direction.DESC
-				: Sort.Direction.ASC;
-
-		Sort sort = Sort.by(direction, sortBy)
-				.and(Sort.by("TRANSACTION_ID"));
-
-		List<GlTransactions> allTransactions = new ArrayList<>();
-
-		Page<GlTransactions> pageResult;
-
-		do {
-			Pageable pageable = PageRequest.of(page, size, sort);
-
-			pageResult = glTransactionsRepository.getData(
-					branch,
-					currency,
-					cgl,
-					fromDate,
-					toDate,
-					minAmount,
-					maxAmount,
-					sourceFlag,
-					applySourceFlag,
-					pageable);
-
-			allTransactions.addAll(pageResult.getContent());
-
-			page++;
-
-		} while (pageResult.hasNext());
-
-		SearchCriteriaDTO searchDto = new SearchCriteriaDTO();
-
-		searchDto.setBranch(dto.getBranch());
-		searchDto.setCgl(dto.getCgl());
-		searchDto.setCurrency(dto.getCurrency());
-		searchDto.setFromDate(dto.getFromDate());
-		searchDto.setToDate(dto.getToDate());
-
-		if (dto.getMinAmount() != null) {
-			searchDto.setMinAmount(dto.getMinAmount());
-		}
-
-		if (dto.getMaxAmount() != null) {
-			searchDto.setMaxAmount(dto.getMaxAmount());
-		}
-
-		if (dto.getSourceFlags() == null) {
-			searchDto.setSourceFlags(List.of("ALL"));
-		} else {
-			searchDto.setSourceFlags(dto.getSourceFlags());
-		}
-		String fileName = "Transaction_Enquiry.xlsx";
-
-		// -------- GENERATE FILE --------
-		
-		byte[] fileBytes = TransactionsExcelGenerator.getFileContents(
-				branch,
-				currency,
-				cgl,
-				fromDate,
-				toDate,
-				allTransactions,
-				openingGLBalance.getBalance(),
-				closingGLBalance.getBalance(),
-				formatter.format(
-						formattedFromDate),
-				formatter.format(new java.sql.Date(closingGLBalance.getDate().getTime()).toLocalDate()), minAmount,
-				maxAmount);
-
-		sendToMyDownloads(searchDto, fileBytes, userId, fileName);
-
-		return fileBytes;
-	}
-
-	@Override
-	public PaginatedResponseDTO<BalanceResponseDTO> getBalanceDetails(BalanceRequestDTO request) {
-		if (request.getEndDate().before(request.getStartDate())) {
-			log.error("End date must be after start date.");
-			throw new IllegalArgumentException("End date must be after start date");
-		}
-
-		// 1. Force Start Date to 00:00:00 IST
-		Date adjustedStartDate = convertToStartOfDay(request.getStartDate());
-		// 2. Force End Date to 23:59:59 IST
-		Date adjustedEndDate = convertToEndOfDay(request.getEndDate());
-
-		int page = (request.getPage() != null && request.getPage() >= 0) ? request.getPage() : 0;
-		int size = (request.getSize() != null && request.getSize() >= 0) ? request.getSize() : 10;
-
-		String sortIn = (request.getSortIn() != null && !request.getSortIn().isBlank())
-				? request.getSortIn().toUpperCase()
-				: "ASC";
-
-		Sort sort = sortIn.equals("DESC") ? Sort.by("date").descending() : Sort.by("date").ascending();
-		PageRequest pageRequest = PageRequest.of(page, size, sort);
-
-		log.info("Adjusted Start Date : {}", adjustedStartDate);
-		log.info("Adjusted End Date : {}", adjustedEndDate);
-
-		Page<GLBalance> records = glBalanceRepository.findByBranchAndCglAndCurrencyAndDateBetween(
-				request.getBranch(), request.getCgl(), request.getCurrency(),
-				adjustedStartDate, adjustedEndDate,
-				pageRequest);
-
-		if (records.isEmpty()) {
-			log.warn("No records found for the given filters.");
-			throw new NoDataFoundException("No records found for given filters");
-		}
-
-		List<BalanceResponseDTO> list = records.stream()
-				.map(r -> new BalanceResponseDTO(
-						r.getId(), r.getDate(), r.getBranch(), r.getCgl(), r.getCurrency(), r.getBalance(),
-						r.getBalance() < 0 ? "DR" : "CR"))
-				.toList();
-
-		String actualSort = records.getSort().stream().findFirst().map(order -> order.getDirection().name())
-				.orElse("UNSORTED");
-
-		return new PaginatedResponseDTO<>(
-				records.getNumber(), records.getTotalPages(), records.getSize(), records.getTotalElements(), actualSort,
-				list, null);
-	}
-
-	@Override
-	public byte[] exportBalanceToExcel(BalanceRequestDTO request, String userId) {
-		// 1. VALIDATION
-		if (request.getEndDate().before(request.getStartDate())) {
-			throw new IllegalArgumentException("End date must be after start date");
-		}
-
-		Date adjustedStartDate = convertToStartOfDay(request.getStartDate());
-		Date adjustedEndDate = convertToEndOfDay(request.getEndDate());
-
-		try (Workbook workbook = new XSSFWorkbook();
-				ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-
-			Sheet sheet = workbook.createSheet("Balance Enquiry");
-
-			// 2. STYLES INITIALIZATION
-			CellStyle headerStyle = workbook.createCellStyle();
-			Font headerFont = workbook.createFont();
-			headerFont.setBold(true);
-			headerStyle.setFont(headerFont);
-
-			CellStyle centerStyle = workbook.createCellStyle();
-			centerStyle.setAlignment(HorizontalAlignment.CENTER);
-
-			CellStyle dateStyle = workbook.createCellStyle();
-			CreationHelper creationHelper = workbook.getCreationHelper();
-			dateStyle.setDataFormat(creationHelper.createDataFormat().getFormat("dd-MM-yyyy"));
-
-			CellStyle balanceStyle = workbook.createCellStyle();
-			balanceStyle.setDataFormat(creationHelper.createDataFormat().getFormat("#,##0.00"));
-
-			CellStyle titleStyle = workbook.createCellStyle();
-			Font titleFont = workbook.createFont();
-			titleFont.setBold(true);
-			titleFont.setFontHeightInPoints((short) 14);
-			titleStyle.setFont(titleFont);
-			titleStyle.setAlignment(HorizontalAlignment.CENTER);
-
-			// 3. HEADER SECTION (TITLE & SUMMARY)
-			Row titleRow = sheet.createRow(0);
-			Cell titleCell = titleRow.createCell(0);
-			titleCell.setCellValue("GL Balance Enquiry");
-			titleCell.setCellStyle(titleStyle);
-			sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, 6));
-
-			// Summary Table
-			Row summaryHeader = sheet.createRow(2);
-			String[] summaryHeaders = { "Branch", "Currency", "CGL", "From Date", "To Date" };
-			for (int i = 0; i < summaryHeaders.length; i++) {
-				Cell cell = summaryHeader.createCell(i);
-				cell.setCellValue(summaryHeaders[i]);
-				cell.setCellStyle(headerStyle);
-			}
-
-			Row summaryRow = sheet.createRow(3);
-			summaryRow.createCell(0).setCellValue(request.getBranch());
-			summaryRow.createCell(1).setCellValue(request.getCurrency());
-			summaryRow.createCell(2).setCellValue(request.getCgl());
-
-			Cell sDate = summaryRow.createCell(3);
-			sDate.setCellValue(request.getStartDate());
-			sDate.setCellStyle(dateStyle);
-
-			Cell eDate = summaryRow.createCell(4);
-			eDate.setCellValue(request.getEndDate());
-			eDate.setCellStyle(dateStyle);
-
-			// 4. MAIN DATA TABLE HEADER
-			String[] columns = { "ID", "Date", "Branch", "CGL", "Currency", "Balance", "DR/CR" };
-			Row headerRow = sheet.createRow(5);
-			for (int i = 0; i < columns.length; i++) {
-				Cell cell = headerRow.createCell(i);
-				cell.setCellValue(columns[i]);
-				cell.setCellStyle(headerStyle);
-			}
-
-			// 5. DATA POPULATION (PAGINATED)
-			int rowIdx = 6;
-			int page = 0;
-			Page<GLBalance> recordsPage;
-
-			do {
-				Pageable pageable = PageRequest.of(page++, EXPORT_CHUNK_SIZE, Sort.by("date").ascending());
-				recordsPage = glBalanceRepository.findByBranchAndCglAndCurrencyAndDateBetween(
-						request.getBranch(), request.getCgl(), request.getCurrency(),
-						adjustedStartDate, adjustedEndDate, pageable);
-
-				if (recordsPage.isEmpty() && page == 1)
-					break;
-
-				for (GLBalance r : recordsPage.getContent()) {
-					Row row = sheet.createRow(rowIdx++);
-					row.createCell(0).setCellValue(r.getId() != null ? r.getId() : 0);
-
-					Cell dCell = row.createCell(1);
-					if (r.getDate() != null) {
-						dCell.setCellValue(r.getDate());
-						dCell.setCellStyle(dateStyle);
-					}
-
-					row.createCell(2).setCellValue(r.getBranch() != null ? r.getBranch() : "");
-					row.createCell(3).setCellValue(r.getCgl() != null ? r.getCgl() : "");
-					row.createCell(4).setCellValue(r.getCurrency() != null ? r.getCurrency() : "");
-
-					double balance = r.getBalance();
-
-					Cell bCell = row.createCell(5);
-					bCell.setCellValue(Math.abs(balance));
-					bCell.setCellStyle(balanceStyle);
-					Cell drCrCell = row.createCell(6);
-					drCrCell.setCellValue(balance < 0 ? "DR" : "CR");
-					drCrCell.setCellStyle(centerStyle);
-
-				}
-			} while (!recordsPage.isLast());
-
-			// 6. FINALIZATION & DOWNLOAD SERVICE
-			for (int i = 0; i < columns.length; i++) {
-				sheet.autoSizeColumn(i);
-			}
-
-			workbook.write(out);
-			byte[] fileBytes = out.toByteArray();
-
-			// Map Search Criteria for MyDownloads
-			SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yyyy");
-			SearchCriteriaDTO searchDto = new SearchCriteriaDTO();
-			searchDto.setBranch(request.getBranch());
-			searchDto.setCgl(request.getCgl());
-			searchDto.setCurrency(request.getCurrency());
-			searchDto.setFromDate(sdf.format(request.getStartDate()));
-			searchDto.setToDate(sdf.format(request.getEndDate()));
-
-			sendToMyDownloads(searchDto, fileBytes, userId, "Balance_Enquiry.xlsx");
-
-			return fileBytes;
-
-		} catch (IOException e) {
-			throw new RuntimeException("Failed to generate Excel file", e);
-		}
-	}
-
-	@Override
-	public PaginatedResponseDTO<GlTransactionResponseDTO> getGlTransactionsReport(
-			String startDate, String endDate, String circle, String branch, String cgl, Integer page, Integer size,
-			String currency) {
-
-		int pageNo = (page != null && page >= 0) ? page : 0;
-		int pageSize = (size != null && size > 0) ? size : 10;
-		Pageable pageable = PageRequest.of(pageNo, pageSize);
-
-		Page<GlTransactionProjection> pageResult = glTransactionsRepository.findGlTransactions(
-				startDate, endDate, currency, circle, branch, cgl, pageable);
-
-		List<GlTransactionResponseDTO> list = pageResult.getContent().stream()
-				.map(this::toGlTransactionDto)
-				.toList();
-
-		if (list.isEmpty()) {
-			log.warn("No transactions found for the given criteria.");
-			throw new NoDataFoundException("No records found for the given criteria");
-		}
-
-		return new PaginatedResponseDTO<>(
-				pageResult.getNumber(),
-				pageResult.getTotalPages(),
-				pageResult.getSize(),
-				pageResult.getTotalElements(),
-				null,
-				list, null);
-	}
-
-	private GlTransactionResponseDTO toGlTransactionDto(GlTransactionProjection p) {
-		return new GlTransactionResponseDTO(
-				p.getCIRCLE_CODE(),
-				p.getCIRCLE_NAME(),
-				p.getBRANCH_NAME(),
-				p.getBRANCH_CODE(),
-				p.getCGL(),
-				p.getCGL_DESCRIPTION(),
-				p.getNARRATION(),
-				p.getTRANSACTION_DATE(),
-				p.getCURRENCY(),
-				p.getTOTAL_DEBIT(),
-				p.getTOTAL_CREDIT());
-	}
-
-	@Override
-	public PaginatedResponseDTO<GLBalanceResponseDTO> getGlBalanceReport(
-			String startDate, String endDate, String circle, String branch, String cgl, Integer page, Integer size,
-			String currency) {
-
-		Pageable pageable = PageRequest.of(page != null ? page : 0, size != null ? size : 10);
-
-		Page<GLBalanceProjection> pageResult = glBalanceRepository.findGlBalances(
-				startDate, endDate, currency, circle, branch, cgl, pageable);
-
-		List<GLBalanceResponseDTO> list = pageResult.getContent().stream()
-				.map(this::toGlBalanceDto)
-				.toList();
-
-		return new PaginatedResponseDTO<>(
-				pageResult.getNumber(),
-				pageResult.getTotalPages(),
-				pageResult.getSize(),
-				pageResult.getTotalElements(),
-				null,
-				list, null);
-	}
-
-	// =========================================================
-	// PRIVATE HELPER METHODS
-	// =========================================================
-
-	private GetResponseDTO mapToResponseDTO(
-			GlTransactions txn,
-			DateTimeFormatter formatter) {
-
-		GetResponseDTO res = new GetResponseDTO();
-
-		res.setDate(formatter.format(txn.getTransactionDate()));
-		res.setJournalNumber(txn.getJournalId());
-		res.setBatchId(txn.getBatchId());
-		res.setSourceFlag(
-				SourceFlagUtil.getSourceFlagDescription(
-						txn.getSourceFlag()));
-
-		res.setTransactionCount(txn.getTransactionCount());
-		res.setParticulars(txn.getNarration());
-		res.setPostDate(txn.getPostDate().toLocalDateTime());
-		res.setTransactionId(txn.getTransactionId());
-
-		double debit = txn.getDebitAmount() != null ? Math.abs(txn.getDebitAmount()) : 0;
-		double credit = txn.getCreditAmount() != null ? Math.abs(txn.getCreditAmount()) : 0;
-
-		res.setDebitAmount(debit);
-		res.setCreditAmount(credit);
-
-		return res;
-	}
-
-	private void sendToMyDownloads(SearchCriteriaDTO searchDto, byte[] fileBytes, String userId, String fileName) {
-
-		try {
-			MyDownloadsRequestDTO request = new MyDownloadsRequestDTO();
-			log.info("Entered Downloads method");
-
-			request.setUserId(userId);
-			request.setFileName(fileName);
-			request.setMenuId(34);
-
-			String json = new ObjectMapper().writeValueAsString(searchDto);
-			request.setSearchCriteria(json);
-
-			request.setResultData(fileBytes);
-
-			myDownloadsService.insertRequest(request);
-
-		} catch (Exception e) {
-			log.error("Error sending download data", e);
-		}
-	}
-
-	/**
-	 * Helper Method: Forces the date to Start of Day (00:00:00) in Asia/Kolkata
-	 * regardless of Server TimeZone.
-	 */
-	private Date convertToStartOfDay(Date date) {
-		if (date == null)
-			return null;
-		Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(ZONE_IST));
-		calendar.setTime(date);
-		calendar.set(Calendar.HOUR_OF_DAY, 0);
-		calendar.set(Calendar.MINUTE, 0);
-		calendar.set(Calendar.SECOND, 0);
-		calendar.set(Calendar.MILLISECOND, 0);
-		return calendar.getTime();
-	}
-
-	/**
-	 * Helper Method: Forces the date to End of Day (23:59:59) in Asia/Kolkata
-	 * regardless of Server TimeZone.
-	 */
-	private Date convertToEndOfDay(Date date) {
-		if (date == null)
-			return null;
-		Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(ZONE_IST));
-		calendar.setTime(date);
-		calendar.set(Calendar.HOUR_OF_DAY, 23);
-		calendar.set(Calendar.MINUTE, 59);
-		calendar.set(Calendar.SECOND, 59);
-		calendar.set(Calendar.MILLISECOND, 999);
-		return calendar.getTime();
-	}
-
-	private GLBalanceResponseDTO toGlBalanceDto(GLBalanceProjection p) {
-		return new GLBalanceResponseDTO(
-				p.getCIRCLE_CODE(),
-				p.getCIRCLE_NAME(),
-				p.getBRANCH_NAME(),
-				p.getBRANCH_CODE(),
-				p.getCGL(),
-				p.getCGL_DESCRIPTION(),
-				p.getBALANCE_DATE(),
-				p.getCURRENCY(),
-				p.getTOTAL_BALANCE(),
-				p.getTOTAL_INR_BALANCE());
 	}
 }
