@@ -1,1120 +1,270 @@
-import React, { useState } from "react";
-import PropTypes from "prop-types";
-import Tab from "@mui/material/Tab";
-import { Box } from "@mui/material";
-import ConnectWithoutContactIcon from "@mui/icons-material/ConnectWithoutContact";
-import PendingActionsIcon from "@mui/icons-material/PendingActions";
+package com.fincore.enquiry_service.service;
 
-import { BoxStyle, Box2Style, TabsStyle } from "./YearEndProfitTransferStyles";
-import YearEndProfitTransferTab1 from "./YearEndProfitTransferTab1";
-import YearEndProfitTransferTab2 from "./YearEndProfitTransferTab2";
+import java.util.Calendar;
+import java.util.Date;
+import java.util.List;
+import java.util.TimeZone;
 
-function CustomTabPanel(props) {
-  const { children, value, index, ...other } = props;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
 
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`simple-tabpanel-${index}`}
-      aria-labelledby={`simple-tab-${index}`}
-      {...other}
-    >
-      {value === index && <Box2Style>{children}</Box2Style>}
-    </div>
-  );
-}
+import com.fincore.enquiry_service.dto.BalanceRequestDTO;
+import com.fincore.enquiry_service.dto.GlBalDiffResponseDTO;
+import com.fincore.enquiry_service.dto.PaginatedResponseDTO;
+import com.fincore.enquiry_service.exception.NoDataFoundException;
+import com.fincore.enquiry_service.model.Gl_Balance_difference;
+import com.fincore.enquiry_service.repository.GlBalanceDifferenceRepo;
 
-CustomTabPanel.propTypes = {
-  children: PropTypes.node,
-  index: PropTypes.number.isRequired,
-  value: PropTypes.number.isRequired,
-};
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
-function a11yProps(index) {
-  return {
-    id: `simple-tab-${index}`,
-    "aria-controls": `simple-tabpanel-${index}`,
-  };
-}
+@Service
+@Slf4j
+@RequiredArgsConstructor
+public class GlBalanceDiffServiceImpl implements GlBalanceDiffService {
 
-export default function YearEndProfitTransfer() {
-  const [value, setValue] = useState(0);
+    private final GlBalanceDifferenceRepo repo;
 
-  const handleChange = (event, newValue) => {
-    setValue(newValue);
-  };
+    private static final String ZONE_IST = "Asia/Kolkata";
 
-  return (
-    <Box>
-      <BoxStyle fullwidth>
-        <TabsStyle
-          value={value}
-          onChange={handleChange}
-          aria-label="basic tabs example"
-          variant="fullWidth"
-        >
-          <Tab
-            label="Year-End Profit Transfer"
-            icon={<ConnectWithoutContactIcon />}
-            iconPosition="start"
-            {...a11yProps(0)}
-          />
-          <Tab
-            icon={<PendingActionsIcon />}
-            iconPosition="start"
-            label="My Requests"
-            {...a11yProps(1)}
-          />
-        </TabsStyle>
-      </BoxStyle>
-      <CustomTabPanel value={value} index={0}>
-        <YearEndProfitTransferTab1 />
-      </CustomTabPanel>
-      <CustomTabPanel value={value} index={1}>
-        <YearEndProfitTransferTab2 />
-      </CustomTabPanel>
-    </Box>
-  );
-}
-
-
-
-////
-
-
-import {
-  Close as CloseIcon,
-  Download as DownloadIcon,
-  Inbox as NoDataIcon,
-  PlayArrow as PlayArrowIcon,
-  Assessment as SummaryIcon,
-} from "@mui/icons-material";
-import {
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  IconButton,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TablePagination,
-  TableRow,
-  Tooltip,
-  Typography,
-  useTheme,
-} from "@mui/material";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import useApi from "../../hooks/useApi";
-import downloadFile from "../../utils/DownloadUtils";
-import useCustomSnackbar from "../../utils/useCustomSnackbar";
-import {
-  formatProcessTime,
-  timeStampFormatter,
-} from "../../utils/CommonUtilities";
-
-// --- API Constants ---
-const TRIGGER_API_URL = "/PS/airflow/trigger";
-const INITIAL_DATA_URL = "/PS/process/processes/data/7";
-const SUMMARY_BASE_URL = "/CM/lho-transfers/summary/";
-const CREATE_REQUEST_URL = "/CR/create-request";
-const DOWNLOAD_URL = "/RS/reports/generate/base64";
-
-export default function YearEndProfitTransferTab1() {
-  const theme = useTheme();
-  const { callApi } = useApi();
-  const showSnackBar = useCustomSnackbar();
-  const isMounted = useRef(true);
-
-  // Table & Loading States
-  const [isTransferring, setIsTransferring] = useState(false);
-  const [tableData, setTableData] = useState([]);
-  const [totalElements, setTotalElements] = useState(0);
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [myRequests, setMyRequests] = useState([]);
-
-  // Summary & Submission States
-  const [summaryOpen, setSummaryOpen] = useState(false);
-  const [isEligibleToInitiate, setIsEligibleToInitiate] = useState(false);
-  const [summaryData, setSummaryData] = useState([]);
-  const [summaryTotals, setSummaryTotals] = useState({
-    totalAmount: 0,
-    totalRecordCount: 0,
-  });
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const [rowContext, setRowContext] = useState({
-    processRunId: null,
-    processId: null,
-    runId: null,
-    etlDate: null,
-    processStatus: null,
-  });
-
-  const getTodayFormatted = () => new Date().toISOString().split("T")[0];
-
-  /**
-   * DATA FETCHING
-   */
-  const fetchInitialData = useCallback(
-    async (isPolling = false) => {
-      if (!isPolling) setIsInitialLoading(true);
-      try {
-        const paginatedUrl = `${INITIAL_DATA_URL}`;
-        const response = await callApi(paginatedUrl, null, "GET");
-        if (isMounted.current && response) {
-          setTableData(response.initialData || []);
-          setTotalElements(
-            response.totalElements || response.initialData?.length || 0,
-          );
+    @Override
+    public PaginatedResponseDTO<GlBalDiffResponseDTO> getBalanceDiffDetails(BalanceRequestDTO request) {
+        if (request.getEndDate().before(request.getStartDate())) {
+            log.error("End date must be after start date.");
+            throw new IllegalArgumentException("End date must be after start date");
         }
-      } catch (error) {
-        if (!isPolling && error !== undefined) {
-          const errorMessage = error?.message || "Failed to load process data";
-          showSnackBar(errorMessage, "error");
+
+        // 1. Force Start Date to 00:00:00 IST
+        Date adjustedStartDate = convertToStartOfDay(request.getStartDate());
+        // 2. Force End Date to 23:59:59 IST
+        Date adjustedEndDate = convertToEndOfDay(request.getEndDate());
+
+        int page = (request.getPage() != null && request.getPage() >= 0) ? request.getPage() : 0;
+        int size = (request.getSize() != null && request.getSize() >= 0) ? request.getSize() : 10;
+
+        String sortIn = (request.getSortIn() != null && !request.getSortIn().isBlank())
+                ? request.getSortIn().toUpperCase()
+                : "ASC";
+
+        Sort sort = sortIn.equals("DESC") ? Sort.by("date").descending() : Sort.by("date").ascending();
+        PageRequest pageRequest = PageRequest.of(page, size, sort);
+
+        log.info("Adjusted Start Date : {}", adjustedStartDate);
+        log.info("Adjusted End Date : {}", adjustedEndDate);
+
+        Page<Gl_Balance_difference> records = repo.findByBranchAndCglAndCurrencyAndDateBetween(
+                request.getBranch(), request.getCgl(), request.getCurrency(),
+                adjustedStartDate, adjustedEndDate,
+                pageRequest);
+
+        if (records.isEmpty()) {
+            log.warn("No records found for the given filters.");
+            throw new NoDataFoundException("No records found for given filters");
         }
-      } finally {
-        if (isMounted.current && !isPolling) setIsInitialLoading(false);
-      }
-    },
-    [callApi, showSnackBar],
-  );
 
-  const fetchMyRequests = useCallback(async () => {
-    const payload = { requestType: "YEAR_END_PROFIT_TRANSFER" };
-    const response = await callApi("/CR/my-requests", payload, "POST");
-    if (response?.data) {
-      setMyRequests(response.data);
-      return response.data;
-    } else {
-      setMyRequests([]);
-      return [];
+        List<GlBalDiffResponseDTO> list = records.stream()
+                .map(r -> new GlBalDiffResponseDTO(
+                        r.getId(), r.getDate(), r.getBranch(), r.getCgl(), r.getCurrency(), r.getBalance(),
+                        r.getType(), r.getFirstErrorDate()))
+                .toList();
+
+        String actualSort = records.getSort().stream().findFirst().map(order -> order.getDirection().name())
+                .orElse("UNSORTED");
+
+        return new PaginatedResponseDTO<>(
+                records.getNumber(), records.getTotalPages(), records.getSize(), records.getTotalElements(), actualSort,
+                list, null);
     }
-  }, [callApi]);
 
-  useEffect(() => {
-    isMounted.current = true;
-    fetchInitialData();
-    return () => {
-      isMounted.current = false;
-    };
-  }, [fetchInitialData, page, rowsPerPage]);
-
-  useEffect(() => {
-    const pollInterval = setInterval(() => {
-      fetchInitialData(true);
-    }, 10000);
-
-    return () => clearInterval(pollInterval);
-  }, [fetchInitialData, page, rowsPerPage]);
-
-  const handleCancelAllRequest = async () => {
-    try {
-      // const myRequests = await fetchMyRequests();
-
-      // const requestId = myRequests
-      //   ?.filter((req) => req.reqStatus === "PENDING")
-      //   ?.at(0)?.id;
-      // if (!requestId) return;
-      // const payload = {
-      //   requestId,
-      //   remarks: "Auto-canceled this Request",
-      // };
-
-      const payload = {
-        requestType: "YEAR_END_PROFIT_TRANSFER",
-        remarks: "Cancelling all requests to Re-Inititate Profit Transfer",
-      };
-
-      const response = await callApi("/CR/bulk-cancel", payload, "POST");
-      if (response?.success) {
-        showSnackBar(
-          ` All previous pending Year-End Profit Transfer requests are cancelled successfully.`,
-          "success",
-        );
-
-        return true;
-      } else {
-        console.log("Inside else");
-        showSnackBar(
-          response?.message
-            ? response?.message
-            : "Failed to  cancel all requests, Kindly try again",
-          "error",
-        );
-        return false;
-      }
-    } catch (error) {
-      console.error(error);
-      showSnackBar("Failed to  cancel all requests, Kindly try again", "error");
-
-      return false;
+    /**
+     * Helper Method: Forces the date to Start of Day (00:00:00) in Asia/Kolkata
+     * regardless of Server TimeZone.
+     */
+    private Date convertToStartOfDay(Date date) {
+        if (date == null)
+            return null;
+        Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(ZONE_IST));
+        calendar.setTime(date);
+        calendar.set(Calendar.HOUR_OF_DAY, 0);
+        calendar.set(Calendar.MINUTE, 0);
+        calendar.set(Calendar.SECOND, 0);
+        calendar.set(Calendar.MILLISECOND, 0);
+        return calendar.getTime();
     }
-  };
 
-  const fetchIsEligibleToInitiate = async () => {
-    try {
-      const payload = {};
-
-      const response = await callApi(
-        "/CM/lho-transfers/year-end-eligibility",
-        payload,
-        "GET",
-      );
-      setIsEligibleToInitiate(response?.data?.eligible);
-    } catch (error) {
-      console.error(error);
+    /**
+     * Helper Method: Forces the date to End of Day (23:59:59) in Asia/Kolkata
+     * regardless of Server TimeZone.
+     */
+    private Date convertToEndOfDay(Date date) {
+        if (date == null)
+            return null;
+        Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(ZONE_IST));
+        calendar.setTime(date);
+        calendar.set(Calendar.HOUR_OF_DAY, 23);
+        calendar.set(Calendar.MINUTE, 59);
+        calendar.set(Calendar.SECOND, 59);
+        calendar.set(Calendar.MILLISECOND, 999);
+        return calendar.getTime();
     }
-  };
 
-  useEffect(() => {
-    fetchIsEligibleToInitiate();
-  }, []);
-
-  const handleTransferLho = async () => {
-    setIsTransferring(true);
-    const payload = {
-      dagId: "cbs_wrap_dag",
-      processId: 7,
-      remarks: "Profit Transfer Initiated",
-    };
-
-    try {
-      const cancelRequestFlag = await handleCancelAllRequest();
-
-      if (!cancelRequestFlag) return;
-
-      await callApi(TRIGGER_API_URL, payload, "POST");
-      showSnackBar("Profit Transfer Inititated successfully", "success");
-      fetchInitialData();
-    } catch (error) {
-      const errorMessage =
-        error?.message || "Failed to initiate Profit Transfer";
-      showSnackBar(errorMessage, "warning");
-    } finally {
-      setIsTransferring(false);
-    }
-  };
-
-  const handleSubmitLhoRequest = async () => {
-    setIsSubmitting(true);
-    const finalRequestPayload = {
-      requestType: "YEAR_END_PROFIT_TRANSFER",
-      changeType: "ADD",
-      targetId: null,
-      payload: {
-        processRunId: rowContext.processRunId,
-        processId: rowContext.processId,
-        etlDate: rowContext.etlDate,
-        batchId: String(rowContext.runId),
-        date: getTodayFormatted(),
-        totalAmount: summaryTotals.totalAmount,
-        totalRecordCount: summaryTotals.totalRecordCount,
-        circleWiseDetails: summaryData.map((item) => ({
-          transferDate: getTodayFormatted(),
-          circleName: item.circleName,
-          totalProfitLoss: Number(item.totalProfitLoss),
-        })),
-      },
-    };
-
-    try {
-      await callApi(CREATE_REQUEST_URL, finalRequestPayload, "POST");
-      showSnackBar(
-        "Year-End Profit Transfer Request Submitted Successfully",
-        "success",
-      );
-      setSummaryOpen(false);
-    } catch (error) {
-      const errorMessage =
-        error?.message || "Submission failed. Check network/payload";
-      showSnackBar(errorMessage, "warning");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleGetSummary = async (row) => {
-    setSummaryOpen(true);
-    setSummaryLoading(true);
-    setRowContext({
-      processRunId: row.processRunId,
-      processId: row.processId,
-      runId: row.runId,
-      etlDate: row.etlDate,
-      processStatus: row.status,
-    });
-
-    try {
-      const response = await callApi(
-        `${SUMMARY_BASE_URL}${row.processRunId}`,
-        null,
-        "GET",
-      );
-
-      // Navigate through the new response structure
-      const responseData = response?.data || {};
-      const rawMap = responseData.circleWiseDetails || {};
-
-      setSummaryTotals({
-        totalAmount: responseData.totalAmount || 0,
-        totalRecordCount: responseData.totalRecordCount || 0,
-      });
-
-      // Mapped name to circleName
-      setSummaryData(
-        Object.entries(rawMap).map(([name, balance]) => ({
-          circleName: name,
-          totalProfitLoss: balance,
-        })),
-      );
-    } catch (error) {
-      const errorMessage = error?.message || "Could not fetch summary data";
-      showSnackBar(errorMessage, "error");
-    } finally {
-      setSummaryLoading(false);
-    }
-  };
-
-  const handleDownload = async () => {
-    try {
-      const payload = {
-        reportType: "profit_transfer_report",
-        date: "31-03-2026",
-      };
-
-      const responseData = await callApi(DOWNLOAD_URL, payload, "POST");
-      const { excelBase64 } = responseData;
-
-      if (!excelBase64) {
-        showSnackBar("Failed to download file", "error");
-        return;
-      }
-
-      let fileName = "Profit_Transfer_Report_2026-03-31";
-      downloadFile(excelBase64, "excel", fileName, true);
-
-      showSnackBar("File downloaded successfully", "success");
-    } catch (err) {
-      console.error(err);
-      showSnackBar("Error while downloading file", "error");
-    }
-  };
-
-  const getStatusChip = (s) => {
-    if (s === 1)
-      return (
-        <Chip
-          label="In Progress"
-          color="primary"
-          variant="outlined"
-          size="small"
-        />
-      );
-    if (s === 2)
-      return <Chip label="Profit Calculated" color="success" size="small" />;
-    if (s === 3) return <Chip label="Failed" color="error" size="small" />;
-    return <Chip label="Unknown" variant="outlined" size="small" />;
-  };
-
-  useEffect(() => {
-    if (!summaryOpen) return;
-    fetchMyRequests();
-  }, [fetchMyRequests, summaryOpen]);
-
-  // Check if any process is currently running
-  const isAnyProcessRunning = tableData.some((row) => row.status === 1);
-  const anyPendingRequests = useMemo(() => {
-    return myRequests?.some((row) => row.reqStatus === "PENDING");
-  }, [myRequests]);
-
-  return (
-    <Box p={3} width="100%">
-      {/* Header Action */}
-      <Box display="flex" justifyContent="flex-end" mb={2}>
-        <Button
-          variant="contained"
-          startIcon={
-            isTransferring ? (
-              <CircularProgress size={20} color="inherit" />
-            ) : (
-              <PlayArrowIcon />
-            )
-          }
-          onClick={handleTransferLho}
-          disabled={
-            isTransferring ||
-            isInitialLoading ||
-            isAnyProcessRunning ||
-            !isEligibleToInitiate
-          }
-        >
-          {isTransferring ? "Transferring..." : "Initiate Profit Transfer"}
-        </Button>
-      </Box>
-
-      {/* Main Table */}
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead sx={{ bgcolor: theme.palette.action.hover }}>
-            <TableRow>
-              <TableCell align="center">
-                <strong>Process Name</strong>
-              </TableCell>
-              <TableCell align="center">
-                <strong>Profit Calculation</strong>
-              </TableCell>
-              <TableCell align="center">
-                <strong>Created by</strong>
-              </TableCell>
-              <TableCell align="center">
-                <strong>Start Date</strong>
-              </TableCell>
-              <TableCell align="center">
-                <strong>End Date</strong>
-              </TableCell>
-              <TableCell align="center">
-                <strong>Action</strong>
-              </TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {isInitialLoading ? (
-              <TableRow>
-                <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
-                  <CircularProgress size={40} />
-                </TableCell>
-              </TableRow>
-            ) : tableData.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
-                  <NoDataIcon
-                    sx={{ fontSize: 48, color: "text.disabled", mb: 1 }}
-                  />
-                  <Typography variant="body1" color="text.secondary">
-                    There is no data to show.
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            ) : (
-              tableData
-                .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-                .map((row) => (
-                  <TableRow key={row.processRunId}>
-                    <TableCell align="center">{row.processType}</TableCell>
-                    <TableCell align="center">
-                      {getStatusChip(row.status)}
-                    </TableCell>
-                    <TableCell align="center">{row.triggeredBy}</TableCell>
-                    <TableCell align="center">
-                      {timeStampFormatter(row.processStartTime)}
-                    </TableCell>
-                    <TableCell align="center">
-                      {timeStampFormatter(row.processEndTime)}
-                    </TableCell>
-                    <TableCell align="center">
-                      <Tooltip
-                        title={
-                          row.status === 2 ? "Get Summary" : "Not Available"
-                        }
-                      >
-                        <span>
-                          <IconButton
-                            size="small"
-                            disabled={row.status !== 2}
-                            onClick={() => handleGetSummary(row)}
-                            color="primary"
-                          >
-                            <SummaryIcon />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                ))
-            )}
-          </TableBody>
-        </Table>
-        {/* <TablePagination
-          component="div"
-          count={totalElements}
-          page={page}
-          onPageChange={(e, p) => setPage(p)}
-          rowsPerPage={rowsPerPage}
-          onRowsPerPageChange={(e) => {
-            setRowsPerPage(parseInt(e.target.value, 10));
-            setPage(0);
-          }}
-        /> */}
-      </TableContainer>
-
-      {/* --- SUMMARY DIALOG --- */}
-      <Dialog
-        open={summaryOpen}
-        onClose={() => setSummaryOpen(false)}
-        fullWidth
-        maxWidth="sm"
-      >
-        <DialogTitle sx={{ m: 0, p: 2 }}>
-          Circle Wise Summary
-          <IconButton
-            onClick={() => setSummaryOpen(false)}
-            sx={{ position: "absolute", right: 8, top: 8 }}
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent dividers>
-          {summaryLoading ? (
-            <Box display="flex" justifyContent="center" py={5}>
-              <CircularProgress />
-            </Box>
-          ) : (
-            <>
-              <TableContainer component={Paper} sx={{ maxHeight: 400 }}>
-                <Table size="small" stickyHeader>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell
-                        align="left"
-                        sx={{ bgcolor: theme.palette.grey[50] }}
-                      >
-                        <strong>Circle Name</strong>
-                      </TableCell>
-                      {/* Changed to align Right */}
-                      <TableCell
-                        align="right"
-                        sx={{ bgcolor: theme.palette.grey[50] }}
-                      >
-                        <strong>Total Profit/Loss</strong>
-                      </TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {summaryData.map((row, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell align="left">{row.circleName}</TableCell>
-                        {/* Changed to align Right */}
-                        <TableCell align="right" sx={{ fontWeight: "bold" }}>
-                          {Number(row.totalProfitLoss).toLocaleString("en-IN", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </>
-          )}
-        </DialogContent>
-        <DialogActions sx={{ p: 2, justifyContent: "space-between" }}>
-          <Button
-            variant="outlined"
-            startIcon={<DownloadIcon />}
-            onClick={handleDownload}
-            disabled={summaryData.length === 0}
-          >
-            Download Excel
-          </Button>
-
-          <Button
-            variant="contained"
-            disabled={
-              anyPendingRequests ||
-              summaryData.length === 0 ||
-              isSubmitting ||
-              rowContext?.processStatus !== 2 ||
-              !isEligibleToInitiate
-            }
-            onClick={handleSubmitLhoRequest}
-            startIcon={
-              isSubmitting && <CircularProgress size={16} color="inherit" />
-            }
-          >
-            {isSubmitting ? "Submitting..." : "Submit Request"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
-  );
 }
 
 
-//import BlockFlippedIcon from "@mui/icons-material/BlockFlipped";
-import CancelIcon from "@mui/icons-material/Cancel";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import GppBadIcon from "@mui/icons-material/GppBad";
-import InfoIcon from "@mui/icons-material/Info";
-import HourglassBottomIcon from "@mui/icons-material/HourglassBottom";
-import PendingActionsIcon from "@mui/icons-material/PendingActions";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import {
-  Box,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  IconButton,
-  Stack,
-  Tooltip,
-  Typography,
-} from "@mui/material";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import useApi from "../../hooks/useApi";
 
-import DownloadIcon from "@mui/icons-material/Download";
-import { useSelector } from "react-redux";
-import {
-  getPermissions,
-  timeStampFormatter,
-} from "../../utils/CommonUtilities";
-import CustomChip from "../../utils/CustomChip";
-import useCustomSnackbar from "../../utils/useCustomSnackbar";
-import { COMMON_REQ_SCREEN_CONFIGS } from "../common/CommonConstants";
-import ViewRequestDialog from "../common/ViewRequestDailog";
-import { DataGridStyles } from "./YearEndProfitTransferStyles";
+// service
+package com.fincore.enquiry_service.service;
 
-import downloadFile from "../../utils/DownloadUtils";
-import ViewMyRequestDialog from "../common/ViewMyRequestDialog";
+import com.fincore.enquiry_service.dto.BalanceRequestDTO;
+import com.fincore.enquiry_service.dto.GlBalDiffResponseDTO;
+import com.fincore.enquiry_service.dto.PaginatedResponseDTO;
 
-const DOWNLOAD_URL = "/RS/reports/generate/base64";
+public interface GlBalanceDiffService {
 
-export default function YearEndProfitTransferTab2() {
-  const selectedMenuItem = useSelector((s) => s.menus.selectedMenuItem);
-  const requestType = selectedMenuItem?.requestType || "";
-  const permissions = getPermissions(selectedMenuItem);
-  const [rows, setRows] = useState([]);
-  const [confirmDialog, setConfirmDialog] = useState(false);
-  const [requestId, setRequestId] = useState(null);
-  const [viewOpen, setViewOpen] = useState(false);
-  const [viewData, setViewData] = useState(null);
-  const { callApi } = useApi();
-  const showSnackBar = useCustomSnackbar();
-  const screenConfig = COMMON_REQ_SCREEN_CONFIGS[selectedMenuItem?.id];
-  const { processViewData } = screenConfig || {};
-
-  function CustomNoRowsOverlay() {
-    return (
-      <Stack height="100%" alignItems="center" justifyContent="center">
-        <InfoIcon sx={{ fontSize: 48, color: "text.secondary", mb: 2 }} />
-        <Typography variant="h6">No Requests Found</Typography>
-        <Typography>You have not created any request.</Typography>
-      </Stack>
-    );
-  }
-
-  const fetchData = useCallback(async () => {
-    const payload = { requestType };
-    const response = await callApi("/CR/my-requests", payload, "POST");
-    if (response?.data) {
-      const result = response.data.map((row) => {
-        let parsedPayload = row.payload ? row.payload : {};
-        parsedPayload = {
-          ...parsedPayload,
-          ...row,
-        };
-
-        return {
-          ...parsedPayload,
-        };
-      });
-
-      setRows(result);
-    } else {
-      setRows([]);
-    }
-  }, [callApi, requestType]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  const handleCancelRequest = async () => {
-    try {
-      const payload = {
-        requestId,
-        remarks: "User canceled this Request",
-      };
-
-      const response = await callApi("/CR/cancel-request", payload, "PATCH");
-      if (response?.success) {
-        showSnackBar(
-          `Request Id ${requestId} Cancelled Successfully.`,
-          "success",
-        );
-      } else {
-        showSnackBar(
-          response?.message
-            ? response?.message
-            : "Failed to process your cancel request, Kindly try again",
-          "error",
-        );
-      }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      fetchData();
-      setConfirmDialog(false);
-    }
-  };
-
-  const handleViewClick = (data) => {
-    console.log(data);
-    const view = processViewData ? processViewData(data) : data;
-    console.log(view);
-    delete view.payload.ShowDownload;
-    setViewData(view);
-    setViewOpen(true);
-  };
-
-  const handleDownload = async (row) => {
-    try {
-      const payload = {
-        reportType:
-          row.reqStatus === "ACCEPTED"
-            ? "profit_transactions"
-            : "profit_transfer_report",
-        date: "31-03-2026",
-      };
-
-      const responseData = await callApi(DOWNLOAD_URL, payload, "POST");
-      const { excelBase64 } = responseData;
-
-      if (!excelBase64) {
-        showSnackBar("Failed to download file", "error");
-        return;
-      }
-
-      let fileName =
-        row.reqStatus === "ACCEPTED"
-          ? "Profit_Transactions_2026-03-31"
-          : "Profit_Transfer_Report_2026-03-31";
-      downloadFile(excelBase64, "excel", fileName, true);
-
-      showSnackBar("File downloaded successfully", "success");
-    } catch (err) {
-      console.error(err);
-      showSnackBar("Error while downloading file", "error");
-    }
-  };
-  const columns = useMemo(
-    () => [
-      { field: "id", headerName: "Request Id", flex: 0.5 },
-      {
-        field: "Name",
-        headerName: "Process Name",
-        flex: 0.8,
-        sortable: true,
-        renderCell: () => "Year End Profit Transfer",
-      },
-      {
-        field: "reqDate",
-        headerName: "Requested Date",
-        flex: 1,
-        align: "left",
-        headerAlign: "left",
-        filterable: false,
-        disableColumnMenu: true,
-        renderCell: (params) => timeStampFormatter(params.value),
-      },
-      {
-        field: "reqStatus",
-        headerName: "Status",
-        flex: 1,
-        align: "center",
-        headerAlign: "center",
-        filterable: false,
-        sortable: false,
-        disableColumnMenu: true,
-        renderCell: (params) => (
-          <Box
-            sx={{
-              color:
-                params.value === "REJECTED"
-                  ? "error.main"
-                  : params.value === "ACCEPTED"
-                    ? "success.dark"
-                    : "warning.main",
-              fontWeight: "bold",
-            }}
-          >
-            <CustomChip
-              variant="outlined"
-              icon={
-                params.value === "REJECTED" ? (
-                  <BlockFlippedIcon />
-                ) : params.value === "ACCEPTED" ? (
-                  <CheckCircleIcon />
-                ) : params.value === "CANCELLED" ? (
-                  <GppBadIcon />
-                ) : params.value === "QUEUE" ? (
-                  <HourglassBottomIcon />
-                ) : (
-                  <PendingActionsIcon />
-                )
-              }
-              label={
-                params.value === "REJECTED"
-                  ? "Rejected"
-                  : params.value === "ACCEPTED"
-                    ? "Approved"
-                    : params.value === "CANCELLED"
-                      ? "Cancelled"
-                      : params.value === "QUEUE"
-                        ? "In Queue"
-                        : "Pending"
-              }
-              sx={{
-                color:
-                  params.value === "REJECTED"
-                    ? "error.dark"
-                    : params.value === "ACCEPTED"
-                      ? "success.dark"
-                      : params.value === "CANCELLED"
-                        ? "primary.dark"
-                        : params.value === "QUEUE"
-                          ? "warning.dark"
-                          : "warning.light",
-
-                "& .MuiChip-icon": {
-                  color:
-                    params.value === "REJECTED"
-                      ? "error.dark"
-                      : params.value === "ACCEPTED"
-                        ? "success.dark"
-                        : params.value === "CANCELLED"
-                          ? "primary.dark"
-                          : params.value === "QUEUE"
-                            ? "warning.dark"
-                            : "warning.light",
-                },
-              }}
-            />
-          </Box>
-        ),
-      },
-      {
-        field: "action",
-        headerName: "Action",
-        flex: 0.6,
-        justifyContent: "center",
-        align: "center",
-        headerAlign: "center",
-        filterable: false,
-        sortable: false,
-        disableColumnMenu: true,
-        renderCell: (params) => {
-          return (
-            <Stack
-              direction="row"
-              spacing={1}
-              justifyContent="center"
-              alignItems="center"
-              sx={{ ml: 2, mt: 0.5 }}
-            >
-              {permissions.view && (
-                <Tooltip title="View">
-                  <IconButton
-                    // color="primary"
-                    onClick={() => handleViewClick(params.row)}
-                  >
-                    <VisibilityIcon />
-                  </IconButton>
-                </Tooltip>
-              )}
-
-              {params.row.reqStatus === "PENDING" && (
-                <Tooltip title="Download Excel">
-                  <IconButton onClick={() => handleDownload(params.row)}>
-                    <DownloadIcon fontSize="inherit" />
-                  </IconButton>
-                </Tooltip>
-              )}
-
-              {params.row.reqStatus === "PENDING" && permissions.cancel && (
-                <Tooltip title={"Cancel Request"}>
-                  <IconButton
-                    onClick={() => {
-                      setConfirmDialog(true);
-                      setRequestId(params.row.id);
-                    }}
-                  >
-                    <CancelIcon fontSize="inherit" />
-                  </IconButton>
-                </Tooltip>
-              )}
-            </Stack>
-          );
-        },
-      },
-    ],
-    [permissions.cancel, permissions.view],
-  );
-
-  const filteredColumns = useMemo(() => {
-    if (permissions.view || permissions.cancel) {
-      return columns;
-    }
-    // Otherwise, filter out the column where field name is 'action'.
-    else {
-      return columns.filter((column) => column.field !== "action");
-    }
-  }, [columns, permissions]);
-
-  return (
-    <Box p={3}>
-      <DataGridStyles
-        rows={rows}
-        columns={filteredColumns}
-        disableRowSelectionOnClick
-        pageSizeOptions={[5, 10, 25, 50]}
-        initialState={{
-          pagination: { paginationModel: { pageSize: 10, page: 0 } },
-          // sorting: { sortModel: [{ field: "reqDate", sort: "desc" }] },
-          sorting: {
-            sortModel: [{ field: "id", sort: "desc" }],
-          },
-        }}
-        getRowId={(row) => row.id}
-        slots={{
-          noRowsOverlay: CustomNoRowsOverlay,
-        }}
-      />
-
-      {/* View Request Dialog */}
-      {/* <ViewRequestDialog
-        open={viewOpen}
-        handleClose={() => setViewOpen(false)}
-        data={viewData}
-      /> */}
-
-      <ViewMyRequestDialog
-        open={viewOpen}
-        handleClose={() => setViewOpen(false)}
-        data={viewData}
-      />
-
-      {/* Cancel Dialog */}
-      <Dialog
-        open={confirmDialog}
-        onClose={() => {
-          setConfirmDialog(false);
-        }}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle sx={{ fontWeight: 600 }}>
-          Cancel Request ID: {requestId}
-        </DialogTitle>
-        <DialogContent>
-          <Typography sx={{ p: 1 }}>
-            Are you sure you want to cancel this request. Please confirm ?
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button
-            onClick={() => {
-              setConfirmDialog(false);
-            }}
-            variant="outlined"
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleCancelRequest}
-            color="error"
-            variant="contained"
-          >
-            Confirm
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
-  );
+    PaginatedResponseDTO<GlBalDiffResponseDTO> getBalanceDiffDetails(BalanceRequestDTO request);
 }
 
 
-//import React from "react";
-import { styled } from "@mui/material/styles";
-import { Box, Tabs, Fab, Grid, Chip, Stack, TextField } from "@mui/material";
-import { DataGrid } from "@mui/x-data-grid";
-import AddIcon from "@mui/icons-material/Add";
-//segmentmaster
+//controller
 
-export const Boxdtatagrid = styled(Box)(({ theme }) => ({
-  height: 500,
-}));
 
-export const BoxStyle = styled(Box)(({ theme }) => ({
-  borderBottom: 1,
-  borderColor: "divider",
-}));
+package com.fincore.enquiry_service.controller;
 
-export const Box2Style = styled(Box)(({ theme }) => ({
-  py: 2,
-}));
+import com.fincore.enquiry_service.dto.ApiResponse;
+import com.fincore.enquiry_service.dto.BalanceRequestDTO;
+import com.fincore.enquiry_service.dto.GlBalDiffResponseDTO;
+import com.fincore.enquiry_service.dto.PaginatedResponseDTO;
+import com.fincore.enquiry_service.service.GlBalanceDiffService;
 
-export const TabsStyle = styled(Tabs)(({ theme }) => ({
-  width: "100%",
-}));
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 
-//segmentmastertab
+@RestController
+@RequestMapping("/api/Bal-Diff")
+@RequiredArgsConstructor
+public class GL_Balance_Diff_Controller {
 
-export const StackStyle = styled(Stack)(({ theme }) => ({
-  mt: 1.5,
-}));
+    private final GlBalanceDiffService service;
 
-export const FabStyle = styled(Fab)(({ theme }) => ({
-  position: "fixed",
-  borderRadius: 1,
-  fontSize: "15px",
-  bottom: theme.spacing(4),
-  right: theme.spacing(4),
-  zIndex: 1000,
-}));
+    /**
+     * Difference Enquiry API
+     */
+    @PostMapping("/enquires")
+    public ResponseEntity<ApiResponse<PaginatedResponseDTO<GlBalDiffResponseDTO>>> getBalance(
+            @RequestBody BalanceRequestDTO request) {
 
-export const AddIconStyle = styled(AddIcon)(({ theme }) => ({
-  mr: 1,
-}));
+        PaginatedResponseDTO<GlBalDiffResponseDTO> result = service.getBalanceDiffDetails(request);
+        return ResponseEntity.ok(ApiResponse.success(result, "Balance records fetched Successfully"));
+    }
 
-export const GridContainer = styled(Grid)(({ theme }) => ({
-  pt: 1,
-}));
 
-export const GridItem1 = styled(Grid)(({ theme }) => ({
-  mt: 2,
-  mb: 3,
-}));
+}
 
-// export const Textfielss = styled(TextField)(({ theme }) => ({
-//     mb: 90,
-// }));
 
-export const GridItem2 = styled(Grid)(({ theme }) => ({
-  display: "flex",
-  justifyContent: "flex-end",
-  mt: 2,
-}));
+//   repo
+package com.fincore.enquiry_service.repository;
 
-//mysegmentrequeststab
-export const DataGridStyles = styled(DataGrid)(({ theme }) => ({}));
 
-export const Chip1Style = styled(Chip)(({ theme }) => ({
-  p: 0.5,
-  m: 0,
-  width: "90%",
-}));
+import java.util.Date;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import com.fincore.enquiry_service.model.Gl_Balance_difference;
+
+public interface GlBalanceDifferenceRepo extends JpaRepository<Gl_Balance_difference, Integer> {
+
+    Page<Gl_Balance_difference> findByBranchAndCglAndCurrencyAndDateBetween(String branch, String cgl, String currency,
+            Date adjustedStartDate, Date adjustedEndDate, Pageable pageable);
+
+}
+
+
+//response dto
+
+package com.fincore.enquiry_service.dto;
+
+
+import java.util.Date;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class GlBalDiffResponseDTO {
+
+    private Integer id;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "dd-MM-yyyy")
+    private Date date;
+
+    private String branch;
+
+    private String cgl;
+
+    private String currency;
+
+    private Double balance;
+
+    private String type;
+
+    private Date firstErrorDate;
+
+}
+
+
+//model
+package com.fincore.enquiry_service.model;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
+
+import java.util.Date;
+
+@Getter
+@Setter
+@Entity
+@Table(name = "GL_BALANCE_DIFFERENCE")
+@ToString
+public class Gl_Balance_difference {
+
+    // @GeneratedValue(strategy = GenerationType.SEQUENCE, generator =
+    // "gl_balance_seq_gen")
+
+    // @SequenceGenerator(name = "gl_balance_seq_gen", sequenceName =
+    // "GL_BALANCE_SEQ", allocationSize = 1)
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "ID")
+    private Integer id;
+    @Column(name = "BALANCE_DATE")
+    private Date date;
+    @Column(name = "BRANCH_CODE")
+    private String branch;
+    @Column(name = "CURRENCY")
+    private String currency;
+    @Column(name = "CGL")
+    private String cgl;
+    @Column(name = "BALANCE")
+    private Double balance;
+    @Column(name = "INR_BALANCE")
+    private Double inrBalance;
+    @Column(name = "TYPE")
+    private String type;
+    @Column(name = "FIRST_ERROR_DATE")
+    private Date firstErrorDate;
+
+}
