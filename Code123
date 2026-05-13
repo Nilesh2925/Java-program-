@@ -1,270 +1,651 @@
 package com.fincore.enquiry_service.service;
 
-import java.util.Calendar;
-import java.util.Date;
-import java.util.List;
-import java.util.TimeZone;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.sql.Blob;
+import java.sql.Clob;
+import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.CreationHelper;
+import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.util.CellRangeAddress;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fincore.commonutilities.jwt.JwtUtil;
 import com.fincore.enquiry_service.dto.BalanceRequestDTO;
-import com.fincore.enquiry_service.dto.GlBalDiffResponseDTO;
+import com.fincore.enquiry_service.dto.BalanceResponseDTO;
+import com.fincore.enquiry_service.dto.GLBalanceProjection;
+import com.fincore.enquiry_service.dto.GLBalanceResponseDTO;
+import com.fincore.enquiry_service.dto.GetPayloadDTO;
+import com.fincore.enquiry_service.dto.GetResponseDTO;
+import com.fincore.enquiry_service.dto.GlTransactionProjection;
+import com.fincore.enquiry_service.dto.GlTransactionResponseDTO;
+import com.fincore.enquiry_service.dto.MyDownloadsRequestDTO;
 import com.fincore.enquiry_service.dto.PaginatedResponseDTO;
+import com.fincore.enquiry_service.dto.SearchCriteriaDTO;
 import com.fincore.enquiry_service.exception.NoDataFoundException;
-import com.fincore.enquiry_service.model.Gl_Balance_difference;
-import com.fincore.enquiry_service.repository.GlBalanceDifferenceRepo;
+import com.fincore.enquiry_service.model.GLBalance;
+import com.fincore.enquiry_service.model.GlTransactions;
+import com.fincore.enquiry_service.repository.GLBalanceRepository;
+import com.fincore.enquiry_service.repository.GlTransactionsRepository;
+import com.fincore.enquiry_service.service.utils.SourceFlagUtil;
+import com.fincore.enquiry_service.service.utils.TransactionsExcelGenerator;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-@Service
 @Slf4j
+@Service("TransactionsService")
 @RequiredArgsConstructor
-public class GlBalanceDiffServiceImpl implements GlBalanceDiffService {
-
-    private final GlBalanceDifferenceRepo repo;
-
-    private static final String ZONE_IST = "Asia/Kolkata";
-
-    @Override
-    public PaginatedResponseDTO<GlBalDiffResponseDTO> getBalanceDiffDetails(BalanceRequestDTO request) {
-        if (request.getEndDate().before(request.getStartDate())) {
-            log.error("End date must be after start date.");
-            throw new IllegalArgumentException("End date must be after start date");
-        }
-
-        // 1. Force Start Date to 00:00:00 IST
-        Date adjustedStartDate = convertToStartOfDay(request.getStartDate());
-        // 2. Force End Date to 23:59:59 IST
-        Date adjustedEndDate = convertToEndOfDay(request.getEndDate());
-
-        int page = (request.getPage() != null && request.getPage() >= 0) ? request.getPage() : 0;
-        int size = (request.getSize() != null && request.getSize() >= 0) ? request.getSize() : 10;
-
-        String sortIn = (request.getSortIn() != null && !request.getSortIn().isBlank())
-                ? request.getSortIn().toUpperCase()
-                : "ASC";
-
-        Sort sort = sortIn.equals("DESC") ? Sort.by("date").descending() : Sort.by("date").ascending();
-        PageRequest pageRequest = PageRequest.of(page, size, sort);
-
-        log.info("Adjusted Start Date : {}", adjustedStartDate);
-        log.info("Adjusted End Date : {}", adjustedEndDate);
-
-        Page<Gl_Balance_difference> records = repo.findByBranchAndCglAndCurrencyAndDateBetween(
-                request.getBranch(), request.getCgl(), request.getCurrency(),
-                adjustedStartDate, adjustedEndDate,
-                pageRequest);
-
-        if (records.isEmpty()) {
-            log.warn("No records found for the given filters.");
-            throw new NoDataFoundException("No records found for given filters");
-        }
+public class EnquiryServiceImpl implements EnquiryService {
+
+	private final GlTransactionsRepository glTransactionsRepository;
+	private final GLBalanceRepository glBalanceRepository;
+	private final MyDownloadsService myDownloadsService;
+
+	private static final int TRANSACTIONS_THRESHOLD = 2000;
+	private static final int EXPORT_CHUNK_SIZE = 500;
+	private static final String ZONE_IST = "Asia/Kolkata";
+
+	@Override
+	public PaginatedResponseDTO<GetResponseDTO> getTransactionsData(GetPayloadDTO dto) {
 
-        List<GlBalDiffResponseDTO> list = records.stream()
-                .map(r -> new GlBalDiffResponseDTO(
-                        r.getId(), r.getDate(), r.getBranch(), r.getCgl(), r.getCurrency(), r.getBalance(),
-                        r.getType(), r.getFirstErrorDate()))
-                .toList();
+		String branch = dto.getBranch().split("-")[0];
+		String currency = dto.getCurrency();
+		String cgl = dto.getCgl();
+		String fromDate = dto.getFromDate();
+		String toDate = dto.getToDate();
 
-        String actualSort = records.getSort().stream().findFirst().map(order -> order.getDirection().name())
-                .orElse("UNSORTED");
+		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
-        return new PaginatedResponseDTO<>(
-                records.getNumber(), records.getTotalPages(), records.getSize(), records.getTotalElements(), actualSort,
-                list, null);
-    }
+		Double minAmount = dto.getMinAmount();
+		Double maxAmount = dto.getMaxAmount();
+		List<String> sourceFlag = dto.getSourceFlags();
+		int applySourceFlag = 1;
+
+		LocalDate formattedFromDate = LocalDate.parse(fromDate, formatter);
+		LocalDate formattedToDate = LocalDate.parse(toDate, formatter);
 
-    /**
-     * Helper Method: Forces the date to Start of Day (00:00:00) in Asia/Kolkata
-     * regardless of Server TimeZone.
-     */
-    private Date convertToStartOfDay(Date date) {
-        if (date == null)
-            return null;
-        Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(ZONE_IST));
-        calendar.setTime(date);
-        calendar.set(Calendar.HOUR_OF_DAY, 0);
-        calendar.set(Calendar.MINUTE, 0);
-        calendar.set(Calendar.SECOND, 0);
-        calendar.set(Calendar.MILLISECOND, 0);
-        return calendar.getTime();
-    }
+		LocalDate fromMinusOneDay = formattedFromDate.minusDays(1);
+
+		GLBalance openingGLBalance = glBalanceRepository
+				.getGlBalanceData(fromMinusOneDay.format(formatter), branch, currency, cgl);
+
+		GLBalance closingGLBalance = glBalanceRepository
+				.getGlBalanceData(formattedToDate.format(formatter), branch, currency, cgl);
 
-    /**
-     * Helper Method: Forces the date to End of Day (23:59:59) in Asia/Kolkata
-     * regardless of Server TimeZone.
-     */
-    private Date convertToEndOfDay(Date date) {
-        if (date == null)
-            return null;
-        Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(ZONE_IST));
-        calendar.setTime(date);
-        calendar.set(Calendar.HOUR_OF_DAY, 23);
-        calendar.set(Calendar.MINUTE, 59);
-        calendar.set(Calendar.SECOND, 59);
-        calendar.set(Calendar.MILLISECOND, 999);
-        return calendar.getTime();
-    }
+		PaginatedResponseDTO<GetResponseDTO> response = new PaginatedResponseDTO<>();
 
-}
+		if (openingGLBalance == null || closingGLBalance == null) {
+			response.setData(Collections.emptyList());
+			return response;
+		}
 
+		if (sourceFlag == null || sourceFlag.isEmpty() || sourceFlag.contains("ALL")) {
+			applySourceFlag = 0;
+			sourceFlag = List.of("NA");
+		}
 
+		if (minAmount != null && maxAmount != null && minAmount > maxAmount) {
+			throw new IllegalArgumentException("minAmount cannot be greater than maxAmount");
+		}
 
-// service
-package com.fincore.enquiry_service.service;
+		int page = (dto.getPage() == null || dto.getPage() < 0) ? 0 : dto.getPage();
+		int size = (dto.getSize() == null || dto.getSize() <= 0) ? 10 : dto.getSize();
 
-import com.fincore.enquiry_service.dto.BalanceRequestDTO;
-import com.fincore.enquiry_service.dto.GlBalDiffResponseDTO;
-import com.fincore.enquiry_service.dto.PaginatedResponseDTO;
+		// Sort sort = Sort.by("TRANSACTION_DATE");
+		// Pageable pageable = PageRequest.of(page, size, sort);
+		String sortBy = dto.getSortBy() != null
+				? dto.getSortBy()
+				: "TRANSACTION_DATE";
+
+		String sortIn = dto.getSortIn() != null
+				? dto.getSortIn()
+				: "ASC";
+
+		Sort.Direction direction = sortIn.equalsIgnoreCase("DESC")
+				? Sort.Direction.DESC
+				: Sort.Direction.ASC;
 
-public interface GlBalanceDiffService {
+		Sort sort = Sort.by(direction, sortBy)
+				.and(Sort.by("TRANSACTION_ID"));
 
-    PaginatedResponseDTO<GlBalDiffResponseDTO> getBalanceDiffDetails(BalanceRequestDTO request);
-}
+		Pageable pageable = PageRequest.of(page, size, sort);
 
+		Page<GlTransactions> pageResult = glTransactionsRepository.getData(
+				branch,
+				currency,
+				cgl,
+				fromDate,
+				toDate,
+				minAmount,
+				maxAmount,
+				sourceFlag,
+				applySourceFlag,
+				pageable);
+
+		List<GetResponseDTO> responseList = new ArrayList<>();
 
-//controller
+		for (GlTransactions txn : pageResult.getContent()) {
+			responseList.add(mapToResponseDTO(txn, formatter));
+		}
 
+		response.setCurrentPage(page);
+		response.setTotalPages(pageResult.getTotalPages());
+		response.setPageSize(size);
+		response.setTotalElements(pageResult.getTotalElements());
+		response.setData(responseList);
 
-package com.fincore.enquiry_service.controller;
+		Map<String, Object> extra = new HashMap<>();
+		extra.put("openingBalance", openingGLBalance.getBalance());
+		extra.put("closingBalance", closingGLBalance.getBalance());
+		extra.put("openingDate", formatter.format(formattedFromDate));
+		extra.put("closingDate", formatter.format(formattedToDate));
 
-import com.fincore.enquiry_service.dto.ApiResponse;
-import com.fincore.enquiry_service.dto.BalanceRequestDTO;
-import com.fincore.enquiry_service.dto.GlBalDiffResponseDTO;
-import com.fincore.enquiry_service.dto.PaginatedResponseDTO;
-import com.fincore.enquiry_service.service.GlBalanceDiffService;
+		response.setExtraData(extra);
 
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+		return response;
+	}
 
-@RestController
-@RequestMapping("/api/Bal-Diff")
-@RequiredArgsConstructor
-public class GL_Balance_Diff_Controller {
+	@Override
+	public byte[] getTransactionsFile(GetPayloadDTO dto, String userId) throws IOException {
 
-    private final GlBalanceDiffService service;
+		log.info("Processing export for user: {}", userId);
+		log.info("GetPayloadDTO>>>>{}", dto);
 
-    /**
-     * Difference Enquiry API
-     */
-    @PostMapping("/enquires")
-    public ResponseEntity<ApiResponse<PaginatedResponseDTO<GlBalDiffResponseDTO>>> getBalance(
-            @RequestBody BalanceRequestDTO request) {
-
-        PaginatedResponseDTO<GlBalDiffResponseDTO> result = service.getBalanceDiffDetails(request);
-        return ResponseEntity.ok(ApiResponse.success(result, "Balance records fetched Successfully"));
-    }
-
-
-}
-
-
-//   repo
-package com.fincore.enquiry_service.repository;
-
-
-import java.util.Date;
-
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.repository.JpaRepository;
-
-import com.fincore.enquiry_service.model.Gl_Balance_difference;
-
-public interface GlBalanceDifferenceRepo extends JpaRepository<Gl_Balance_difference, Integer> {
-
-    Page<Gl_Balance_difference> findByBranchAndCglAndCurrencyAndDateBetween(String branch, String cgl, String currency,
-            Date adjustedStartDate, Date adjustedEndDate, Pageable pageable);
-
-}
-
-
-//response dto
-
-package com.fincore.enquiry_service.dto;
-
-
-import java.util.Date;
-
-import com.fasterxml.jackson.annotation.JsonFormat;
-
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-public class GlBalDiffResponseDTO {
-
-    private Integer id;
-
-    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "dd-MM-yyyy")
-    private Date date;
-
-    private String branch;
-
-    private String cgl;
-
-    private String currency;
-
-    private Double balance;
-
-    private String type;
-
-    private Date firstErrorDate;
-
-}
-
-
-//model
-package com.fincore.enquiry_service.model;
-
-import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
-import lombok.ToString;
-
-import java.util.Date;
-
-@Getter
-@Setter
-@Entity
-@Table(name = "GL_BALANCE_DIFFERENCE")
-@ToString
-public class Gl_Balance_difference {
-
-    // @GeneratedValue(strategy = GenerationType.SEQUENCE, generator =
-    // "gl_balance_seq_gen")
-
-    // @SequenceGenerator(name = "gl_balance_seq_gen", sequenceName =
-    // "GL_BALANCE_SEQ", allocationSize = 1)
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "ID")
-    private Integer id;
-    @Column(name = "BALANCE_DATE")
-    private Date date;
-    @Column(name = "BRANCH_CODE")
-    private String branch;
-    @Column(name = "CURRENCY")
-    private String currency;
-    @Column(name = "CGL")
-    private String cgl;
-    @Column(name = "BALANCE")
-    private Double balance;
-    @Column(name = "INR_BALANCE")
-    private Double inrBalance;
-    @Column(name = "TYPE")
-    private String type;
-    @Column(name = "FIRST_ERROR_DATE")
-    private Date firstErrorDate;
-
+		String branch = dto.getBranch().split("-")[0];
+		String currency = dto.getCurrency();
+		String cgl = dto.getCgl().split(" -")[0];
+		String fromDate = dto.getFromDate();
+		String toDate = dto.getToDate();
+		Double minAmount = dto.getMinAmount();
+		Double maxAmount = dto.getMaxAmount();
+		List<String> sourceFlag = dto.getSourceFlags();
+		int applySourceFlag = 1;
+
+		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+
+		LocalDate formattedFromDate = LocalDate.parse(fromDate, formatter);
+		LocalDate fromMinusOneDay = formattedFromDate.minusDays(1);
+		LocalDate formattedToDate = LocalDate.parse(toDate, formatter);
+
+		log.info("fromMinusDay " + fromMinusOneDay.format(formatter));
+
+		GLBalance openingGLBalance = glBalanceRepository
+				.getGlBalanceData(fromMinusOneDay.format(formatter), branch, currency, cgl);
+
+		GLBalance closingGLBalance = glBalanceRepository
+				.getGlBalanceData(formattedToDate.format(formatter), branch, currency, cgl);
+
+		log.info("OpeningBalance " + openingGLBalance);
+
+		if (openingGLBalance == null) {
+			throw new IllegalStateException("Opening Balance missing for date: " + fromMinusOneDay);
+		}
+		if (sourceFlag == null || sourceFlag.isEmpty() || sourceFlag.contains("ALL")) {
+			applySourceFlag = 0;
+			sourceFlag = List.of("NA");
+		}
+
+		int page = 0;
+		int size = 500;
+
+		// Sort sort = Sort.by("TRANSACTION_DATE");
+		String sortBy = dto.getSortBy() != null
+				? dto.getSortBy()
+				: "TRANSACTION_DATE";
+
+		String sortIn = dto.getSortIn() != null
+				? dto.getSortIn()
+				: "ASC";
+
+		Sort.Direction direction = sortIn.equalsIgnoreCase("DESC")
+				? Sort.Direction.DESC
+				: Sort.Direction.ASC;
+
+		Sort sort = Sort.by(direction, sortBy)
+				.and(Sort.by("TRANSACTION_ID"));
+
+		List<GlTransactions> allTransactions = new ArrayList<>();
+
+		Page<GlTransactions> pageResult;
+
+		do {
+			Pageable pageable = PageRequest.of(page, size, sort);
+
+			pageResult = glTransactionsRepository.getData(
+					branch,
+					currency,
+					cgl,
+					fromDate,
+					toDate,
+					minAmount,
+					maxAmount,
+					sourceFlag,
+					applySourceFlag,
+					pageable);
+
+			allTransactions.addAll(pageResult.getContent());
+
+			page++;
+
+		} while (pageResult.hasNext());
+
+		SearchCriteriaDTO searchDto = new SearchCriteriaDTO();
+
+		searchDto.setBranch(dto.getBranch());
+		searchDto.setCgl(dto.getCgl());
+		searchDto.setCurrency(dto.getCurrency());
+		searchDto.setFromDate(dto.getFromDate());
+		searchDto.setToDate(dto.getToDate());
+
+		if (dto.getMinAmount() != null) {
+			searchDto.setMinAmount(dto.getMinAmount());
+		}
+
+		if (dto.getMaxAmount() != null) {
+			searchDto.setMaxAmount(dto.getMaxAmount());
+		}
+
+		if (dto.getSourceFlags() == null) {
+			searchDto.setSourceFlags(List.of("ALL"));
+		} else {
+			searchDto.setSourceFlags(dto.getSourceFlags());
+		}
+		String fileName = "Transaction_Enquiry.xlsx";
+
+		// -------- GENERATE FILE --------
+		
+		byte[] fileBytes = TransactionsExcelGenerator.getFileContents(
+				branch,
+				currency,
+				cgl,
+				fromDate,
+				toDate,
+				allTransactions,
+				openingGLBalance.getBalance(),
+				closingGLBalance.getBalance(),
+				formatter.format(
+						formattedFromDate),
+				formatter.format(new java.sql.Date(closingGLBalance.getDate().getTime()).toLocalDate()), minAmount,
+				maxAmount);
+
+		sendToMyDownloads(searchDto, fileBytes, userId, fileName);
+
+		return fileBytes;
+	}
+
+	@Override
+	public PaginatedResponseDTO<BalanceResponseDTO> getBalanceDetails(BalanceRequestDTO request) {
+		if (request.getEndDate().before(request.getStartDate())) {
+			log.error("End date must be after start date.");
+			throw new IllegalArgumentException("End date must be after start date");
+		}
+
+		// 1. Force Start Date to 00:00:00 IST
+		Date adjustedStartDate = convertToStartOfDay(request.getStartDate());
+		// 2. Force End Date to 23:59:59 IST
+		Date adjustedEndDate = convertToEndOfDay(request.getEndDate());
+
+		int page = (request.getPage() != null && request.getPage() >= 0) ? request.getPage() : 0;
+		int size = (request.getSize() != null && request.getSize() >= 0) ? request.getSize() : 10;
+
+		String sortIn = (request.getSortIn() != null && !request.getSortIn().isBlank())
+				? request.getSortIn().toUpperCase()
+				: "ASC";
+
+		Sort sort = sortIn.equals("DESC") ? Sort.by("date").descending() : Sort.by("date").ascending();
+		PageRequest pageRequest = PageRequest.of(page, size, sort);
+
+		log.info("Adjusted Start Date : {}", adjustedStartDate);
+		log.info("Adjusted End Date : {}", adjustedEndDate);
+
+		Page<GLBalance> records = glBalanceRepository.findByBranchAndCglAndCurrencyAndDateBetween(
+				request.getBranch(), request.getCgl(), request.getCurrency(),
+				adjustedStartDate, adjustedEndDate,
+				pageRequest);
+
+		if (records.isEmpty()) {
+			log.warn("No records found for the given filters.");
+			throw new NoDataFoundException("No records found for given filters");
+		}
+
+		List<BalanceResponseDTO> list = records.stream()
+				.map(r -> new BalanceResponseDTO(
+						r.getId(), r.getDate(), r.getBranch(), r.getCgl(), r.getCurrency(), r.getBalance(),
+						r.getBalance() < 0 ? "DR" : "CR"))
+				.toList();
+
+		String actualSort = records.getSort().stream().findFirst().map(order -> order.getDirection().name())
+				.orElse("UNSORTED");
+
+		return new PaginatedResponseDTO<>(
+				records.getNumber(), records.getTotalPages(), records.getSize(), records.getTotalElements(), actualSort,
+				list, null);
+	}
+
+	@Override
+	public byte[] exportBalanceToExcel(BalanceRequestDTO request, String userId) {
+		// 1. VALIDATION
+		if (request.getEndDate().before(request.getStartDate())) {
+			throw new IllegalArgumentException("End date must be after start date");
+		}
+
+		Date adjustedStartDate = convertToStartOfDay(request.getStartDate());
+		Date adjustedEndDate = convertToEndOfDay(request.getEndDate());
+
+		try (Workbook workbook = new XSSFWorkbook();
+				ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+
+			Sheet sheet = workbook.createSheet("Balance Enquiry");
+
+			// 2. STYLES INITIALIZATION
+			CellStyle headerStyle = workbook.createCellStyle();
+			Font headerFont = workbook.createFont();
+			headerFont.setBold(true);
+			headerStyle.setFont(headerFont);
+
+			CellStyle centerStyle = workbook.createCellStyle();
+			centerStyle.setAlignment(HorizontalAlignment.CENTER);
+
+			CellStyle dateStyle = workbook.createCellStyle();
+			CreationHelper creationHelper = workbook.getCreationHelper();
+			dateStyle.setDataFormat(creationHelper.createDataFormat().getFormat("dd-MM-yyyy"));
+
+			CellStyle balanceStyle = workbook.createCellStyle();
+			balanceStyle.setDataFormat(creationHelper.createDataFormat().getFormat("#,##0.00"));
+
+			CellStyle titleStyle = workbook.createCellStyle();
+			Font titleFont = workbook.createFont();
+			titleFont.setBold(true);
+			titleFont.setFontHeightInPoints((short) 14);
+			titleStyle.setFont(titleFont);
+			titleStyle.setAlignment(HorizontalAlignment.CENTER);
+
+			// 3. HEADER SECTION (TITLE & SUMMARY)
+			Row titleRow = sheet.createRow(0);
+			Cell titleCell = titleRow.createCell(0);
+			titleCell.setCellValue("GL Balance Enquiry");
+			titleCell.setCellStyle(titleStyle);
+			sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, 6));
+
+			// Summary Table
+			Row summaryHeader = sheet.createRow(2);
+			String[] summaryHeaders = { "Branch", "Currency", "CGL", "From Date", "To Date" };
+			for (int i = 0; i < summaryHeaders.length; i++) {
+				Cell cell = summaryHeader.createCell(i);
+				cell.setCellValue(summaryHeaders[i]);
+				cell.setCellStyle(headerStyle);
+			}
+
+			Row summaryRow = sheet.createRow(3);
+			summaryRow.createCell(0).setCellValue(request.getBranch());
+			summaryRow.createCell(1).setCellValue(request.getCurrency());
+			summaryRow.createCell(2).setCellValue(request.getCgl());
+
+			Cell sDate = summaryRow.createCell(3);
+			sDate.setCellValue(request.getStartDate());
+			sDate.setCellStyle(dateStyle);
+
+			Cell eDate = summaryRow.createCell(4);
+			eDate.setCellValue(request.getEndDate());
+			eDate.setCellStyle(dateStyle);
+
+			// 4. MAIN DATA TABLE HEADER
+			String[] columns = { "ID", "Date", "Branch", "CGL", "Currency", "Balance", "DR/CR" };
+			Row headerRow = sheet.createRow(5);
+			for (int i = 0; i < columns.length; i++) {
+				Cell cell = headerRow.createCell(i);
+				cell.setCellValue(columns[i]);
+				cell.setCellStyle(headerStyle);
+			}
+
+			// 5. DATA POPULATION (PAGINATED)
+			int rowIdx = 6;
+			int page = 0;
+			Page<GLBalance> recordsPage;
+
+			do {
+				Pageable pageable = PageRequest.of(page++, EXPORT_CHUNK_SIZE, Sort.by("date").ascending());
+				recordsPage = glBalanceRepository.findByBranchAndCglAndCurrencyAndDateBetween(
+						request.getBranch(), request.getCgl(), request.getCurrency(),
+						adjustedStartDate, adjustedEndDate, pageable);
+
+				if (recordsPage.isEmpty() && page == 1)
+					break;
+
+				for (GLBalance r : recordsPage.getContent()) {
+					Row row = sheet.createRow(rowIdx++);
+					row.createCell(0).setCellValue(r.getId() != null ? r.getId() : 0);
+
+					Cell dCell = row.createCell(1);
+					if (r.getDate() != null) {
+						dCell.setCellValue(r.getDate());
+						dCell.setCellStyle(dateStyle);
+					}
+
+					row.createCell(2).setCellValue(r.getBranch() != null ? r.getBranch() : "");
+					row.createCell(3).setCellValue(r.getCgl() != null ? r.getCgl() : "");
+					row.createCell(4).setCellValue(r.getCurrency() != null ? r.getCurrency() : "");
+
+					double balance = r.getBalance();
+
+					Cell bCell = row.createCell(5);
+					bCell.setCellValue(Math.abs(balance));
+					bCell.setCellStyle(balanceStyle);
+					Cell drCrCell = row.createCell(6);
+					drCrCell.setCellValue(balance < 0 ? "DR" : "CR");
+					drCrCell.setCellStyle(centerStyle);
+
+				}
+			} while (!recordsPage.isLast());
+
+			// 6. FINALIZATION & DOWNLOAD SERVICE
+			for (int i = 0; i < columns.length; i++) {
+				sheet.autoSizeColumn(i);
+			}
+
+			workbook.write(out);
+			byte[] fileBytes = out.toByteArray();
+
+			// Map Search Criteria for MyDownloads
+			SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yyyy");
+			SearchCriteriaDTO searchDto = new SearchCriteriaDTO();
+			searchDto.setBranch(request.getBranch());
+			searchDto.setCgl(request.getCgl());
+			searchDto.setCurrency(request.getCurrency());
+			searchDto.setFromDate(sdf.format(request.getStartDate()));
+			searchDto.setToDate(sdf.format(request.getEndDate()));
+
+			sendToMyDownloads(searchDto, fileBytes, userId, "Balance_Enquiry.xlsx");
+
+			return fileBytes;
+
+		} catch (IOException e) {
+			throw new RuntimeException("Failed to generate Excel file", e);
+		}
+	}
+
+	@Override
+	public PaginatedResponseDTO<GlTransactionResponseDTO> getGlTransactionsReport(
+			String startDate, String endDate, String circle, String branch, String cgl, Integer page, Integer size,
+			String currency) {
+
+		int pageNo = (page != null && page >= 0) ? page : 0;
+		int pageSize = (size != null && size > 0) ? size : 10;
+		Pageable pageable = PageRequest.of(pageNo, pageSize);
+
+		Page<GlTransactionProjection> pageResult = glTransactionsRepository.findGlTransactions(
+				startDate, endDate, currency, circle, branch, cgl, pageable);
+
+		List<GlTransactionResponseDTO> list = pageResult.getContent().stream()
+				.map(this::toGlTransactionDto)
+				.toList();
+
+		if (list.isEmpty()) {
+			log.warn("No transactions found for the given criteria.");
+			throw new NoDataFoundException("No records found for the given criteria");
+		}
+
+		return new PaginatedResponseDTO<>(
+				pageResult.getNumber(),
+				pageResult.getTotalPages(),
+				pageResult.getSize(),
+				pageResult.getTotalElements(),
+				null,
+				list, null);
+	}
+
+	private GlTransactionResponseDTO toGlTransactionDto(GlTransactionProjection p) {
+		return new GlTransactionResponseDTO(
+				p.getCIRCLE_CODE(),
+				p.getCIRCLE_NAME(),
+				p.getBRANCH_NAME(),
+				p.getBRANCH_CODE(),
+				p.getCGL(),
+				p.getCGL_DESCRIPTION(),
+				p.getNARRATION(),
+				p.getTRANSACTION_DATE(),
+				p.getCURRENCY(),
+				p.getTOTAL_DEBIT(),
+				p.getTOTAL_CREDIT());
+	}
+
+	@Override
+	public PaginatedResponseDTO<GLBalanceResponseDTO> getGlBalanceReport(
+			String startDate, String endDate, String circle, String branch, String cgl, Integer page, Integer size,
+			String currency) {
+
+		Pageable pageable = PageRequest.of(page != null ? page : 0, size != null ? size : 10);
+
+		Page<GLBalanceProjection> pageResult = glBalanceRepository.findGlBalances(
+				startDate, endDate, currency, circle, branch, cgl, pageable);
+
+		List<GLBalanceResponseDTO> list = pageResult.getContent().stream()
+				.map(this::toGlBalanceDto)
+				.toList();
+
+		return new PaginatedResponseDTO<>(
+				pageResult.getNumber(),
+				pageResult.getTotalPages(),
+				pageResult.getSize(),
+				pageResult.getTotalElements(),
+				null,
+				list, null);
+	}
+
+	// =========================================================
+	// PRIVATE HELPER METHODS
+	// =========================================================
+
+	private GetResponseDTO mapToResponseDTO(
+			GlTransactions txn,
+			DateTimeFormatter formatter) {
+
+		GetResponseDTO res = new GetResponseDTO();
+
+		res.setDate(formatter.format(txn.getTransactionDate()));
+		res.setJournalNumber(txn.getJournalId());
+		res.setBatchId(txn.getBatchId());
+		res.setSourceFlag(
+				SourceFlagUtil.getSourceFlagDescription(
+						txn.getSourceFlag()));
+
+		res.setTransactionCount(txn.getTransactionCount());
+		res.setParticulars(txn.getNarration());
+		res.setPostDate(txn.getPostDate().toLocalDateTime());
+		res.setTransactionId(txn.getTransactionId());
+
+		double debit = txn.getDebitAmount() != null ? Math.abs(txn.getDebitAmount()) : 0;
+		double credit = txn.getCreditAmount() != null ? Math.abs(txn.getCreditAmount()) : 0;
+
+		res.setDebitAmount(debit);
+		res.setCreditAmount(credit);
+
+		return res;
+	}
+
+	private void sendToMyDownloads(SearchCriteriaDTO searchDto, byte[] fileBytes, String userId, String fileName) {
+
+		try {
+			MyDownloadsRequestDTO request = new MyDownloadsRequestDTO();
+			log.info("Entered Downloads method");
+
+			request.setUserId(userId);
+			request.setFileName(fileName);
+			request.setMenuId(34);
+
+			String json = new ObjectMapper().writeValueAsString(searchDto);
+			request.setSearchCriteria(json);
+
+			request.setResultData(fileBytes);
+
+			myDownloadsService.insertRequest(request);
+
+		} catch (Exception e) {
+			log.error("Error sending download data", e);
+		}
+	}
+
+	/**
+	 * Helper Method: Forces the date to Start of Day (00:00:00) in Asia/Kolkata
+	 * regardless of Server TimeZone.
+	 */
+	private Date convertToStartOfDay(Date date) {
+		if (date == null)
+			return null;
+		Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(ZONE_IST));
+		calendar.setTime(date);
+		calendar.set(Calendar.HOUR_OF_DAY, 0);
+		calendar.set(Calendar.MINUTE, 0);
+		calendar.set(Calendar.SECOND, 0);
+		calendar.set(Calendar.MILLISECOND, 0);
+		return calendar.getTime();
+	}
+
+	/**
+	 * Helper Method: Forces the date to End of Day (23:59:59) in Asia/Kolkata
+	 * regardless of Server TimeZone.
+	 */
+	private Date convertToEndOfDay(Date date) {
+		if (date == null)
+			return null;
+		Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(ZONE_IST));
+		calendar.setTime(date);
+		calendar.set(Calendar.HOUR_OF_DAY, 23);
+		calendar.set(Calendar.MINUTE, 59);
+		calendar.set(Calendar.SECOND, 59);
+		calendar.set(Calendar.MILLISECOND, 999);
+		return calendar.getTime();
+	}
+
+	private GLBalanceResponseDTO toGlBalanceDto(GLBalanceProjection p) {
+		return new GLBalanceResponseDTO(
+				p.getCIRCLE_CODE(),
+				p.getCIRCLE_NAME(),
+				p.getBRANCH_NAME(),
+				p.getBRANCH_CODE(),
+				p.getCGL(),
+				p.getCGL_DESCRIPTION(),
+				p.getBALANCE_DATE(),
+				p.getCURRENCY(),
+				p.getTOTAL_BALANCE(),
+				p.getTOTAL_INR_BALANCE());
+	}
 }
