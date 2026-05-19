@@ -1,553 +1,359 @@
-package com.fincore.enquiry_service.model;
+package com.fincore.enquiry_service.service.export;
 
-import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fincore.enquiry_service.dto.BalanceRequestDTO;
+import com.fincore.enquiry_service.dto.MyDownloadsRequestDTO;
+import com.fincore.enquiry_service.service.MyDownloadsService;
+import com.fincore.enquiry_service.service.utils.BaseStreamingExcelExporter;
+import com.fincore.enquiry_service.service.utils.ExcelExportUtil;
+import com.fincore.enquiry_service.service.utils.ExcelStyleUtil;
 
-import java.math.BigDecimal;
-import java.time.LocalDate;
-
-@Getter
-@Setter
-@Entity
-@Table(name = "GL_BALANCE_DIFFERENCE")
-public class Difference {
-
-    @Id
-    @GeneratedValue(
-            strategy = GenerationType.SEQUENCE,
-            generator = "gl_balance_seq_gen"
-    )
-    @SequenceGenerator(
-            name = "gl_balance_seq_gen",
-            sequenceName = "GL_BALANCE_SEQ",
-            allocationSize = 1
-    )
-    @Column(name = "ID")
-    private Long id;
-
-    @Column(name = "BALANCE_DATE", nullable = false)
-    private LocalDate balanceDate;
-
-    @Column(name = "BRANCH_CODE", nullable = false, length = 5)
-    private String branchCode;
-
-    @Column(name = "CURRENCY", nullable = false, length = 3)
-    private String currency;
-
-    @Column(name = "CGL", nullable = false, length = 10)
-    private String cgl;
-
-    @Column(name = "BALANCE", nullable = false, precision = 25, scale = 4)
-    private BigDecimal balance;
-
-    @Column(name = "INR_BALANCE", precision = 25, scale = 2)
-    private BigDecimal inrBalance;
-
-    @Column(name = "TYPE", nullable = false, length = 40)
-    private String type;
-
-    @Column(name = "FIRST_ERROR_DATE")
-    private LocalDate firstErrorDate;
-}
-
-
-
-
-
-package com.fincore.enquiry_service.controller;
-
-import com.fincore.enquiry_service.dto.DifferenceRequestDTO;
-import com.fincore.enquiry_service.service.DifferenceService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
-@RestController
-@RequestMapping("/api/difference")
-@RequiredArgsConstructor
-public class DifferenceController {
-
-    private final DifferenceService differenceService;
-
-    /**
-     * Difference Enquiry API
-     */
-    @PostMapping("/search")
-    public ResponseEntity<?> searchDifference(
-            @RequestBody DifferenceRequestDTO requestDTO) {
-
-        return ResponseEntity.ok(
-                differenceService.searchDifference(requestDTO)
-        );
-    }
-
-    /**
-     * Difference Excel Export API
-     */
-    @PostMapping("/export")
-    public ResponseEntity<byte[]> exportDifference(
-            @RequestBody DifferenceRequestDTO requestDTO) {
-
-        byte[] excelData =
-                differenceService.exportDifference(requestDTO);
-
-        return ResponseEntity.ok()
-                .header(
-                        HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=gl_balance_difference.xlsx"
-                )
-                .contentType(
-                        MediaType.APPLICATION_OCTET_STREAM
-                )
-                .body(excelData);
-    }
-}
-
-
-
-
-// ================================
-// DifferenceRequestDTO.java
-// ================================
-
-package com.fincore.enquiry_service.dto;
-
-import lombok.Getter;
-import lombok.Setter;
-
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.util.List;
-
-@Getter
-@Setter
-public class DifferenceRequestDTO {
-
-    private String branchCode;
-
-    private String currency;
-
-    private String cgl;
-
-    private List<String> type;
-
-    private LocalDate fromDate;
-
-    private LocalDate toDate;
-
-    private BigDecimal minBalance;
-
-    private BigDecimal maxBalance;
-
-    private Integer page = 0;
-
-    private Integer size = 10;
-
-    private String sortDirection = "DESC";
-}
-
-
-
-
-// ================================
-// DifferenceResponseDTO.java
-// ================================
-
-package com.fincore.enquiry_service.dto;
-
-import lombok.Getter;
-import lombok.Setter;
-
-import java.math.BigDecimal;
-import java.time.LocalDate;
-
-@Getter
-@Setter
-public class DifferenceResponseDTO {
-
-    private Long id;
-
-    private LocalDate balanceDate;
-
-    private String branchCode;
-
-    private String currency;
-
-    private String cgl;
-
-    private BigDecimal balance;
-
-    private BigDecimal inrBalance;
-
-    private String type;
-
-    private LocalDate firstErrorDate;
-}
-
-
-
-// ================================
-// DifferenceRepository.java
-// ================================
-
-package com.fincore.enquiry_service.repository;
-
-import com.fincore.enquiry_service.model.Difference;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.util.List;
-
-public interface DifferenceRepository
-        extends JpaRepository<Difference, Long> {
-
-    @Query(
-            value = """
-                    
-                    SELECT *
-                    FROM GL_BALANCE_DIFFERENCE
-                    WHERE
-                        
-                        (:branchCode IS NULL OR BRANCH_CODE = :branchCode)
-                        
-                        AND (:currency IS NULL OR CURRENCY = :currency)
-                        
-                        AND (:cgl IS NULL OR CGL = :cgl)
-                        
-                        AND (:fromDate IS NULL OR BALANCE_DATE >= :fromDate)
-                        
-                        AND (:toDate IS NULL OR BALANCE_DATE <= :toDate)
-                        
-                        AND (:minBalance IS NULL OR BALANCE >= :minBalance)
-                        
-                        AND (:maxBalance IS NULL OR BALANCE <= :maxBalance)
-                        
-                        AND (
-                            :applyType = 0
-                            OR TYPE IN (:type)
-                        )
-                    
-                    """,
-
-            countQuery = """
-                    
-                    SELECT COUNT(*)
-                    FROM GL_BALANCE_DIFFERENCE
-                    WHERE
-                        
-                        (:branchCode IS NULL OR BRANCH_CODE = :branchCode)
-                        
-                        AND (:currency IS NULL OR CURRENCY = :currency)
-                        
-                        AND (:cgl IS NULL OR CGL = :cgl)
-                        
-                        AND (:fromDate IS NULL OR BALANCE_DATE >= :fromDate)
-                        
-                        AND (:toDate IS NULL OR BALANCE_DATE <= :toDate)
-                        
-                        AND (:minBalance IS NULL OR BALANCE >= :minBalance)
-                        
-                        AND (:maxBalance IS NULL OR BALANCE <= :maxBalance)
-                        
-                        AND (
-                            :applyType = 0
-                            OR TYPE IN (:type)
-                        )
-                    
-                    """,
-
-            nativeQuery = true
-    )
-    Page<Difference> searchDifference(
-
-            @Param("branchCode")
-            String branchCode,
-
-            @Param("currency")
-            String currency,
-
-            @Param("cgl")
-            String cgl,
-
-            @Param("type")
-            List<String> type,
-
-            @Param("applyType")
-            Integer applyType,
-
-            @Param("fromDate")
-            LocalDate fromDate,
-
-            @Param("toDate")
-            LocalDate toDate,
-
-            @Param("minBalance")
-            BigDecimal minBalance,
-
-            @Param("maxBalance")
-            BigDecimal maxBalance,
-
-            Pageable pageable
-    );
-}
-
-
-
-// ================================
-// DifferenceService.java
-// ================================
-
-package com.fincore.enquiry_service.service;
-
-import com.fincore.enquiry_service.dto.DifferenceRequestDTO;
-
-public interface DifferenceService {
-
-    Object searchDifference(
-            DifferenceRequestDTO requestDTO);
-
-    byte[] exportDifference(
-            DifferenceRequestDTO requestDTO);
-}
-
-
-
-
-
-
-// ================================
-// DifferenceServiceImpl.java
-// ================================
-
-package com.fincore.enquiry_service.service;
-
-import com.fincore.enquiry_service.dto.DifferenceRequestDTO;
-import com.fincore.enquiry_service.dto.DifferenceResponseDTO;
-import com.fincore.enquiry_service.model.Difference;
-import com.fincore.enquiry_service.repository.DifferenceRepository;
-import lombok.RequiredArgsConstructor;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.xssf.usermodel.XSSFSheet;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.springframework.data.domain.*;
+import lombok.extern.slf4j.Slf4j;
+
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.ss.util.CellRangeAddress;
+import org.apache.poi.xssf.streaming.SXSSFSheet;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
-public class DifferenceServiceImpl
-        implements DifferenceService {
+public class BalanceStreamingExportService
+        extends BaseStreamingExcelExporter {
 
-    private final DifferenceRepository differenceRepository;
+    private final JdbcTemplate jdbcTemplate;
+    private final MyDownloadsService myDownloadsService;
 
-    @Override
-    public Object searchDifference(
-            DifferenceRequestDTO requestDTO) {
 
-        int applyType = 0;
 
-        if (requestDTO.getType() != null
-                && !requestDTO.getType().isEmpty()
-                && !requestDTO.getType().contains("ALL")) {
+    public byte[] export(
+            BalanceRequestDTO request,
+            String userId) {
 
-            applyType = 1;
+        if (request.getEndDate().before(request.getStartDate())) {
+
+            throw new IllegalArgumentException(
+                    "End date must be after start date");
         }
 
-        Pageable pageable = PageRequest.of(
-                requestDTO.getPage(),
-                requestDTO.getSize(),
-                Sort.by("BALANCE_DATE").descending()
-        );
+        try (
+                SXSSFWorkbook workbook = new SXSSFWorkbook(100);
+                ByteArrayOutputStream out = new ByteArrayOutputStream()
 
-        Page<Difference> differencePage =
-                differenceRepository.searchDifference(
-                        requestDTO.getBranchCode(),
-                        requestDTO.getCurrency(),
-                        requestDTO.getCgl(),
-                        requestDTO.getType(),
-                        applyType,
-                        requestDTO.getFromDate(),
-                        requestDTO.getToDate(),
-                        requestDTO.getMinBalance(),
-                        requestDTO.getMaxBalance(),
-                        pageable
-                );
+        ) {
+            workbook.setCompressTempFiles(true);
+            SXSSFSheet sheet = workbook.createSheet("Balance Enquiry");
 
-        List<DifferenceResponseDTO> responseList =
-                new ArrayList<>();
+            workbook.setCompressTempFiles(true);
 
-        for (Difference difference : differencePage.getContent()) {
+            // ==================================================
+            // STYLES
+            // ==================================================
 
-            DifferenceResponseDTO dto =
-                    new DifferenceResponseDTO();
+            CellStyle headerStyle = ExcelStyleUtil.createHeaderStyle(workbook);
 
-            dto.setId(difference.getId());
-            dto.setBalanceDate(
-                    difference.getBalanceDate());
-            dto.setBranchCode(
-                    difference.getBranchCode());
-            dto.setCurrency(
-                    difference.getCurrency());
-            dto.setCgl(
-                    difference.getCgl());
-            dto.setBalance(
-                    difference.getBalance());
-            dto.setInrBalance(
-                    difference.getInrBalance());
-            dto.setType(
-                    difference.getType());
-            dto.setFirstErrorDate(
-                    difference.getFirstErrorDate());
+            CellStyle titleStyle = ExcelStyleUtil.createTitleStyle(workbook);
 
-            responseList.add(dto);
-        }
+            CellStyle amountStyle = ExcelStyleUtil.createAmountStyle(workbook);
 
-        return new PageImpl<>(
-                responseList,
-                pageable,
-                differencePage.getTotalElements()
-        );
-    }
+            CreationHelper creationHelper = workbook.getCreationHelper();
 
-    @Override
-    public byte[] exportDifference(
-            DifferenceRequestDTO requestDTO) {
+            CellStyle dateStyle = workbook.createCellStyle();
 
-        try {
+            dateStyle.setDataFormat(
+                    creationHelper.createDataFormat()
+                            .getFormat("dd-MM-yyyy"));
 
-            requestDTO.setPage(0);
-            requestDTO.setSize(50000);
+            CellStyle centerStyle = workbook.createCellStyle();
 
-            Pageable pageable = PageRequest.of(
-                    requestDTO.getPage(),
-                    requestDTO.getSize(),
-                    Sort.by("BALANCE_DATE").descending()
-            );
+            centerStyle.setAlignment(
+                    HorizontalAlignment.CENTER);
 
-            int applyType = 0;
+            AtomicInteger rowNum = new AtomicInteger(0);
 
-            if (requestDTO.getType() != null
-                    && !requestDTO.getType().isEmpty()
-                    && !requestDTO.getType().contains("ALL")) {
+            // ==================================================
+            // TITLE
+            // ==================================================
 
-                applyType = 1;
+            Row titleRow = sheet.createRow(rowNum.getAndIncrement());
+
+            Cell titleCell = titleRow.createCell(0);
+
+            titleCell.setCellValue(
+                    "GL Balance Enquiry");
+
+            titleCell.setCellStyle(titleStyle);
+
+            sheet.addMergedRegion(
+                    new CellRangeAddress(
+                            0,
+                            0,
+                            0,
+                            6));
+
+            rowNum.incrementAndGet();
+
+            // ==================================================
+            // SUMMARY HEADER
+            // ==================================================
+
+            Row summaryHeader = sheet.createRow(rowNum.getAndIncrement());
+
+            String[] summaryHeaders = {
+                    "Branch",
+                    "Currency",
+                    "CGL",
+                    "From Date",
+                    "To Date"
+            };
+
+            for (int i = 0; i < summaryHeaders.length; i++) {
+
+                Cell cell = summaryHeader.createCell(i);
+
+                cell.setCellValue(
+                        summaryHeaders[i]);
+
+                cell.setCellStyle(headerStyle);
             }
 
-            Page<Difference> page =
-                    differenceRepository.searchDifference(
-                            requestDTO.getBranchCode(),
-                            requestDTO.getCurrency(),
-                            requestDTO.getCgl(),
-                            requestDTO.getType(),
-                            applyType,
-                            requestDTO.getFromDate(),
-                            requestDTO.getToDate(),
-                            requestDTO.getMinBalance(),
-                            requestDTO.getMaxBalance(),
-                            pageable
-                    );
+            // ==================================================
+            // SUMMARY VALUES
+            // ==================================================
 
-            XSSFWorkbook workbook =
-                    new XSSFWorkbook();
+            Row summaryRow = sheet.createRow(rowNum.getAndIncrement());
 
-            XSSFSheet sheet =
-                    workbook.createSheet(
-                            "GL Balance Difference");
+            summaryRow.createCell(0)
+                    .setCellValue(request.getBranch());
 
-            int rowNum = 0;
+            summaryRow.createCell(1)
+                    .setCellValue(request.getCurrency());
 
-            Row header = sheet.createRow(rowNum++);
+            summaryRow.createCell(2)
+                    .setCellValue(request.getCgl());
 
-            header.createCell(0)
-                    .setCellValue("Balance Date");
+            Cell startDateCell = summaryRow.createCell(3);
 
-            header.createCell(1)
-                    .setCellValue("Branch Code");
+            startDateCell.setCellValue(
+                    request.getStartDate());
 
-            header.createCell(2)
-                    .setCellValue("Currency");
+            startDateCell.setCellStyle(dateStyle);
 
-            header.createCell(3)
-                    .setCellValue("CGL");
+            Cell endDateCell = summaryRow.createCell(4);
 
-            header.createCell(4)
-                    .setCellValue("Balance");
+            endDateCell.setCellValue(
+                    request.getEndDate());
 
-            header.createCell(5)
-                    .setCellValue("INR Balance");
+            endDateCell.setCellStyle(dateStyle);
 
-            header.createCell(6)
-                    .setCellValue("Type");
+            rowNum.incrementAndGet();
 
-            header.createCell(7)
-                    .setCellValue("First Error Date");
+            // ==================================================
+            // MAIN HEADER
+            // ==================================================
 
-            for (Difference difference
-                    : page.getContent()) {
+            String[] columns = {
+                    "ID",
+                    "Date",
+                    "Branch",
+                    "CGL",
+                    "Currency",
+                    "Balance",
+                    "DR/CR"
+            };
 
-                Row row =
-                        sheet.createRow(rowNum++);
+            Row headerRow = sheet.createRow(rowNum.getAndIncrement());
 
-                row.createCell(0).setCellValue(
-                        String.valueOf(
-                                difference.getBalanceDate()));
+            for (int i = 0; i < columns.length; i++) {
 
-                row.createCell(1).setCellValue(
-                        difference.getBranchCode());
+                Cell cell = headerRow.createCell(i);
 
-                row.createCell(2).setCellValue(
-                        difference.getCurrency());
+                cell.setCellValue(columns[i]);
 
-                row.createCell(3).setCellValue(
-                        difference.getCgl());
-
-                row.createCell(4).setCellValue(
-                        difference.getBalance()
-                                .doubleValue());
-
-                row.createCell(5).setCellValue(
-                        difference.getInrBalance() != null
-                                ? difference.getInrBalance()
-                                .doubleValue()
-                                : 0);
-
-                row.createCell(6).setCellValue(
-                        difference.getType());
-
-                row.createCell(7).setCellValue(
-                        String.valueOf(
-                                difference.getFirstErrorDate()));
+                cell.setCellStyle(headerStyle);
             }
 
-            ByteArrayOutputStream out =
-                    new ByteArrayOutputStream();
+            // ==================================================
+            // SQL
+            // ==================================================
+
+            String sql = """
+                    SELECT
+                        ID,
+                        BALANCE_DATE,
+                        BRANCH_CODE,
+                        CURRENCY,
+                        CGL,
+                        BALANCE
+                    FROM GL_BALANCE
+                    WHERE BRANCH_CODE = ?
+                    AND CGL = ?
+                    AND CURRENCY = ?
+                    AND BALANCE_DATE BETWEEN ? AND ?
+                    ORDER BY BALANCE_DATE
+                    """;
+
+            jdbcTemplate.setFetchSize(20000);
+
+            jdbcTemplate.query(
+                    connection -> {
+
+                        var ps = connection.prepareStatement(sql);
+
+                        ps.setFetchSize(20000);
+
+                        ps.setString(
+                                1,
+                                request.getBranch());
+
+                        ps.setString(
+                                2,
+                                request.getCgl());
+
+                        ps.setString(
+                                3,
+                                request.getCurrency());
+
+                        ps.setTimestamp(
+                                4,
+                                new java.sql.Timestamp(
+                                        request.getStartDate().getTime()));
+
+                        ps.setTimestamp(
+                                5,
+                                new java.sql.Timestamp(
+                                        request.getEndDate().getTime()));
+
+                        return ps;
+                    },
+                    rs -> {
+
+                        Row row = sheet.createRow(
+                                rowNum.getAndIncrement());
+
+                        int col = 0;
+
+                        row.createCell(col++)
+                                .setCellValue(
+                                        rs.getLong("ID"));
+
+                        Cell dateCell = row.createCell(col++);
+
+                        if (rs.getTimestamp("BALANCE_DATE") != null) {
+
+                            dateCell.setCellValue(
+                                    rs.getTimestamp("BALANCE_DATE"));
+
+                            dateCell.setCellStyle(dateStyle);
+                        }
+
+                        row.createCell(col++)
+                                .setCellValue(
+                                        ExcelExportUtil.safeString(
+                                                rs.getString("BRANCH_CODE")));
+
+                        row.createCell(col++)
+                                .setCellValue(
+                                        ExcelExportUtil.safeString(
+                                                rs.getString("CGL")));
+
+                        row.createCell(col++)
+                                .setCellValue(
+                                        ExcelExportUtil.safeString(
+                                                rs.getString("CURRENCY")));
+
+                        double balance = rs.getDouble("BALANCE");
+
+                        Cell balanceCell = row.createCell(col++);
+
+                        balanceCell.setCellValue(
+                                Math.abs(balance));
+
+                        balanceCell.setCellStyle(amountStyle);
+
+                        Cell drCrCell = row.createCell(col++);
+
+                        drCrCell.setCellValue(
+                                balance < 0
+                                        ? "DR"
+                                        : "CR");
+
+                        drCrCell.setCellStyle(
+                                centerStyle);
+
+                        ExcelExportUtil.flushIfNeeded(
+                                sheet,
+                                rowNum.get());
+                    });
+
+            // ==================================================
+            // COLUMN WIDTHS
+            // ==================================================
+
+            sheet.setColumnWidth(0, 5000);
+            sheet.setColumnWidth(1, 5000);
+            sheet.setColumnWidth(2, 5000);
+            sheet.setColumnWidth(3, 5000);
+            sheet.setColumnWidth(4, 5000);
+            sheet.setColumnWidth(5, 7000);
+            sheet.setColumnWidth(6, 4000);
 
             workbook.write(out);
 
-            workbook.close();
+            byte[] bytes = out.toByteArray();
 
-            return out.toByteArray();
+            // disposeWorkbook();
 
-        } catch (Exception ex) {
+            return bytes;
+
+        } catch (Exception e) {
 
             throw new RuntimeException(
-                    "Error while exporting difference report",
-                    ex
-            );
+                    "Balance export failed",
+                    e);
         }
     }
+
 }
 
 
 
+        @PostMapping("/export")
+        public ResponseEntity<byte[]> exportBalance(
+                        @RequestHeader("Authorization") String token,
+                        @RequestBody BalanceRequestDTO request) {
+
+                String userId = jwtUtil.getUserIdFromToken(token);
+
+                byte[] bytes = service.exportBalanceToExcel(
+                                request,
+                                userId);
+
+                return ResponseEntity.ok()
+                                .header(
+                                                HttpHeaders.CONTENT_DISPOSITION,
+                                                "attachment; filename=balance_enquiry.xlsx")
+                                .contentType(
+                                                MediaType.parseMediaType(
+                                                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                                .body(bytes);
+        }
+
+
+
+
+
+	@Override
+	public byte[] exportBalanceToExcel(
+			BalanceRequestDTO request,
+			String userId) {
+
+		return balanceStreamingExportService.export(
+				request, userId);
+	}
