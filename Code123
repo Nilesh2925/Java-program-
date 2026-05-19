@@ -317,3 +317,375 @@ public class TransactionsExcelGenerator {
 		}
 	}
 }
+
+
+
+
+
+
+
+mmmmm
+
+
+package com.fincore.enquiry_service.service.export;
+
+import com.fincore.enquiry_service.dto.BalanceRequestDTO;
+import com.fincore.enquiry_service.service.utils.ExcelExportUtil;
+import com.fincore.enquiry_service.service.utils.ExcelStyleUtil;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.ss.util.CellRangeAddress;
+import org.apache.poi.xssf.streaming.SXSSFSheet;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+
+import java.io.ByteArrayOutputStream;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class GlBalanceDifferenceStreamingExportService {
+
+    private final JdbcTemplate jdbcTemplate;
+
+    public byte[] export(
+            BalanceRequestDTO request,
+            String userId) {
+
+        if (request.getEndDate().before(
+                request.getStartDate())) {
+
+            throw new IllegalArgumentException(
+                    "End date must be after start date");
+        }
+
+        try (
+
+                SXSSFWorkbook workbook =
+                        new SXSSFWorkbook(100);
+
+                ByteArrayOutputStream out =
+                        new ByteArrayOutputStream()
+
+        ) {
+
+            workbook.setCompressTempFiles(true);
+
+            SXSSFSheet sheet =
+                    workbook.createSheet(
+                            "GL Balance Difference");
+
+            // ==========================================
+            // STYLES
+            // ==========================================
+
+            CellStyle headerStyle =
+                    ExcelStyleUtil.createHeaderStyle(
+                            workbook);
+
+            CellStyle titleStyle =
+                    ExcelStyleUtil.createTitleStyle(
+                            workbook);
+
+            CellStyle amountStyle =
+                    ExcelStyleUtil.createAmountStyle(
+                            workbook);
+
+            CreationHelper creationHelper =
+                    workbook.getCreationHelper();
+
+            CellStyle dateStyle =
+                    workbook.createCellStyle();
+
+            dateStyle.setDataFormat(
+                    creationHelper.createDataFormat()
+                            .getFormat("dd-MM-yyyy"));
+
+            int rowNum = 0;
+
+            // ==========================================
+            // TITLE
+            // ==========================================
+
+            Row titleRow =
+                    sheet.createRow(rowNum++);
+
+            Cell titleCell =
+                    titleRow.createCell(0);
+
+            titleCell.setCellValue(
+                    "GL Balance Difference");
+
+            titleCell.setCellStyle(titleStyle);
+
+            sheet.addMergedRegion(
+                    new CellRangeAddress(
+                            0,
+                            0,
+                            0,
+                            7));
+
+            rowNum++;
+
+            // ==========================================
+            // SUMMARY HEADER
+            // ==========================================
+
+            Row summaryHeader =
+                    sheet.createRow(rowNum++);
+
+            String[] summaryHeaders = {
+
+                    "Branch",
+                    "Currency",
+                    "CGL",
+                    "From Date",
+                    "To Date"
+            };
+
+            for (int i = 0;
+                 i < summaryHeaders.length;
+                 i++) {
+
+                Cell cell =
+                        summaryHeader.createCell(i);
+
+                cell.setCellValue(
+                        summaryHeaders[i]);
+
+                cell.setCellStyle(
+                        headerStyle);
+            }
+
+            // ==========================================
+            // SUMMARY VALUES
+            // ==========================================
+
+            Row summaryRow =
+                    sheet.createRow(rowNum++);
+
+            summaryRow.createCell(0)
+                    .setCellValue(
+                            request.getBranch());
+
+            summaryRow.createCell(1)
+                    .setCellValue(
+                            request.getCurrency());
+
+            summaryRow.createCell(2)
+                    .setCellValue(
+                            request.getCgl());
+
+            Cell startDateCell =
+                    summaryRow.createCell(3);
+
+            startDateCell.setCellValue(
+                    request.getStartDate());
+
+            startDateCell.setCellStyle(
+                    dateStyle);
+
+            Cell endDateCell =
+                    summaryRow.createCell(4);
+
+            endDateCell.setCellValue(
+                    request.getEndDate());
+
+            endDateCell.setCellStyle(
+                    dateStyle);
+
+            rowNum++;
+
+            // ==========================================
+            // TABLE HEADER
+            // ==========================================
+
+            String[] columns = {
+
+                    "ID",
+                    "Date",
+                    "Branch",
+                    "CGL",
+                    "Currency",
+                    "Balance",
+                    "Type",
+                    "First Error Date"
+            };
+
+            Row headerRow =
+                    sheet.createRow(rowNum++);
+
+            for (int i = 0;
+                 i < columns.length;
+                 i++) {
+
+                Cell cell =
+                        headerRow.createCell(i);
+
+                cell.setCellValue(
+                        columns[i]);
+
+                cell.setCellStyle(
+                        headerStyle);
+            }
+
+            // ==========================================
+            // SQL
+            // ==========================================
+
+            String sql = """
+
+                    SELECT
+                        ID,
+                        BALANCE_DATE,
+                        BRANCH_CODE,
+                        CURRENCY,
+                        CGL,
+                        BALANCE,
+                        TYPE,
+                        FIRST_ERROR_DATE
+                    FROM GL_BALANCE_DIFFERENCE
+                    WHERE BRANCH_CODE = ?
+                    AND CGL = ?
+                    AND CURRENCY = ?
+                    AND BALANCE_DATE BETWEEN ? AND ?
+                    ORDER BY BALANCE_DATE
+
+                    """;
+
+            jdbcTemplate.setFetchSize(20000);
+
+            final int[] currentRow = {rowNum};
+
+            jdbcTemplate.query(
+
+                    connection -> {
+
+                        var ps =
+                                connection.prepareStatement(sql);
+
+                        ps.setFetchSize(20000);
+
+                        ps.setString(
+                                1,
+                                request.getBranch());
+
+                        ps.setString(
+                                2,
+                                request.getCgl());
+
+                        ps.setString(
+                                3,
+                                request.getCurrency());
+
+                        ps.setTimestamp(
+                                4,
+                                new java.sql.Timestamp(
+                                        request.getStartDate().getTime()));
+
+                        ps.setTimestamp(
+                                5,
+                                new java.sql.Timestamp(
+                                        request.getEndDate().getTime()));
+
+                        return ps;
+                    },
+
+                    rs -> {
+
+                        Row row =
+                                sheet.createRow(
+                                        currentRow[0]++);
+
+                        int col = 0;
+
+                        row.createCell(col++)
+                                .setCellValue(
+                                        rs.getLong("ID"));
+
+                        Cell dateCell =
+                                row.createCell(col++);
+
+                        if (rs.getTimestamp("BALANCE_DATE") != null) {
+
+                            dateCell.setCellValue(
+                                    rs.getTimestamp(
+                                            "BALANCE_DATE"));
+
+                            dateCell.setCellStyle(
+                                    dateStyle);
+                        }
+
+                        row.createCell(col++)
+                                .setCellValue(
+                                        ExcelExportUtil.safeString(
+                                                rs.getString("BRANCH_CODE")));
+
+                        row.createCell(col++)
+                                .setCellValue(
+                                        ExcelExportUtil.safeString(
+                                                rs.getString("CGL")));
+
+                        row.createCell(col++)
+                                .setCellValue(
+                                        ExcelExportUtil.safeString(
+                                                rs.getString("CURRENCY")));
+
+                        Cell balanceCell =
+                                row.createCell(col++);
+
+                        balanceCell.setCellValue(
+                                rs.getDouble("BALANCE"));
+
+                        balanceCell.setCellStyle(
+                                amountStyle);
+
+                        row.createCell(col++)
+                                .setCellValue(
+                                        ExcelExportUtil.safeString(
+                                                rs.getString("TYPE")));
+
+                        Cell errorDateCell =
+                                row.createCell(col++);
+
+                        if (rs.getTimestamp(
+                                "FIRST_ERROR_DATE") != null) {
+
+                            errorDateCell.setCellValue(
+                                    rs.getTimestamp(
+                                            "FIRST_ERROR_DATE"));
+
+                            errorDateCell.setCellStyle(
+                                    dateStyle);
+                        }
+
+                        ExcelExportUtil.flushIfNeeded(
+                                sheet,
+                                currentRow[0]);
+                    });
+
+            // ==========================================
+            // COLUMN WIDTH
+            // ==========================================
+
+            for (int i = 0; i < 8; i++) {
+
+                sheet.setColumnWidth(i, 5000);
+            }
+
+            workbook.write(out);
+
+            return out.toByteArray();
+
+        } catch (Exception e) {
+
+            throw new RuntimeException(
+                    "GL Balance Difference export failed",
+                    e);
+        }
+    }
+}
