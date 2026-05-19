@@ -689,3 +689,36 @@ public class GlBalanceDifferenceStreamingExportService {
         }
     }
 }
+
+
+
+
+@PostMapping("/export")
+public ResponseEntity<byte[]> exportBalanceDifference(
+
+        @RequestHeader("Authorization")
+        String token,
+
+        @RequestBody
+        BalanceRequestDTO request) {
+
+    String userId =
+            jwtUtil.getUserIdFromToken(token);
+
+    byte[] bytes =
+            service.exportBalanceDiffToExcel(
+                    request,
+                    userId);
+
+    return ResponseEntity.ok()
+
+            .header(
+                    HttpHeaders.CONTENT_DISPOSITION,
+                    "attachment; filename=gl_balance_difference.xlsx")
+
+            .contentType(
+                    MediaType.parseMediaType(
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+
+            .body(bytes);
+}
