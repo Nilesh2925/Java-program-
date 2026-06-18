@@ -1,887 +1,794 @@
-import React, {
-  useEffect,
-  useMemo,
-  useCallback,
-  useState,
-  useRef,
-} from "react";
+//user table
+import React from "react";
+import { Box, IconButton, Stack, Tooltip, Typography } from "@mui/material";
+import { DataGrid } from "@mui/x-data-grid";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import OnlinePredictionIcon from "@mui/icons-material/OnlinePrediction";
+import CustomChip from "../../../utils/CustomChip";
+
+const STATUS_CONFIG = {
+  ACTIVE: { label: "Active", color: "success" },
+  INACTIVE: { label: "Inactive", color: "warning" },
+  LOCKED: { label: "Locked", color: "error" },
+};
+
+export default function UsersTable({
+  rows,
+  loading,
+  onSelectionChange,
+  onEditRow,
+  onDeleteRow,
+}) {
+  const columns = [
+    { field: "USERID", headerName: "User ID", flex: 0.7, minWidth: 150 },
+    { field: "__name", headerName: "User Name", flex: 1.2, minWidth: 200 },
+    { field: "ROLE_NAME", headerName: "Role", flex: 0.8, minWidth: 150 },
+    { field: "EMAIL", headerName: "Email", flex: 1.2, minWidth: 250 },
+    {
+      field: "action",
+      headerName: "Action",
+      flex: 0.8,
+      minWidth: 150,
+      filterable: false,
+      sortable: false,
+      align: "center",
+      headerAlign: "center",
+      disableColumnMenu: true,
+      renderCell: (params) => (
+        <Stack
+          direction="row"
+          spacing={1}
+          alignItems="center"
+          justifyContent="center"
+          height="100%"
+        >
+          <Tooltip title="Edit">
+            <IconButton color="primary" onClick={() => onEditRow(params.row)}>
+              <EditIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete">
+            <IconButton color="error" onClick={() => onDeleteRow(params.row)}>
+              <DeleteOutlineIcon />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+      ),
+    },
+  ];
+
+  return (
+    <DataGrid
+      rows={rows}
+      columns={columns}
+      loading={loading}
+      disableRowSelectionOnClick
+      onRowSelectionModelChange={onSelectionChange}
+      pageSizeOptions={[5, 10, 25, 50]}
+      initialState={{
+        pagination: { paginationModel: { pageSize: 10, page: 0 } },
+      }}
+    />
+  );
+}
+
+
+
+//user request view
+import React from "react";
 import {
   Dialog,
   DialogTitle,
   DialogContent,
-  Box,
-  Grid,
-  TextField,
-  MenuItem,
-  Typography,
-  FormControlLabel,
-  Checkbox,
-  FormHelperText,
-  FormControl,
-  FormLabel,
-  RadioGroup,
-  Radio,
-  Button,
-  IconButton,
-  Divider,
   DialogActions,
-  Card,
-  Autocomplete,
+  Button,
+  Typography,
+  Grid,
+  Box,
+  Divider,
 } from "@mui/material";
-import LockOpenIcon from "@mui/icons-material/LockOpen";
-import CloseIcon from "@mui/icons-material/Close";
-import EditIcon from "@mui/icons-material/Edit";
-import AddIcon from "@mui/icons-material/Add";
-import BlockIcon from "@mui/icons-material/Block";
-import useApi from "../../hooks/useApi";
-import useCustomSnackbar from "../../utils/useCustomSnackbar";
-import LoadingOverlay from "../../utils/LoadingOverlay";
-import _ from "lodash";
+import {
+  timeStampFormatter,
+  toPascalKebabCase,
+  formatKeyForDisplay,
+} from "../../../utils/CommonUtilities";
 
-const initialCGLState = {
-  comp1: "",
-  segmentCode: "",
-  comp2: "",
-  description: "",
-  acClassification: "",
-  balFwd: false,
-  defBalType: "",
-  balCompare: "1",
-  manualPosting: "1",
-  status: "Active",
-  openDate: new Date().toISOString().split("T")[0],
-  closeDate: null,
+const UserRequestView = ({ open, handleClose, data }) => {
+  if (!data) return null;
+
+  const viewData = {
+    userId: data?.USERID || "N/A",
+    roleName: data?.ROLE_NAME || "N/A",
+    firstName: data?.FIRST_NAME || "N/A",
+    middleName: data?.MIDDLE_NAME || "N/A",
+    lastName: data?.LAST_NAME || "N/A",
+    email: data?.EMAIL || "N/A",
+    phoneNumber: data?.PHONE_NUMBER || "N/A",
+  };
+
+  const mainDetails = [
+    { label: "Requestor ID", value: data.REQUESTOR_USERID, size: 2 },
+    {
+      label: "Request Type",
+      value:
+        data.REQUEST_TYPE === "CREATE"
+          ? "Created"
+          : data.REQUEST_TYPE === "DELETE"
+          ? "Deleted"
+          : "Modified",
+      size: 2.5,
+    },
+    {
+      label: "Request Status",
+      value: toPascalKebabCase(data.STATUS),
+      size: 2.5,
+    },
+    {
+      label: "Requested Date",
+      value: timeStampFormatter(data.REQUESTED_AT),
+      size: 5,
+    },
+  ];
+
+  return (
+    <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
+      <DialogTitle>
+        Request Details - <b>ID: {data.REQUEST_ID}</b>
+      </DialogTitle>
+
+      <Divider />
+
+      <DialogContent>
+        {/* Main Details */}
+        <Grid container spacing={2}>
+          {mainDetails.map(
+            (item) =>
+              item.label !== "roleId" && (
+                <Grid xs={12} size={{ xs: 12, sm: item.size }} key={item.label}>
+                  <Box sx={{ display: "flex", flexDirection: "column" }}>
+                    <Typography
+                      variant="subtitle2"
+                      sx={{
+                        fontWeight: 800,
+                        color: "text.secondary",
+                      }}
+                    >
+                      {item.label}
+                    </Typography>
+                    <Typography variant="body1" sx={{ color: "text.primary" }}>
+                      {item.value ?? "N/A"}
+                    </Typography>
+                  </Box>
+                </Grid>
+              )
+          )}
+        </Grid>
+
+        <Divider sx={{ my: 2 }} />
+
+        {/* PAYLOAD VIEW */}
+
+        <Grid container spacing={2}>
+          {Object.entries(viewData).map(([key, value]) => (
+            <Grid
+              xs={12}
+              size={key === "permissions" ? {} : { xs: 12, sm: 6 }}
+              key={key}
+            >
+              <Box sx={{ display: "flex", flexDirection: "column" }}>
+                <Typography
+                  variant="subtitle2"
+                  sx={{
+                    fontWeight: 800,
+                    color: "text.secondary",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {formatKeyForDisplay(key)}
+                </Typography>
+
+                <Typography
+                  variant="body1"
+                  sx={{ color: "text.primary", wordBreak: "break-word" }}
+                >
+                  {Array.isArray(value)
+                    ? JSON.stringify(value)
+                    : typeof value === "object" && value !== null
+                    ? JSON.stringify(value, null, 2)
+                    : String(value ?? "N/A")}
+                </Typography>
+              </Box>
+            </Grid>
+          ))}
+        </Grid>
+      </DialogContent>
+
+      <Divider />
+
+      <DialogActions sx={{ p: 2, justifyContent: "flex-end" }}>
+        <Button
+          variant="contained"
+          onClick={handleClose}
+          color="primary"
+          sx={{ textTransform: "none", borderRadius: 2, px: 3 }}
+        >
+          Close
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
 };
 
-function classificationFromComp1(comp1Val) {
-  if (!comp1Val || comp1Val.length === 0) return null;
-  const ch = String(comp1Val)[0];
-  if (ch === "1" || ch === "6") return "A"; // Asset
-  if (ch === "2" || ch === "3" || ch === "4") return "L"; // Liability
-  if (ch === "5") return "M"; // Memo
-  if (ch === "7") return "I"; // Income
-  if (ch === "8") return "E"; // Expense
-  return null;
-}
+export default UserRequestView;
 
-function defBalTypeFromClassification(ac) {
-  switch (ac) {
-    case "A":
-      return "D";
-    case "L":
-      return "C";
-    case "M":
-      return "M";
-    case "I":
-      return "C";
-    case "E":
-      return "D";
-    default:
-      return "";
-  }
-}
 
-const descRegex = /^[A-Za-z0-9 .,"<>/&()=_-]*$/;
 
-export default function CGLDialog({
+// user dialog
+
+import React, { useEffect, useState } from "react";
+import {
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  FormControl,
+  Grid,
+  InputAdornment,
+  InputLabel,
+  MenuItem,
+  Select,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
+import PersonIcon from "@mui/icons-material/Person";
+import VerifiedUserIcon from "@mui/icons-material/VerifiedUser";
+import GppBadIcon from "@mui/icons-material/GppBad";
+import LockOutlineIcon from "@mui/icons-material/LockOutline";
+import useApi from "../../../hooks/useApi";
+import useCustomSnackbar from "../../../utils/useCustomSnackbar";
+import _ from "lodash";
+
+/* ================= CONSTANTS ================= */
+
+//const USERID_REGEX = /^(?:\d{7}|v\d{7}|tcs\d{7}|tcsv\d{7})$/i;
+// const NAME_REGEX = /^[a-zA-Z\s.]*$/;
+const NAME_REGEX = /^(?!.* {2})[a-zA-Z\s.]*$/;
+const DIGITS_REGEX = /^[0-9]*$/;
+const EMAIL_DOMAIN = "@sbi.co.in";
+const EMAIL_PREFIX_REGEX = /^[a-zA-Z0-9._]+$/;
+// const USERID_REGEX = /^[0-9]*$/;
+const USERID_REGEX = /^(?:\d{7}|v\d{7}|tcs\d{7}|vtcs\d{7})$/i;
+const EMAIL_PREFIX_MAX = 50;
+
+// Restricted role
+const FORBIDDEN_ROLE_ID = 11; // f1bog
+
+const STATUS_OPTIONS = [
+  {
+    value: "ACTIVE",
+    label: "Active",
+    icon: <VerifiedUserIcon color="success" />,
+  },
+  {
+    value: "INACTIVE",
+    label: "Inactive",
+    icon: <GppBadIcon color="warning" />,
+  },
+  {
+    value: "LOCKED",
+    label: "Locked",
+    icon: <LockOutlineIcon color="error" />,
+  },
+];
+
+/* ================= COMPONENT ================= */
+
+export default function UserDialog({
   open,
   onClose,
-  onSaved,
-  editInitialData = null,
-  accountClassifications = null,
-  permissions = {},
+  roles,
+  form,
+  setForm,
+  initialState,
 }) {
   const { callApi } = useApi();
   const snackbar = useCustomSnackbar();
-  const [cglData, setCglData] = useState(initialCGLState);
   const [errors, setErrors] = useState({});
-  const [editingId, setEditingId] = useState(null);
-  const [loadOverlay, setLoadOverlay] = useState(false);
-  const [segments, setSegments] = useState([]);
-  const [blockConfirmOpen, setBlockConfirmOpen] = useState(false);
-  const [classificationLocked, setClassificationLocked] = useState(false);
+  const isEdit = Boolean(form.id);
 
-  // throttle snackbars during typing
-  const snackGateRef = useRef(true);
-  const notifyOnce = (msg, variant = "warning") => {
-    if (!snackGateRef.current) return;
-    snackGateRef.current = false;
-    snackbar(msg, variant);
-    setTimeout(() => (snackGateRef.current = true), 800);
-  };
-
-  // derived cglNumber
-  const cglNumber = useMemo(() => {
-    return cglData.comp1 && cglData.segmentCode && cglData.comp2
-      ? `${cglData.comp1}${cglData.segmentCode}${String(cglData.comp2).padStart(
-          2,
-          "0",
-        )}`
-      : "";
-  }, [cglData.comp1, cglData.segmentCode, cglData.comp2]);
-
-  // load segments
-  const fetchSegments = useCallback(async () => {
-    const resp = await callApi(
-      "/CM/common-master/segment-codes",
-      { requestType: "SEGMENT_CODE" },
-      "GET",
-    );
-    setSegments(resp?.data || []);
-  }, [callApi]);
-
-  // when dialog opens for Add or Edit, populate
   useEffect(() => {
-    if (!open) return;
-    fetchSegments();
-
-    if (editInitialData) {
-      // populate form from editInitialData
-      const mapped = classificationFromComp1(editInitialData.comp1 ?? "");
-
-      const initial = {
-        ...initialCGLState,
-        ...editInitialData,
-        comp1: editInitialData.comp1 ?? "",
-        comp2: editInitialData.comp2 ?? "",
-        segmentCode: editInitialData.segmentCode ?? "",
-        description: editInitialData.description ?? "",
-        balFwd: !!editInitialData.balFwd,
-      };
-
-      // if comp1 determines classification, enforce it and lock dropdown
-      if (mapped) {
-        initial.acClassification = mapped;
-        initial.defBalType = defBalTypeFromClassification(mapped);
-        setClassificationLocked(true);
-      } else {
-        initial.acClassification = editInitialData.acClassification ?? "";
-        initial.defBalType =
-          editInitialData.defBalType ||
-          defBalTypeFromClassification(initial.acClassification);
-        setClassificationLocked(false);
-      }
-
-      // Apply balFwd and balCompare rules based on classification
-      const ac = initial.acClassification;
-      if (ac === "A" || ac === "L") {
-        initial.balFwd = true;
-        initial.balCompare = initial.balCompare ?? "1";
-      } else if (ac === "I" || ac === "E") {
-        initial.balFwd = false;
-        initial.balCompare = "0";
-      }
-
-      setCglData(initial);
-      setEditingId(editInitialData.cglNumber);
-      setErrors({});
-    } else {
-      // fresh
-      setCglData(initialCGLState);
-      setEditingId(null);
-      setErrors({});
-      setClassificationLocked(false);
-    }
-  }, [open, editInitialData, fetchSegments]);
-
-  // whenever acClassification changes we auto-set defBalType and adjust balFwd / balCompare rules
-  useEffect(() => {
-    const ac = cglData.acClassification;
-    if (!ac) {
-      setCglData((prev) => {
-        const next = {
-          ...prev,
-          balFwd: false,
-          defBalType: "",
-          balCompare: "1",
-          manualPosting: "1",
-        };
-        return next;
-      });
-    }
-
-    setCglData((prev) => {
-      const newDef = defBalTypeFromClassification(ac);
-      const next = { ...prev, defBalType: newDef };
-
-      // balFwd rules:
-      if (ac === "A" || ac === "L") {
-        next.balFwd = true; // disabled & checked
-      } else if (ac === "I" || ac === "E") {
-        next.balFwd = false; // disabled & unchecked
-      } // else leave balFwd as-is (user can change)
-
-      // balCompare rules:
-      if (ac === "I" || ac === "E") {
-        next.balCompare = "0"; // force exclude
-      }
-
-      return next;
-    });
-  }, [cglData.acClassification]);
-
-  // single-field validator
-  const validateField = useCallback((name, value) => {
-    switch (name) {
-      case "comp1":
-        if (!value) return "Comp1 is required";
-        if (!/^\d{4}$/.test(value)) return "Comp1 must be exactly 4 digits";
-        if (parseInt(value, 10) < 1000) return "Comp1 must be ≥ 1000";
-        return "";
-      case "segmentCode":
-        if (!value) return "Segment code is required";
-        return "";
-      case "comp2":
-        if (!value) return "Comp2 is required";
-        if (!/^\d{2}$/.test(value)) return "Comp2 must be 2 digits";
-        if (parseInt(value, 10) < 1 || parseInt(value, 10) > 99)
-          return "Comp2 must be between 01 and 99";
-        return "";
-      case "description":
-        if (!value) return "Description is required";
-        if (!descRegex.test(value))
-          return 'Only letters, digits, spaces, .,"<>/&()=_-';
-        if (value?.trim()?.length < 5 || value?.trim()?.length > 100)
-          return "Description should be min 5 and max 100 characters";
-        return "";
-      case "acClassification":
-        if (!value) return "Account classification is required";
-        return "";
-      default:
-        return "";
-    }
-  }, []);
-
-  const isFormValid = useMemo(() => {
-    const fields = [
-      "comp1",
-      "segmentCode",
-      "comp2",
-      "description",
-      "acClassification",
-    ];
-    return fields.every((f) => !validateField(f, cglData[f]));
-  }, [cglData, validateField]);
-
-  const handleChange = useCallback(
-    (e) => {
-      const { name, value, type, checked } = e.target;
-
-      // hard-constraints / input blocking
-      if (name === "comp1") {
-        if (!/^\d*$/.test(value)) {
-          notifyOnce("Comp1 accepts digits only");
-          return;
-        }
-        if (value.length > 4) {
-          notifyOnce("Comp1 must be exactly 4 digits");
-          return;
-        }
-      }
-
-      if (name === "comp2") {
-        if (!/^\d*$/.test(value)) {
-          notifyOnce("Comp2 accepts numbers only");
-          return;
-        }
-        if (value.length > 2) {
-          notifyOnce("Comp2 should be 2 digits");
-          return;
-        }
-      }
-
-      if (name === "description") {
-        if (value && !/^[A-Za-z0-9]$/.test(value[0])) {
-          notifyOnce("Should not start with special character");
-          return;
-        }
-        if (!descRegex.test(value)) {
-          notifyOnce("Invalid character in Description");
-          return;
-        }
-      }
-
-      if (name === "comp1") {
-        const newComp1 = value;
-        setCglData((prev) => ({ ...prev, comp1: newComp1 }));
-        const mapped = classificationFromComp1(newComp1);
-        if (mapped) {
-          setCglData((prev) => {
-            const def = defBalTypeFromClassification(mapped);
-            const updated = {
-              ...prev,
-              comp1: newComp1,
-              acClassification: mapped,
-              defBalType: def,
-            };
-
-            if (mapped === "A" || mapped === "L") updated.balFwd = true;
-            else if (mapped === "I" || mapped === "E") updated.balFwd = false;
-
-            if (mapped === "I" || mapped === "E") updated.balCompare = "0";
-
-            return updated;
-          });
-          setClassificationLocked(true);
-
-          setErrors((prev) => ({ ...prev, comp1: "", acClassification: "" }));
-        } else {
-          setClassificationLocked(false);
-          setCglData((prev) => ({ ...prev, acClassification: "" }));
-        }
-
-        // validate comp1
-        const err = validateField("comp1", newComp1);
-        setErrors((prev) => ({ ...prev, comp1: err }));
-        return;
-      }
-
-      // For balFwd checkbox toggling (only possible when enabled)
-      if (name === "balFwd") {
-        setCglData((prev) => ({ ...prev, balFwd: checked }));
-        setErrors((prev) => ({ ...prev, balFwd: "" }));
-        return;
-      }
-
-      // For balCompare (radio)
-      if (name === "balCompare") {
-        setCglData((prev) => ({ ...prev, balCompare: value }));
-        setErrors((prev) => ({ ...prev, balCompare: "" }));
-        return;
-      }
-
-      // Normal update for other fields
-      setCglData((prev) => ({
-        ...prev,
-        [name]: type === "checkbox" ? checked : value,
-      }));
-
-      // set per-field error
-      const msg = validateField(name, type === "checkbox" ? checked : value);
-      setErrors((prev) => ({ ...prev, [name]: msg }));
-    },
-    [cglData, notifyOnce, validateField],
-  );
-
-  const validateForm = useCallback(() => {
-    const fields = [
-      "comp1",
-      "segmentCode",
-      "comp2",
-      "description",
-      "acClassification",
-    ];
-    const newErrors = {};
-    fields.forEach((f) => {
-      const msg = validateField(f, cglData[f]);
-      if (msg) newErrors[f] = msg;
-    });
-    setErrors(newErrors);
-    if (Object.keys(newErrors).length) {
-      snackbar("Please fix validation errors", "error");
-      return false;
-    }
-    return true;
-  }, [cglData, validateField, snackbar]);
-
-  // submit — dialog does the API call
-  const handleSubmit = useCallback(
-    async (e) => {
-      e?.preventDefault();
-      if (!validateForm()) return;
-
-      setLoadOverlay(true);
-      try {
-        const apiEndpoint = "/CR/create-request";
-        const method = "POST";
-        const changeType = editingId ? "UPDATE" : "ADD";
-
-        const effectiveDef = defBalTypeFromClassification(
-          cglData.acClassification,
-        );
-
-        const innerPayload = {
-          comp1: cglData.comp1,
-          segmentCode: cglData.segmentCode,
-          comp2: cglData.comp2,
-          description: cglData.description,
-          acClassification: cglData.acClassification,
-          balFwd: cglData.balFwd ? 1 : 0,
-          defBalType: effectiveDef,
-          status: cglData.status == "Active" ? 1 : cglData.status,
-          balCompare: cglData.balCompare,
-          manualPosting: cglData.manualPosting,
-        };
-        delete innerPayload.cglNumber;
-
-        const initialData = { ...editInitialData };
-        delete initialData.cglNumber;
-        delete initialData.openDate;
-        delete initialData.closeDate;
-
-        if (innerPayload.description.trim().length < 5) {
-          snackbar("Description should be minimum 5 characters", "warning");
-          return;
-        }
-        if (_.isEqual(initialData, innerPayload)) {
-          snackbar("Kindly Modify data before saving", "warning");
-          return;
-        }
-
-        const payloadData = {
-          requestType: "CGL_CODE",
-          changeType,
-          payload: innerPayload,
-        };
-
-        const response = await callApi(apiEndpoint, payloadData, method);
-        if (response) {
-          snackbar(
-            editingId
-              ? "CGL update request submitted successfully with request id " +
-                  response?.data?.id
-              : "CGL creation request submitted successfully with request id " +
-                  response?.data?.id,
-            "success",
-          );
-
-          onSaved?.();
-          handleClose();
-        } else {
-          snackbar("No response from server", "error");
-        }
-      } catch (error) {
-        console.error(error);
-        snackbar(error?.message || "Request failed", "error");
-      } finally {
-        setLoadOverlay(false);
-      }
-    },
-    [callApi, cglData, cglNumber, editingId, onSaved, snackbar, validateForm],
-  );
-
-  const handleReset = useCallback(() => {
-    setCglData(initialCGLState);
-    setEditingId(null);
     setErrors({});
-    setClassificationLocked(false);
-  }, []);
+  }, [open]);
 
-  const handleClose = useCallback(() => {
-    onClose?.();
-    handleReset();
-    setBlockConfirmOpen(false);
-  }, [onClose, handleReset]);
+  /* ---------- ROLE STATE ---------- */
+  const isOriginalF1BOG = initialState?.ROLE_ID === FORBIDDEN_ROLE_ID;
+  const isDowngradingF1BOG =
+    isOriginalF1BOG && form.ROLE_ID !== FORBIDDEN_ROLE_ID;
 
-  // block flow — dialog owns the blocking behaviour (local mock here)
-  const openBlockConfirm = useCallback(() => {
-    setBlockConfirmOpen(true);
-  }, []);
+  /* ================= ERROR HELPERS ================= */
 
-  const handleBlockUnBlockConfirm = useCallback(async () => {
-    try {
-      setLoadOverlay(true);
-      const newData = { ...editInitialData };
-      const isActive = newData.status == "1";
-      delete newData.cglNumber;
-      delete newData.openDate;
-      delete newData.closeDate;
-      newData.status = isActive ? "0" : "1";
-      const changeType = isActive ? "BLOCK" : "UNBLOCK";
+  const setFieldError = (name, msg) =>
+    setErrors((p) => ({ ...p, [name]: msg }));
 
-      const payload = {
-        requestType: "CGL_CODE",
-        changeType,
-        payload: newData,
-      };
+  const clearFieldError = (name) => setErrors((p) => ({ ...p, [name]: "" }));
 
-      const resp = await callApi("/CR/create-request", payload, "POST");
-      if (resp) {
-        snackbar(
-          `CGL ${isActive ? "block" : "unblock"} request created successfully`,
-          "success",
-        );
-        onSaved?.();
-      } else {
-        snackbar("Block failed", "error");
-      }
-    } catch (err) {
-      snackbar(err?.message || "Block request failed", "error");
-    } finally {
-      setBlockConfirmOpen(false);
-      setLoadOverlay(false);
-      handleClose();
+  const handleUserIdChange = (value) => {
+    const lower = value.toLowerCase();
+
+    let maxLength = 7;
+
+    if (lower.startsWith("vtcs")) maxLength = 11;
+    else if (lower.startsWith("tcs")) maxLength = 10;
+    else if (lower.startsWith("v")) maxLength = 8;
+
+    if (value.length > maxLength) {
+      snackbar("Maximum allowed length reached", "warning");
+      return;
     }
-  }, [editInitialData, callApi, snackbar, onSaved, handleClose]);
 
-  // helpers to decide UI disabled state based on current classification
-  const classification = cglData.acClassification;
-  const isBalFwdDisabled =
-    classification === "A" ||
-    classification === "L" ||
-    classification === "I" ||
-    classification === "E";
-  const balFwdChecked =
-    classification === "A" || classification === "L"
-      ? true
-      : classification === "I" || classification === "E"
-        ? false
-        : cglData.balFwd;
-  const isBalCompareDisabled = classification === "I" || classification === "E";
+    const typingRegex =
+      /^(?:\d{0,7}|v\d{0,7}|tcs\d{0,7}|vtcs\d{0,7}|v|t|tc|tcs|vt|vtc|vtcs)$/i;
 
-  const getSegmentValue = (code, allSegments) => {
-    return allSegments.find((segment) => segment.segmentCode === code) || null;
+    if (!typingRegex.test(value)) {
+      snackbar("User ID must start with digits, v, tcs, or vtcs only", "error");
+      return;
+    }
+
+    setForm((p) => ({
+      ...p,
+      USERID: value,
+    }));
+
+    if (value && !USERID_REGEX.test(value)) {
+      setFieldError(
+        "USERID",
+        "Allowed formats: 1234567, v1234567, tcs1234567, vtcs1234567",
+      );
+    } else {
+      clearFieldError("USERID");
+    }
   };
+
+  const fetchUserOnBlur = async () => {
+    try {
+      const res = await callApi(
+        "/UM/user/validate/userid",
+        { userId: form.USERID },
+        "GET",
+      );
+      console.log("response", res.result);
+      const isExists = res?.result?.exists || false;
+      console.log(isExists);
+
+      if (!isExists) return;
+      snackbar("User already exists, Kindly change user ID.", "warning");
+      setFieldError("USERID", "User already exists");
+    } catch {
+      snackbar("User lookup failed", "error");
+    }
+  };
+
+  /* ================= NAME ================= */
+
+  const handleNameChange = (name, value, mandatory) => {
+    if (value === "") {
+      setForm((p) => ({ ...p, [name]: "" }));
+      clearFieldError(name);
+      return;
+    }
+    if (value && !/[A-Za-z]/.test(value[0])) {
+      snackbar("Should not start with special character", "error");
+      return;
+    }
+
+    if (!NAME_REGEX.test(value)) {
+      snackbar(
+        "only letters, spaces(single spaces only between words) and dot are allowed",
+        "error",
+      );
+      return;
+    }
+
+    if (!value && mandatory) {
+      setFieldError(name, "This field is required");
+    } else if (value && value.length < 3 && mandatory) {
+      setFieldError(name, "Minimum 3 characters required");
+    } else if (value && value.length < 1 && !mandatory) {
+      setFieldError(name, "Minimum 3 characters required");
+    } else if (value.length > 30) {
+      setFieldError(name, "Maximum 30 characters allowed");
+    } else {
+      clearFieldError(name);
+    }
+
+    setForm((p) => ({ ...p, [name]: value }));
+  };
+
+  /* ================= EMAIL ================= */
+
+  const handleEmailChange = (value) => {
+    if (value.includes("@")) return;
+    if (value.length > EMAIL_PREFIX_MAX) return;
+
+    if (value && !EMAIL_PREFIX_REGEX.test(value)) {
+      snackbar(
+        "Only letters, numbers, dot (.) and underscore (_) allowed",
+        "error",
+      );
+      return;
+    }
+
+    if (value.length < 3) {
+      setFieldError("EMAIL", "Minimum 3 characters required before @");
+    } else {
+      clearFieldError("EMAIL");
+    }
+
+    setForm((p) => ({ ...p, EMAIL: value }));
+  };
+
+  /* ================= MOBILE ================= */
+
+  // const isAllZeros = (str) => {
+  //   return /^0+$/.test(str);
+  // };
+
+  const handleMobileChange = (value = "") => {
+    if (value && !/^[1-9]$/.test(value[0])) {
+      snackbar(
+        "Mobile Number should start only with greater than zero",
+        "error",
+      );
+      return;
+    }
+    if (!DIGITS_REGEX.test(value)) {
+      snackbar("Only digits are allowed", "error");
+      return;
+    }
+
+    if (value && value.length !== 10) {
+      setFieldError("PHONE_NUMBER", "Mobile Number must be exactly 10 digits");
+    } else {
+      clearFieldError("PHONE_NUMBER");
+    }
+
+    if (value.length <= 10) {
+      setForm((p) => ({
+        ...p,
+        PHONE_NUMBER: value,
+      }));
+    }
+  };
+
+  /* ================= FINAL VALIDATION ================= */
+
+  const validateFinal = () => {
+    const e = {};
+
+    // if (!USERID_REGEX.test(form.USERID)) e.USERID = "Valid User ID required";
+    // if (!form.USERID) e.USERID = "User ID is required";
+    // if (form.USERID && form.USERID.length !== 7) {
+    //   e.USERID = "User ID must be exactly 7 digits";
+    //   //snackbar("User ID must be exactly 7 digits","error");
+    // }
+    if (!form.USERID) {
+      e.USERID = "User ID is required";
+    } else if (!USERID_REGEX.test(form.USERID)) {
+      e.USERID = "Allowed formats: 1234567, v1234567, tcs1234567, vtcs1234567";
+    }
+
+    if (!form.FIRST_NAME || form.FIRST_NAME.trim().length < 3)
+      e.FIRST_NAME = "First Name must be at least 3 characters";
+
+    const email = form.EMAIL.replace(EMAIL_DOMAIN, "") || "";
+
+    if (!email) e.EMAIL = "Email is required";
+    else if (email.length < 3) e.EMAIL = "Email must be at least 3 characters";
+    else if (!EMAIL_PREFIX_REGEX.test(email))
+      e.EMAIL = "Only letters, numbers, dot (.) and underscore (_) allowed";
+
+    if (form.PHONE_NUMBER && form.PHONE_NUMBER.length !== 10)
+      e.PHONE_NUMBER = "Mobile Number must be exactly 10 digits";
+
+    if (!form.ROLE_ID) e.ROLE_ID = "Role is required";
+    if (isEdit && !form.ACCOUNT_STATUS) e.ACCOUNT_STATUS = "Status is required";
+
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  /* ================= SAVE ================= */
+
+  const onSave = async () => {
+    if (!validateFinal()) {
+      snackbar("Please enter required fields", "error");
+      return;
+    }
+
+    if (_.isEqual(form, initialState)) {
+      snackbar("No Changes detected, Kindly modify before saving", "warning");
+      return;
+    }
+
+    const wasF1BOG = initialState?.ROLE_ID === FORBIDDEN_ROLE_ID;
+    const isF1BOGNow = form?.ROLE_ID === FORBIDDEN_ROLE_ID;
+
+    if (!wasF1BOG && isF1BOGNow) {
+      snackbar(
+        "Assignment of role 'f1bog' is restricted and not allowed",
+        "error",
+      );
+      return;
+    }
+
+    const payload = {
+      targetUserId: form.USERID,
+      requestType: isEdit ? "MODIFY" : "CREATE",
+      requestPayload: {
+        userId: form.USERID,
+        firstName: form.FIRST_NAME,
+        middleName: form.MIDDLE_NAME,
+        lastName: form.LAST_NAME,
+        email: isEdit ? form.EMAIL : form.EMAIL + EMAIL_DOMAIN,
+        phoneNumber: form.PHONE_NUMBER,
+        roleId: form.ROLE_ID,
+        roleName: form.ROLE_NAME,
+        accountStatus: form.ACCOUNT_STATUS || "ACTIVE",
+      },
+    };
+
+    try {
+      const response = await callApi(
+        "/UM/user/create-request",
+        payload,
+        "POST",
+      );
+      snackbar(
+        isEdit
+          ? "User update request submitted successfully with request id " +
+              response?.result?.userRequest?.requestId
+          : "User creation request submitted successfully with request id " +
+              response?.result?.userRequest?.requestId,
+        "success",
+      );
+      onClose();
+    } catch (error) {
+      console.error(error);
+      snackbar(
+        error?.message || "Something went wrong, Kindly try again",
+        "error",
+      );
+    }
+  };
+
+  /* ================= RENDER ================= */
 
   return (
-    <>
-      <LoadingOverlay loading={loadOverlay} />
-      <Dialog
-        open={open}
-        fullWidth
-        maxWidth="md"
-        component="form"
-        onSubmit={handleSubmit}
-      >
-        <DialogTitle>
-          <Box
-            sx={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <Typography variant="h6" color="primary">
-              {editingId ? "Edit CGL" : "Add New CGL"}
-            </Typography>
-            <IconButton onClick={handleClose}>
-              <CloseIcon />
-            </IconButton>
-          </Box>
-        </DialogTitle>
-        <Divider />
+    <Dialog open={open} fullWidth maxWidth="md">
+      <DialogTitle>{isEdit ? "Edit User" : "Create User"}</DialogTitle>
 
-        <DialogContent>
-          <Box sx={{ mt: 2 }}>
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 12 }}>
-                <Box display="flex" gap={1}>
-                  <TextField
-                    fullWidth
-                    label="Comp1 *"
-                    name="comp1"
-                    value={cglData.comp1}
-                    onChange={handleChange}
-                    error={!!errors.comp1}
-                    helperText={errors.comp1 || "Exactly 4 numbers(≥1000)"}
-                    placeholder="1000 to 9999"
-                    disabled={!!editingId}
-                    slotProps={{
-                      input: {
-                        maxLength: 4,
-                        inputMode: "numeric",
-                        minWidth: 150,
-                        
-                      },
-                    }}
-                  />
-
-                  {/* <TextField
-                    fullWidth
-                    select
-                    label="Segment Code *"
-                    name="segmentCode"
-                    value={cglData.segmentCode}
-                    onChange={handleChange}
-                    error={!!errors.segmentCode}
-                    helperText={errors.segmentCode}
-                    disabled={!!editingId}
-                  >
-                    <MenuItem value="">Select Segment</MenuItem>
-                    {segments.map((segment) => (
-                      <MenuItem
-                        key={segment.segmentCode}
-                        value={segment.segmentCode}
-                      >
-                        {segment.segmentCode} - {segment.description}
-                      </MenuItem>
-                    ))}
-                  </TextField> */}
-
-                  <Autocomplete
-                    fullWidth
-                    options={segments}
-                    getOptionLabel={(option) =>
-                      `${option.segmentCode} - ${option.description}`
-                    }
-                    value={getSegmentValue(cglData.segmentCode, segments)}
-                    onChange={(event, newValue) => {
-                      // Manually call the parent form handler to update the state with the segmentCode
-                      handleChange({
-                        target: {
-                          name: "segmentCode",
-                          value: newValue ? newValue.segmentCode : "",
-                        },
-                      });
-                    }}
-                    disabled={!!editingId}
-                    renderInput={(params) => (
-                      <TextField
-                        {...params}
-                        label="Segment Code *"
-                        name="segmentCode" // Name attribute is primarily for form submission, handled by onChange here
-                        error={!!errors.segmentCode}
-                        helperText={errors.segmentCode}
-                        // The value is managed by the Autocomplete component itself
-                      />
-                    )}
-                    // Optional: Add PopperProps for better positioning in small containers
-                    // PopperProps={{ placement: 'bottom-start' }}
-                  />
-
-                  <TextField
-                    fullWidth
-                    label="Comp2 *"
-                    name="comp2"
-                    value={cglData.comp2?.toString()}
-                    onChange={handleChange}
-                    error={!!errors.comp2}
-                    helperText={errors.comp2 || "Exactly 2 numbers(01-99)"}
-                    placeholder="01-99"
-                    disabled={!!editingId}
-                    slotProps={{
-                      input: {
-                        maxLength: 2,
-                      },
-                    }}
-                  />
-                </Box>
-              </Grid>
-
-              <Grid size={{ xs: 12 }}>
-                <Card variant="outlined" sx={{ p: 2, width: "100%" }}>
-                  <Typography variant="h6" color="textDisabled">
-                    CGL Code {cglNumber || ""}
-                  </Typography>
-                </Card>
-              </Grid>
-
-              <Grid size={{ xs: 12 }} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Description *"
-                  name="description"
-                  value={cglData.description}
-                  onChange={handleChange}
-                  error={!!errors.description}
-                  slotProps={{ htmlInput: { maxLength: 100 } }}
-                  helperText={
-                    errors.description ||
-                    'Allowed 5-100 characters (alphabets, numbers, spaces,._"<>/&()=-)'
-                  }
-                  multiline
-                  rows={3}
-                />
-              </Grid>
-
-              <Grid size={{ xs: 12 }}>
-                <Box display="flex" gap={2}>
-                  {/* Account Classification: auto-set & disabled when classificationLocked is true */}
-                  <TextField
-                    select
-                    fullWidth
-                    label="Account Classification *"
-                    name="acClassification"
-                    value={cglData.acClassification}
-                    onChange={handleChange}
-                    error={!!errors.acClassification}
-                    helperText={
-                      classificationLocked
-                        ? "Set by Comp1"
-                        : errors.acClassification || ""
-                    }
-                    disabled={classificationLocked}
-                  >
-                    <MenuItem value="">Select Classification</MenuItem>
-                    {accountClassifications.map((option) => (
-                      <MenuItem key={option.value} value={option.value}>
-                        {option.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-
-                  {/* Default Balance Type is HIDDEN from UI (auto-managed) */}
-                </Box>
-              </Grid>
-
-              <Grid size={{ xs: 12, md: 6 }}>
-                <FormControl component="fieldset" fullWidth>
-                  <FormLabel component="legend">Balance Compare Flag</FormLabel>
-                  <RadioGroup
-                    row
-                    name="balCompare"
-                    value={cglData.balCompare}
-                    onChange={handleChange}
-                  >
-                    <FormControlLabel
-                      value="1"
-                      control={<Radio />}
-                      label="Include"
-                      disabled={isBalCompareDisabled}
-                    />
-                    <FormControlLabel
-                      value="0"
-                      control={<Radio />}
-                      label="Exclude"
-                      disabled={isBalCompareDisabled}
-                    />
-                  </RadioGroup>
-                </FormControl>
-              </Grid>
-
-              <Grid size={{ xs: 12, md: 6 }}>
-                <FormControl component="fieldset" fullWidth>
-                  <FormLabel component="legend">Manual Posting Flag</FormLabel>
-                  <RadioGroup
-                    row
-                    name="manualPosting"
-                    value={cglData.manualPosting}
-                    onChange={handleChange}
-                  >
-                    <FormControlLabel
-                      value="1"
-                      control={<Radio />}
-                      label="Allowed"
-                    />
-                    <FormControlLabel
-                      value="0"
-                      control={<Radio />}
-                      label="Not Allowed"
-                    />
-                  </RadioGroup>
-                </FormControl>
-              </Grid>
-
-              <Grid size={{ xs: 12 }}>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      name="balFwd"
-                      checked={!!balFwdChecked}
-                      onChange={handleChange}
-                      disabled={isBalFwdDisabled}
-                    />
-                  }
-                  label="Balance Carry Forward to next year"
-                />
-                <FormHelperText>
-                  {classification === "I" || classification === "E"
-                    ? "Not applicable for Income/Expense accounts (Unchecked)"
-                    : classification === "A" || classification === "L"
-                      ? "Automatically enabled for Asset/Liability"
-                      : ""}
-                </FormHelperText>
-              </Grid>
+      <DialogContent>
+        <Stack spacing={2} mt={1}>
+          {/* Row 1 */}
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 8 }}>
+              <TextField
+                label="User ID *"
+                placeholder="eg: 1234567"
+                value={form.USERID}
+                onChange={(e) => handleUserIdChange(e.target.value)}
+                onBlur={fetchUserOnBlur}
+                disabled={isEdit}
+                error={!!errors.USERID}
+                helperText={
+                  errors.USERID ||
+                  "After the prefix (v, tcs, or vtcs), enter exactly 7 numeric digits"
+                }
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PersonIcon />
+                    </InputAdornment>
+                  ),
+                }}
+                fullWidth
+                inputProps={{ maxLength: 12 }}
+              />
             </Grid>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Box
-            sx={{
-              mt: 3,
-              display: "flex",
-              gap: 1,
-              justifyContent: "flex-end",
-            }}
-          >
-            {!editingId && (
-              <Button onClick={handleReset} variant="outlined">
-                Reset
-              </Button>
-            )}
+            {/* spacer to keep nice balance on first row */}
+            <Grid item xs={12} md={4} />
+          </Grid>
 
-            {permissions?.block &&
-              editingId &&
-              editInitialData.status == "1" && (
-                <Button
-                  onClick={openBlockConfirm}
-                  variant="contained"
-                  color="error"
-                  startIcon={<BlockIcon />}
+          <Divider />
+
+          {/* Row 2 */}
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 4 }}>
+              <TextField
+                label="First Name *"
+                value={form.FIRST_NAME ?? ""}
+                error={!!errors.FIRST_NAME}
+                helperText={
+                  errors.FIRST_NAME ||
+                  "Allowed 3-30 characters (letters,spaces, .)"
+                }
+                onChange={(e) =>
+                  handleNameChange("FIRST_NAME", e.target.value, true)
+                }
+                fullWidth
+                slotProps={{ htmlInput: { maxLength: 30 } }}
+              />
+            </Grid>
+
+            <Grid size={{ xs: 4 }}>
+              <TextField
+                label="Middle Name"
+                value={form.MIDDLE_NAME ?? ""}
+                error={!!errors.MIDDLE_NAME}
+                helperText={
+                  errors.MIDDLE_NAME ||
+                  "Allowed 1-30 characters (letters,spaces, .)"
+                }
+                onChange={(e) =>
+                  handleNameChange("MIDDLE_NAME", e.target.value, false)
+                }
+                fullWidth
+                slotProps={{ htmlInput: { maxLength: 30 } }}
+              />
+            </Grid>
+
+            <Grid size={{ xs: 4 }}>
+              <TextField
+                label="Last Name"
+                value={form.LAST_NAME ?? ""}
+                error={!!errors.LAST_NAME}
+                helperText={
+                  errors.LAST_NAME ||
+                  "Allowed 1-30 characters (letters,spaces, .)"
+                }
+                onChange={(e) =>
+                  handleNameChange("LAST_NAME", e.target.value, false)
+                }
+                fullWidth
+                slotProps={{ htmlInput: { maxLength: 30 } }}
+              />
+            </Grid>
+          </Grid>
+
+          {/* Row 3 */}
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 6 }}>
+              <TextField
+                label="Email *"
+                value={form.EMAIL.replace(EMAIL_DOMAIN, "")}
+                error={!!errors.EMAIL}
+                helperText={
+                  errors.EMAIL ||
+                  "Allowed 3-40 characters(. and _) and domain will be auto set"
+                }
+                onChange={(e) => handleEmailChange(e.target.value)}
+                fullWidth
+                slotProps={{ htmlInput: { maxLength: 50 } }}
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <Typography
+                        variant="body1"
+                        sx={{
+                          color: "text.disabled",
+                          cursor: "default",
+                          userSelect: "none",
+                        }}
+                      >
+                        {EMAIL_DOMAIN}
+                      </Typography>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Grid>
+
+            <Grid size={{ xs: 6 }}>
+              <TextField
+                label="Mobile Number"
+                value={form.PHONE_NUMBER ?? ""}
+                error={!!errors.PHONE_NUMBER}
+                helperText={
+                  errors.PHONE_NUMBER || "Allowed 10 numeric digits only"
+                }
+                onChange={(e) => handleMobileChange(e.target.value)}
+                inputProps={{ maxLength: 10 }}
+                fullWidth
+              />
+            </Grid>
+          </Grid>
+
+          {/* Row 4 */}
+          {/* Row 4 */}
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 6 }}>
+              <FormControl fullWidth error={!!errors.ROLE_ID}>
+                <InputLabel>Role *</InputLabel>
+                <Select
+                  label="Role *"
+                  value={form.ROLE_ID || ""}
+                  onChange={(e) => {
+                    const r = roles.find((x) => x.id === e.target.value);
+                    setForm({ ...form, ROLE_ID: r.id, ROLE_NAME: r.name });
+                    clearFieldError("ROLE_ID");
+                  }}
                 >
-                  Block CGL
-                </Button>
-              )}
+                  {roles.map((r) => (
+                    <MenuItem
+                      key={r.id}
+                      value={r.id}
+                      disabled={r.id === FORBIDDEN_ROLE_ID}
+                    >
+                      {r.name}
+                    </MenuItem>
+                  ))}
+                </Select>
 
-            {permissions?.unblock &&
-              editingId &&
-              editInitialData.status == "0" && (
-                <Button
-                  onClick={openBlockConfirm}
-                  variant="contained"
-                  color="warning"
-                  startIcon={<LockOpenIcon />}
-                >
-                  Un Block CGL
-                </Button>
-              )}
+                {isDowngradingF1BOG && (
+                  <Typography
+                    variant="caption"
+                    color="warning.main"
+                    sx={{ mt: 0.5 }}
+                  >
+                    ⚠️ This user currently has the <b>f1bog</b> role. Once
+                    changed, it cannot be assigned again.
+                  </Typography>
+                )}
 
-            {permissions?.modify && editingId && (
-              <Button
-                type="submit"
-                variant="contained"
-                startIcon={<EditIcon />}
-                disabled={!isFormValid}
-              >
-                Update CGL
-              </Button>
-            )}
+                <Typography variant="caption" color="error">
+                  {errors.ROLE_ID}
+                </Typography>
+              </FormControl>
+            </Grid>
 
-            {permissions?.create && !editingId && (
-              <Button
-                type="submit"
-                variant="contained"
-                startIcon={<AddIcon />}
-                disabled={!isFormValid}
-              >
-                Add CGL
-              </Button>
-            )}
-          </Box>
-        </DialogActions>
-      </Dialog>
+            {/* {isEdit && (
+              <Grid size={{ xs: 6 }}>
+                <FormControl fullWidth error={!!errors.ACCOUNT_STATUS}>
+                  <InputLabel>Status *</InputLabel>
+                  <Select
+                    label="Status *"
+                    value={form.ACCOUNT_STATUS || ""}
+                    onChange={(e) =>
+                      setForm({ ...form, ACCOUNT_STATUS: e.target.value })
+                    }
+                  >
+                    {STATUS_OPTIONS.map((s) => (
+                      <MenuItem key={s.value} value={s.value}>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          {s.icon}
+                          <Typography>{s.label}</Typography>
+                        </Stack>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  <Typography variant="caption" color="error">
+                    {errors.ACCOUNT_STATUS}
+                  </Typography>
+                </FormControl>
+              </Grid>
+            )} */}
+          </Grid>
+        </Stack>
+      </DialogContent>
 
-      {/* Block confirmation dialog (owned by dialog component) */}
-      <Dialog
-        open={blockConfirmOpen}
-        onClose={() => setBlockConfirmOpen(false)}
-      >
-        <DialogTitle>
-          {editingId && editInitialData.status == "1" ? "Block" : "Un Block"}{" "}
-          CGL
-        </DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to{" "}
-            {editingId && editInitialData.status == "1" ? "Block" : "Un Block"}{" "}
-            CGL {editingId || cglNumber}?
-          </Typography>
-        </DialogContent>
-        <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end", p: 2 }}>
-          <Button onClick={() => setBlockConfirmOpen(false)}>Cancel</Button>
-          <Button
-            color={
-              editingId && editInitialData.status == "1" ? "error" : "success"
-            }
-            variant="contained"
-            onClick={handleBlockUnBlockConfirm}
-          >
-            {editingId && editInitialData.status == "1"
-              ? "Block CGL"
-              : "Un Block CGL"}
-          </Button>
-        </Box>
-      </Dialog>
-    </>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={onSave}>
+          {isEdit ? "Save Changes" : "Create User"}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
+
