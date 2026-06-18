@@ -1,744 +1,887 @@
-package com.fincore.enquiry_service.model;
+import React, {
+  useEffect,
+  useMemo,
+  useCallback,
+  useState,
+  useRef,
+} from "react";
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  Box,
+  Grid,
+  TextField,
+  MenuItem,
+  Typography,
+  FormControlLabel,
+  Checkbox,
+  FormHelperText,
+  FormControl,
+  FormLabel,
+  RadioGroup,
+  Radio,
+  Button,
+  IconButton,
+  Divider,
+  DialogActions,
+  Card,
+  Autocomplete,
+} from "@mui/material";
+import LockOpenIcon from "@mui/icons-material/LockOpen";
+import CloseIcon from "@mui/icons-material/Close";
+import EditIcon from "@mui/icons-material/Edit";
+import AddIcon from "@mui/icons-material/Add";
+import BlockIcon from "@mui/icons-material/Block";
+import useApi from "../../hooks/useApi";
+import useCustomSnackbar from "../../utils/useCustomSnackbar";
+import LoadingOverlay from "../../utils/LoadingOverlay";
+import _ from "lodash";
 
-import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
-import lombok.ToString;
+const initialCGLState = {
+  comp1: "",
+  segmentCode: "",
+  comp2: "",
+  description: "",
+  acClassification: "",
+  balFwd: false,
+  defBalType: "",
+  balCompare: "1",
+  manualPosting: "1",
+  status: "Active",
+  openDate: new Date().toISOString().split("T")[0],
+  closeDate: null,
+};
 
-import java.util.Date;
-
-@Getter
-@Setter
-@Entity
-@Table(name = "GL_BALANCE_DIFFERENCE")
-@ToString
-public class GlBalanceDifference {
-
-    // @GeneratedValue(strategy = GenerationType.SEQUENCE, generator =
-    // "gl_balance_seq_gen")
-
-    // @SequenceGenerator(name = "gl_balance_seq_gen", sequenceName =
-    // "GL_BALANCE_SEQ", allocationSize = 1)
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "ID")
-    private Integer id;
-    @Column(name = "BALANCE_DATE")
-    private Date date;
-    @Column(name = "BRANCH_CODE")
-    private String branch;
-    @Column(name = "CURRENCY")
-    private String currency;
-    @Column(name = "CGL")
-    private String cgl;
-    @Column(name = "BALANCE")
-    private Double balance;
-    @Column(name = "INR_BALANCE")
-    private Double inrBalance;
-    @Column(name = "TYPE")
-    private String type;
-    @Column(name = "FIRST_ERROR_DATE")
-    private Date firstErrorDate;
-
+function classificationFromComp1(comp1Val) {
+  if (!comp1Val || comp1Val.length === 0) return null;
+  const ch = String(comp1Val)[0];
+  if (ch === "1" || ch === "6") return "A"; // Asset
+  if (ch === "2" || ch === "3" || ch === "4") return "L"; // Liability
+  if (ch === "5") return "M"; // Memo
+  if (ch === "7") return "I"; // Income
+  if (ch === "8") return "E"; // Expense
+  return null;
 }
 
-
-
-package com.fincore.enquiry_service.repository;
-
-
-import java.util.Date;
-
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.repository.JpaRepository;
-
-import com.fincore.enquiry_service.model.GlBalanceDifference;
-
-public interface GlBalanceDifferenceRepo extends JpaRepository<GlBalanceDifference, Integer> {
-
-    Page<GlBalanceDifference> findByBranchAndCglAndCurrencyAndDateBetween(String branch, String cgl, String currency,
-            Date adjustedStartDate, Date adjustedEndDate, Pageable pageable);
-
+function defBalTypeFromClassification(ac) {
+  switch (ac) {
+    case "A":
+      return "D";
+    case "L":
+      return "C";
+    case "M":
+      return "M";
+    case "I":
+      return "C";
+    case "E":
+      return "D";
+    default:
+      return "";
+  }
 }
 
+const descRegex = /^[A-Za-z0-9 .,"<>/&()=_-]*$/;
 
+export default function CGLDialog({
+  open,
+  onClose,
+  onSaved,
+  editInitialData = null,
+  accountClassifications = null,
+  permissions = {},
+}) {
+  const { callApi } = useApi();
+  const snackbar = useCustomSnackbar();
+  const [cglData, setCglData] = useState(initialCGLState);
+  const [errors, setErrors] = useState({});
+  const [editingId, setEditingId] = useState(null);
+  const [loadOverlay, setLoadOverlay] = useState(false);
+  const [segments, setSegments] = useState([]);
+  const [blockConfirmOpen, setBlockConfirmOpen] = useState(false);
+  const [classificationLocked, setClassificationLocked] = useState(false);
 
+  // throttle snackbars during typing
+  const snackGateRef = useRef(true);
+  const notifyOnce = (msg, variant = "warning") => {
+    if (!snackGateRef.current) return;
+    snackGateRef.current = false;
+    snackbar(msg, variant);
+    setTimeout(() => (snackGateRef.current = true), 800);
+  };
 
-package com.fincore.enquiry_service.service;
+  // derived cglNumber
+  const cglNumber = useMemo(() => {
+    return cglData.comp1 && cglData.segmentCode && cglData.comp2
+      ? `${cglData.comp1}${cglData.segmentCode}${String(cglData.comp2).padStart(
+          2,
+          "0",
+        )}`
+      : "";
+  }, [cglData.comp1, cglData.segmentCode, cglData.comp2]);
 
-import com.fincore.enquiry_service.dto.BalanceRequestDTO;
-import com.fincore.enquiry_service.dto.GlBalDiffResponseDTO;
-import com.fincore.enquiry_service.dto.PaginatedResponseDTO;
+  // load segments
+  const fetchSegments = useCallback(async () => {
+    const resp = await callApi(
+      "/CM/common-master/segment-codes",
+      { requestType: "SEGMENT_CODE" },
+      "GET",
+    );
+    setSegments(resp?.data || []);
+  }, [callApi]);
 
-public interface GlBalanceDiffService {
+  // when dialog opens for Add or Edit, populate
+  useEffect(() => {
+    if (!open) return;
+    fetchSegments();
 
-    PaginatedResponseDTO<GlBalDiffResponseDTO> getBalanceDiffDetails(BalanceRequestDTO request);
+    if (editInitialData) {
+      // populate form from editInitialData
+      const mapped = classificationFromComp1(editInitialData.comp1 ?? "");
 
-    byte[] exportBalanceDiffToExcel(BalanceRequestDTO request, String userId);
-}
+      const initial = {
+        ...initialCGLState,
+        ...editInitialData,
+        comp1: editInitialData.comp1 ?? "",
+        comp2: editInitialData.comp2 ?? "",
+        segmentCode: editInitialData.segmentCode ?? "",
+        description: editInitialData.description ?? "",
+        balFwd: !!editInitialData.balFwd,
+      };
 
+      // if comp1 determines classification, enforce it and lock dropdown
+      if (mapped) {
+        initial.acClassification = mapped;
+        initial.defBalType = defBalTypeFromClassification(mapped);
+        setClassificationLocked(true);
+      } else {
+        initial.acClassification = editInitialData.acClassification ?? "";
+        initial.defBalType =
+          editInitialData.defBalType ||
+          defBalTypeFromClassification(initial.acClassification);
+        setClassificationLocked(false);
+      }
 
-package com.fincore.enquiry_service.service;
+      // Apply balFwd and balCompare rules based on classification
+      const ac = initial.acClassification;
+      if (ac === "A" || ac === "L") {
+        initial.balFwd = true;
+        initial.balCompare = initial.balCompare ?? "1";
+      } else if (ac === "I" || ac === "E") {
+        initial.balFwd = false;
+        initial.balCompare = "0";
+      }
 
-import java.util.Calendar;
-import java.util.Date;
-import java.util.List;
-import java.util.TimeZone;
+      setCglData(initial);
+      setEditingId(editInitialData.cglNumber);
+      setErrors({});
+    } else {
+      // fresh
+      setCglData(initialCGLState);
+      setEditingId(null);
+      setErrors({});
+      setClassificationLocked(false);
+    }
+  }, [open, editInitialData, fetchSegments]);
 
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
-import org.springframework.stereotype.Service;
-
-import com.fincore.enquiry_service.dto.BalanceRequestDTO;
-import com.fincore.enquiry_service.dto.GlBalDiffResponseDTO;
-import com.fincore.enquiry_service.dto.PaginatedResponseDTO;
-import com.fincore.enquiry_service.exception.NoDataFoundException;
-import com.fincore.enquiry_service.model.GlBalanceDifference;
-import com.fincore.enquiry_service.repository.GlBalanceDifferenceRepo;
-import com.fincore.enquiry_service.service.export.GlBalanceDiffStreamingExportService;
-
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-
-@Service
-@Slf4j
-@RequiredArgsConstructor
-public class GlBalanceDiffServiceImpl implements GlBalanceDiffService {
-
-    private final GlBalanceDifferenceRepo repo;
-
-    private static final String ZONE_IST = "Asia/Kolkata";
-    private final GlBalanceDiffStreamingExportService glBalanceDiffStreamingExportService;
-
-    @Override
-    public PaginatedResponseDTO<GlBalDiffResponseDTO> getBalanceDiffDetails(BalanceRequestDTO request) {
-        if (request.getEndDate().before(request.getStartDate())) {
-            log.error("End date must be after start date.");
-            throw new IllegalArgumentException("End date must be after start date");
-        }
-
-        // 1. Force Start Date to 00:00:00 IST
-        Date adjustedStartDate = convertToStartOfDay(request.getStartDate());
-        // 2. Force End Date to 23:59:59 IST
-        Date adjustedEndDate = convertToEndOfDay(request.getEndDate());
-
-        int page = (request.getPage() != null && request.getPage() >= 0) ? request.getPage() : 0;
-        int size = (request.getSize() != null && request.getSize() >= 0) ? request.getSize() : 10;
-
-        String sortIn = (request.getSortIn() != null && !request.getSortIn().isBlank())
-                ? request.getSortIn().toUpperCase()
-                : "ASC";
-
-        Sort sort = sortIn.equals("DESC") ? Sort.by("date").descending() : Sort.by("date").ascending();
-        PageRequest pageRequest = PageRequest.of(page, size, sort);
-
-        log.info("Adjusted Start Date : {}", adjustedStartDate);
-        log.info("Adjusted End Date : {}", adjustedEndDate);
-
-        Page<GlBalanceDifference> records = repo.findByBranchAndCglAndCurrencyAndDateBetween(
-                request.getBranch(), request.getCgl(), request.getCurrency(),
-                adjustedStartDate, adjustedEndDate,
-                pageRequest);
-
-        if (records.isEmpty()) {
-            log.warn("No records found for the given filters.");
-            throw new NoDataFoundException("No records found for given filters");
-        }
-
-        List<GlBalDiffResponseDTO> list = records.stream()
-                .map(r -> new GlBalDiffResponseDTO(
-                        r.getId(), r.getDate(), r.getBranch(), r.getCgl(), r.getCurrency(), r.getBalance(),
-                        r.getType(), r.getFirstErrorDate()))
-                .toList();
-
-        String actualSort = records.getSort().stream().findFirst().map(order -> order.getDirection().name())
-                .orElse("UNSORTED");
-
-        return new PaginatedResponseDTO<>(
-                records.getNumber(), records.getTotalPages(), records.getSize(), records.getTotalElements(), actualSort,
-                list, null);
+  // whenever acClassification changes we auto-set defBalType and adjust balFwd / balCompare rules
+  useEffect(() => {
+    const ac = cglData.acClassification;
+    if (!ac) {
+      setCglData((prev) => {
+        const next = {
+          ...prev,
+          balFwd: false,
+          defBalType: "",
+          balCompare: "1",
+          manualPosting: "1",
+        };
+        return next;
+      });
     }
 
-    @Override
-    public byte[] exportBalanceDiffToExcel(
-            BalanceRequestDTO request, String userId) {
+    setCglData((prev) => {
+      const newDef = defBalTypeFromClassification(ac);
+      const next = { ...prev, defBalType: newDef };
 
-        return glBalanceDiffStreamingExportService.export(request, userId);
+      // balFwd rules:
+      if (ac === "A" || ac === "L") {
+        next.balFwd = true; // disabled & checked
+      } else if (ac === "I" || ac === "E") {
+        next.balFwd = false; // disabled & unchecked
+      } // else leave balFwd as-is (user can change)
+
+      // balCompare rules:
+      if (ac === "I" || ac === "E") {
+        next.balCompare = "0"; // force exclude
+      }
+
+      return next;
+    });
+  }, [cglData.acClassification]);
+
+  // single-field validator
+  const validateField = useCallback((name, value) => {
+    switch (name) {
+      case "comp1":
+        if (!value) return "Comp1 is required";
+        if (!/^\d{4}$/.test(value)) return "Comp1 must be exactly 4 digits";
+        if (parseInt(value, 10) < 1000) return "Comp1 must be ≥ 1000";
+        return "";
+      case "segmentCode":
+        if (!value) return "Segment code is required";
+        return "";
+      case "comp2":
+        if (!value) return "Comp2 is required";
+        if (!/^\d{2}$/.test(value)) return "Comp2 must be 2 digits";
+        if (parseInt(value, 10) < 1 || parseInt(value, 10) > 99)
+          return "Comp2 must be between 01 and 99";
+        return "";
+      case "description":
+        if (!value) return "Description is required";
+        if (!descRegex.test(value))
+          return 'Only letters, digits, spaces, .,"<>/&()=_-';
+        if (value?.trim()?.length < 5 || value?.trim()?.length > 100)
+          return "Description should be min 5 and max 100 characters";
+        return "";
+      case "acClassification":
+        if (!value) return "Account classification is required";
+        return "";
+      default:
+        return "";
     }
+  }, []);
 
-    /**
-     * Helper Method: Forces the date to Start of Day (00:00:00) in Asia/Kolkata
-     * regardless of Server TimeZone.
-     */
-    private Date convertToStartOfDay(Date date) {
-        if (date == null)
-            return null;
-        Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(ZONE_IST));
-        calendar.setTime(date);
-        calendar.set(Calendar.HOUR_OF_DAY, 0);
-        calendar.set(Calendar.MINUTE, 0);
-        calendar.set(Calendar.SECOND, 0);
-        calendar.set(Calendar.MILLISECOND, 0);
-        return calendar.getTime();
+  const isFormValid = useMemo(() => {
+    const fields = [
+      "comp1",
+      "segmentCode",
+      "comp2",
+      "description",
+      "acClassification",
+    ];
+    return fields.every((f) => !validateField(f, cglData[f]));
+  }, [cglData, validateField]);
+
+  const handleChange = useCallback(
+    (e) => {
+      const { name, value, type, checked } = e.target;
+
+      // hard-constraints / input blocking
+      if (name === "comp1") {
+        if (!/^\d*$/.test(value)) {
+          notifyOnce("Comp1 accepts digits only");
+          return;
+        }
+        if (value.length > 4) {
+          notifyOnce("Comp1 must be exactly 4 digits");
+          return;
+        }
+      }
+
+      if (name === "comp2") {
+        if (!/^\d*$/.test(value)) {
+          notifyOnce("Comp2 accepts numbers only");
+          return;
+        }
+        if (value.length > 2) {
+          notifyOnce("Comp2 should be 2 digits");
+          return;
+        }
+      }
+
+      if (name === "description") {
+        if (value && !/^[A-Za-z0-9]$/.test(value[0])) {
+          notifyOnce("Should not start with special character");
+          return;
+        }
+        if (!descRegex.test(value)) {
+          notifyOnce("Invalid character in Description");
+          return;
+        }
+      }
+
+      if (name === "comp1") {
+        const newComp1 = value;
+        setCglData((prev) => ({ ...prev, comp1: newComp1 }));
+        const mapped = classificationFromComp1(newComp1);
+        if (mapped) {
+          setCglData((prev) => {
+            const def = defBalTypeFromClassification(mapped);
+            const updated = {
+              ...prev,
+              comp1: newComp1,
+              acClassification: mapped,
+              defBalType: def,
+            };
+
+            if (mapped === "A" || mapped === "L") updated.balFwd = true;
+            else if (mapped === "I" || mapped === "E") updated.balFwd = false;
+
+            if (mapped === "I" || mapped === "E") updated.balCompare = "0";
+
+            return updated;
+          });
+          setClassificationLocked(true);
+
+          setErrors((prev) => ({ ...prev, comp1: "", acClassification: "" }));
+        } else {
+          setClassificationLocked(false);
+          setCglData((prev) => ({ ...prev, acClassification: "" }));
+        }
+
+        // validate comp1
+        const err = validateField("comp1", newComp1);
+        setErrors((prev) => ({ ...prev, comp1: err }));
+        return;
+      }
+
+      // For balFwd checkbox toggling (only possible when enabled)
+      if (name === "balFwd") {
+        setCglData((prev) => ({ ...prev, balFwd: checked }));
+        setErrors((prev) => ({ ...prev, balFwd: "" }));
+        return;
+      }
+
+      // For balCompare (radio)
+      if (name === "balCompare") {
+        setCglData((prev) => ({ ...prev, balCompare: value }));
+        setErrors((prev) => ({ ...prev, balCompare: "" }));
+        return;
+      }
+
+      // Normal update for other fields
+      setCglData((prev) => ({
+        ...prev,
+        [name]: type === "checkbox" ? checked : value,
+      }));
+
+      // set per-field error
+      const msg = validateField(name, type === "checkbox" ? checked : value);
+      setErrors((prev) => ({ ...prev, [name]: msg }));
+    },
+    [cglData, notifyOnce, validateField],
+  );
+
+  const validateForm = useCallback(() => {
+    const fields = [
+      "comp1",
+      "segmentCode",
+      "comp2",
+      "description",
+      "acClassification",
+    ];
+    const newErrors = {};
+    fields.forEach((f) => {
+      const msg = validateField(f, cglData[f]);
+      if (msg) newErrors[f] = msg;
+    });
+    setErrors(newErrors);
+    if (Object.keys(newErrors).length) {
+      snackbar("Please fix validation errors", "error");
+      return false;
     }
+    return true;
+  }, [cglData, validateField, snackbar]);
 
-    /**
-     * Helper Method: Forces the date to End of Day (23:59:59) in Asia/Kolkata
-     * regardless of Server TimeZone.
-     */
-    private Date convertToEndOfDay(Date date) {
-        if (date == null)
-            return null;
-        Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(ZONE_IST));
-        calendar.setTime(date);
-        calendar.set(Calendar.HOUR_OF_DAY, 23);
-        calendar.set(Calendar.MINUTE, 59);
-        calendar.set(Calendar.SECOND, 59);
-        calendar.set(Calendar.MILLISECOND, 999);
-        return calendar.getTime();
+  // submit — dialog does the API call
+  const handleSubmit = useCallback(
+    async (e) => {
+      e?.preventDefault();
+      if (!validateForm()) return;
+
+      setLoadOverlay(true);
+      try {
+        const apiEndpoint = "/CR/create-request";
+        const method = "POST";
+        const changeType = editingId ? "UPDATE" : "ADD";
+
+        const effectiveDef = defBalTypeFromClassification(
+          cglData.acClassification,
+        );
+
+        const innerPayload = {
+          comp1: cglData.comp1,
+          segmentCode: cglData.segmentCode,
+          comp2: cglData.comp2,
+          description: cglData.description,
+          acClassification: cglData.acClassification,
+          balFwd: cglData.balFwd ? 1 : 0,
+          defBalType: effectiveDef,
+          status: cglData.status == "Active" ? 1 : cglData.status,
+          balCompare: cglData.balCompare,
+          manualPosting: cglData.manualPosting,
+        };
+        delete innerPayload.cglNumber;
+
+        const initialData = { ...editInitialData };
+        delete initialData.cglNumber;
+        delete initialData.openDate;
+        delete initialData.closeDate;
+
+        if (innerPayload.description.trim().length < 5) {
+          snackbar("Description should be minimum 5 characters", "warning");
+          return;
+        }
+        if (_.isEqual(initialData, innerPayload)) {
+          snackbar("Kindly Modify data before saving", "warning");
+          return;
+        }
+
+        const payloadData = {
+          requestType: "CGL_CODE",
+          changeType,
+          payload: innerPayload,
+        };
+
+        const response = await callApi(apiEndpoint, payloadData, method);
+        if (response) {
+          snackbar(
+            editingId
+              ? "CGL update request submitted successfully with request id " +
+                  response?.data?.id
+              : "CGL creation request submitted successfully with request id " +
+                  response?.data?.id,
+            "success",
+          );
+
+          onSaved?.();
+          handleClose();
+        } else {
+          snackbar("No response from server", "error");
+        }
+      } catch (error) {
+        console.error(error);
+        snackbar(error?.message || "Request failed", "error");
+      } finally {
+        setLoadOverlay(false);
+      }
+    },
+    [callApi, cglData, cglNumber, editingId, onSaved, snackbar, validateForm],
+  );
+
+  const handleReset = useCallback(() => {
+    setCglData(initialCGLState);
+    setEditingId(null);
+    setErrors({});
+    setClassificationLocked(false);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    onClose?.();
+    handleReset();
+    setBlockConfirmOpen(false);
+  }, [onClose, handleReset]);
+
+  // block flow — dialog owns the blocking behaviour (local mock here)
+  const openBlockConfirm = useCallback(() => {
+    setBlockConfirmOpen(true);
+  }, []);
+
+  const handleBlockUnBlockConfirm = useCallback(async () => {
+    try {
+      setLoadOverlay(true);
+      const newData = { ...editInitialData };
+      const isActive = newData.status == "1";
+      delete newData.cglNumber;
+      delete newData.openDate;
+      delete newData.closeDate;
+      newData.status = isActive ? "0" : "1";
+      const changeType = isActive ? "BLOCK" : "UNBLOCK";
+
+      const payload = {
+        requestType: "CGL_CODE",
+        changeType,
+        payload: newData,
+      };
+
+      const resp = await callApi("/CR/create-request", payload, "POST");
+      if (resp) {
+        snackbar(
+          `CGL ${isActive ? "block" : "unblock"} request created successfully`,
+          "success",
+        );
+        onSaved?.();
+      } else {
+        snackbar("Block failed", "error");
+      }
+    } catch (err) {
+      snackbar(err?.message || "Block request failed", "error");
+    } finally {
+      setBlockConfirmOpen(false);
+      setLoadOverlay(false);
+      handleClose();
     }
-
-}
-
-
-
-package com.fincore.enquiry_service.controller;
-
-import com.fincore.commonutilities.jwt.JwtUtil;
-import com.fincore.enquiry_service.dto.ApiResponse;
-import com.fincore.enquiry_service.dto.BalanceRequestDTO;
-import com.fincore.enquiry_service.dto.GlBalDiffResponseDTO;
-import com.fincore.enquiry_service.dto.PaginatedResponseDTO;
-import com.fincore.enquiry_service.service.GlBalanceDiffService;
-
-import lombok.RequiredArgsConstructor;
-
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
-@RestController
-@RequestMapping("/api/Bal-Diff")
-@RequiredArgsConstructor
-public class GLBalanceDiffController {
-
-        private final GlBalanceDiffService service;
-        private final JwtUtil jwtUtil;
-
-        /**
-         * Difference Enquiry API
-         */
-        @PostMapping("/enquires")
-        public ResponseEntity<ApiResponse<PaginatedResponseDTO<GlBalDiffResponseDTO>>> getBalance(
-                        @RequestBody BalanceRequestDTO request) {
-
-                PaginatedResponseDTO<GlBalDiffResponseDTO> result = service.getBalanceDiffDetails(request);
-                return ResponseEntity.ok(ApiResponse.success(result, "Balance records fetched Successfully"));
-        }
-
-        @PostMapping("/export")
-        public ResponseEntity<byte[]> exportBalanceDiff(
-                        @RequestHeader("Authorization") String token,
-                        @RequestBody BalanceRequestDTO request) {
-
-                String userId = jwtUtil.getUserIdFromToken(token);
-
-                byte[] file = service.exportBalanceDiffToExcel(request,userId);
-
-                return ResponseEntity.ok()
-                                .header(
-                                                HttpHeaders.CONTENT_DISPOSITION,
-                                                "attachment; filename=GL_Balance_Difference.xlsx")
-                                .contentType(
-                                                MediaType.APPLICATION_OCTET_STREAM)
-                                .body(file);
-        }
-
-}
-
-
-
-package com.fincore.enquiry_service.service.export;
-
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.sql.Timestamp;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.ss.util.CellRangeAddress;
-import org.apache.poi.xssf.streaming.SXSSFSheet;
-import org.apache.poi.xssf.streaming.SXSSFWorkbook;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Service;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fincore.enquiry_service.dto.BalanceRequestDTO;
-import com.fincore.enquiry_service.dto.MyDownloadsRequestDTO;
-import com.fincore.enquiry_service.exception.ExportGenerationException;
-import com.fincore.enquiry_service.service.MyDownloadsService;
-import com.fincore.enquiry_service.service.utils.BaseStreamingExcelExporter;
-import com.fincore.enquiry_service.service.utils.ExcelExportUtil;
-import com.fincore.enquiry_service.service.utils.ExcelStyleUtil;
-
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-
-@Slf4j
-@Service
-@RequiredArgsConstructor
-public class GlBalanceDiffStreamingExportService extends BaseStreamingExcelExporter {
-
-        private final JdbcTemplate jdbcTemplate;
-        private final MyDownloadsService myDownloadsService;
-
-        public byte[] export(
-                        BalanceRequestDTO request, String userId) {
-
-                if (request.getEndDate().before(request.getStartDate())) {
-
-                        throw new IllegalArgumentException(
-                                        "End date must be after start date");
-                }
-
-                try (
-
-                                SXSSFWorkbook workbook = new SXSSFWorkbook(100);
-                                ByteArrayOutputStream out = new ByteArrayOutputStream()
-
-                ) {
-
-                        workbook.setCompressTempFiles(true);
-
-                        SXSSFSheet sheet = workbook.createSheet(
-                                        "Suspense Report");
-
-                        // ==================================================
-                        // STYLES
-                        // ==================================================
-
-                        CellStyle headerStyle = ExcelStyleUtil.createHeaderStyle(workbook);
-
-                        CellStyle titleStyle = ExcelStyleUtil.createTitleStyle(workbook);
-
-                        CellStyle amountStyle = ExcelStyleUtil.createAmountStyle(workbook);
-
-                        CreationHelper creationHelper = workbook.getCreationHelper();
-
-                        CellStyle dateStyle = workbook.createCellStyle();
-
-                        dateStyle.setDataFormat(
-                                        creationHelper.createDataFormat()
-                                                        .getFormat("dd-MM-yyyy"));
-
-                        CellStyle centerStyle = workbook.createCellStyle();
-
-                        centerStyle.setAlignment(
-                                        HorizontalAlignment.CENTER);
-
-                        AtomicInteger rowNum = new AtomicInteger(0);
-
-                        // ==================================================
-                        // TITLE
-                        // ==================================================
-
-                        Row titleRow = sheet.createRow(
-                                        rowNum.getAndIncrement());
-
-                        Cell titleCell = titleRow.createCell(0);
-
-                        titleCell.setCellValue(
-                                        "Suspense Report Enquiry");
-
-                        titleCell.setCellStyle(titleStyle);
-
-                        sheet.addMergedRegion(
-                                        new CellRangeAddress(
-                                                        0,
-                                                        0,
-                                                        0,
-                                                        7));
-
-                        rowNum.incrementAndGet();
-
-                        // ==================================================
-                        // SUMMARY HEADER
-                        // ==================================================
-
-                        Row summaryHeader = sheet.createRow(
-                                        rowNum.getAndIncrement());
-
-                        String[] summaryHeaders = {
-                                        "Branch",
-                                        "Currency",
-                                        "CGL",
-                                        "From Date",
-                                        "To Date"
-                        };
-
-                        for (int i = 0; i < summaryHeaders.length; i++) {
-
-                                Cell cell = summaryHeader.createCell(i);
-
-                                cell.setCellValue(
-                                                summaryHeaders[i]);
-
-                                cell.setCellStyle(headerStyle);
-                        }
-
-                        // ==================================================
-                        // SUMMARY VALUES
-                        // ==================================================
-
-                        Row summaryRow = sheet.createRow(
-                                        rowNum.getAndIncrement());
-
-                        summaryRow.createCell(0)
-                                        .setCellValue(request.getBranch());
-
-                        summaryRow.createCell(1)
-                                        .setCellValue(request.getCurrency());
-
-                        summaryRow.createCell(2)
-                                        .setCellValue(request.getCgl());
-
-                        Cell startDateCell = summaryRow.createCell(3);
-
-                        startDateCell.setCellValue(
-                                        request.getStartDate());
-
-                        startDateCell.setCellStyle(dateStyle);
-
-                        Cell endDateCell = summaryRow.createCell(4);
-
-                        endDateCell.setCellValue(
-                                        request.getEndDate());
-
-                        endDateCell.setCellStyle(dateStyle);
-
-                        rowNum.incrementAndGet();
-
-                        // ==================================================
-                        // MAIN HEADER
-                        // ==================================================
-
-                        String[] columns = {
-                                        "ID",
-                                        "Date",
-                                        "Branch",
-                                        "CGL",
-                                        "Currency",
-                                        "Balance",
-                                        "Type",
-                                        "First Error Date"
-                        };
-
-                        Row headerRow = sheet.createRow(
-                                        rowNum.getAndIncrement());
-
-                        for (int i = 0; i < columns.length; i++) {
-
-                                Cell cell = headerRow.createCell(i);
-
-                                cell.setCellValue(columns[i]);
-
-                                cell.setCellStyle(headerStyle);
-                        }
-
-                        // ==================================================
-                        // DATE ADJUSTMENT
-                        // ==================================================
-
-                        Date adjustedStartDate = convertToStartOfDay(
-                                        request.getStartDate());
-
-                        Date adjustedEndDate = convertToEndOfDay(
-                                        request.getEndDate());
-
-                        log.info(
-                                        "Adjusted Start Date : {}",
-                                        adjustedStartDate);
-
-                        log.info(
-                                        "Adjusted End Date : {}",
-                                        adjustedEndDate);
-
-                        // ==================================================
-                        // SQL
-                        // ==================================================
-
-                        String sql = """
-                                        SELECT
-                                            ID,
-                                            BALANCE_DATE,
-                                            BRANCH_CODE,
-                                            CGL,
-                                            CURRENCY,
-                                            BALANCE,
-                                            TYPE,
-                                            FIRST_ERROR_DATE
-                                        FROM GL_BALANCE_DIFFERENCE
-                                        WHERE BRANCH_CODE = ?
-                                        AND CGL = ?
-                                        AND CURRENCY = ?
-                                        AND BALANCE_DATE BETWEEN ? AND ?
-                                        ORDER BY BALANCE_DATE
-                                        """;
-
-                        jdbcTemplate.setFetchSize(20000);
-
-                        jdbcTemplate.query(
-                                        connection -> {
-
-                                                var ps = connection.prepareStatement(sql);
-
-                                                ps.setFetchSize(20000);
-
-                                                ps.setString(
-                                                                1,
-                                                                request.getBranch());
-
-                                                ps.setString(
-                                                                2,
-                                                                request.getCgl());
-
-                                                ps.setString(
-                                                                3,
-                                                                request.getCurrency());
-
-                                                ps.setTimestamp(
-                                                                4,
-                                                                new Timestamp(
-                                                                                adjustedStartDate.getTime()));
-
-                                                ps.setTimestamp(
-                                                                5,
-                                                                new Timestamp(
-                                                                                adjustedEndDate.getTime()));
-
-                                                return ps;
-                                        },
-                                        rs -> {
-
-                                                Row row = sheet.createRow(
-                                                                rowNum.getAndIncrement());
-
-                                                int col = 0;
-
-                                                row.createCell(col++)
-                                                                .setCellValue(
-                                                                                rs.getLong("ID"));
-
-                                                Cell dateCell = row.createCell(col++);
-
-                                                if (rs.getTimestamp("BALANCE_DATE") != null) {
-
-                                                        dateCell.setCellValue(
-                                                                        rs.getTimestamp("BALANCE_DATE"));
-
-                                                        dateCell.setCellStyle(dateStyle);
-                                                }
-
-                                                row.createCell(col++)
-                                                                .setCellValue(
-                                                                                ExcelExportUtil.safeString(
-                                                                                                rs.getString("BRANCH_CODE")));
-
-                                                row.createCell(col++)
-                                                                .setCellValue(
-                                                                                ExcelExportUtil.safeString(
-                                                                                                rs.getString("CGL")));
-
-                                                row.createCell(col++)
-                                                                .setCellValue(
-                                                                                ExcelExportUtil.safeString(
-                                                                                                rs.getString("CURRENCY")));
-
-                                                Cell balanceCell = row.createCell(col++);
-
-                                                balanceCell.setCellValue(
-                                                                rs.getDouble("BALANCE"));
-
-                                                balanceCell.setCellStyle(amountStyle);
-
-                                                Cell typeCell = row.createCell(col++);
-
-                                                typeCell.setCellValue(
-                                                                ExcelExportUtil.safeString(
-                                                                                rs.getString("TYPE")));
-
-                                                typeCell.setCellStyle(centerStyle);
-
-                                                Cell firstErrorDateCell = row.createCell(col++);
-
-                                                if (rs.getTimestamp("FIRST_ERROR_DATE") != null) {
-
-                                                        firstErrorDateCell.setCellValue(
-                                                                        rs.getTimestamp("FIRST_ERROR_DATE"));
-
-                                                        firstErrorDateCell.setCellStyle(dateStyle);
-                                                }
-
-                                                ExcelExportUtil.flushIfNeeded(
-                                                                sheet,
-                                                                rowNum.get());
-                                        });
-
-                        // ==================================================
-                        // COLUMN WIDTHS
-                        // ==================================================
-
-                        sheet.setColumnWidth(0, 5000);
-                        sheet.setColumnWidth(1, 5000);
-                        sheet.setColumnWidth(2, 5000);
-                        sheet.setColumnWidth(3, 5000);
-                        sheet.setColumnWidth(4, 5000);
-                        sheet.setColumnWidth(5, 7000);
-                        sheet.setColumnWidth(6, 5000);
-                        sheet.setColumnWidth(7, 6000);
-
-                        workbook.write(out);
-
-                        byte[] bytes = out.toByteArray();
-
-                        MyDownloadsRequestDTO downloadRequest = new MyDownloadsRequestDTO();
-
-                        downloadRequest.setUserId(userId);
-
-                        downloadRequest.setFileName(
-                                        "Balance_Enquiry.xlsx");
-
-                        downloadRequest.setMenuId(33);
-                        String json = new ObjectMapper().writeValueAsString(request);
-
-                        downloadRequest.setSearchCriteria(json);
-
-                        downloadRequest.setResultData(
-                                        bytes);
-
-                        myDownloadsService.insertRequest(downloadRequest);
-
-                        return bytes;
-
-                } catch (IOException e) {
-
-                        throw new ExportGenerationException(
-                                        "Suspense Report export failed",
-                                        e);
-                }
-        }
-
-        private Date convertToStartOfDay(Date date) {
-
-                Calendar calendar = Calendar.getInstance();
-
-                calendar.setTime(date);
-
-                calendar.set(Calendar.HOUR_OF_DAY, 0);
-                calendar.set(Calendar.MINUTE, 0);
-                calendar.set(Calendar.SECOND, 0);
-                calendar.set(Calendar.MILLISECOND, 0);
-
-                return calendar.getTime();
-        }
-
-        private Date convertToEndOfDay(Date date) {
-
-                Calendar calendar = Calendar.getInstance();
-
-                calendar.setTime(date);
-
-                calendar.set(Calendar.HOUR_OF_DAY, 23);
-                calendar.set(Calendar.MINUTE, 59);
-                calendar.set(Calendar.SECOND, 59);
-                calendar.set(Calendar.MILLISECOND, 999);
-
-                return calendar.getTime();
-        }
-}
-
-
-
-package com.fincore.enquiry_service.dto;
-
-import java.util.Date;
-
-import com.fasterxml.jackson.annotation.JsonFormat;
-
-import jakarta.validation.constraints.NotNull;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-public class BalanceRequestDTO {
-
-    @NotNull(message = "Branch is required")
-    private String branch;
-
-    @NotNull(message = "CGL is required")
-    private String cgl;
-
-    @NotNull(message = "Currency is required")
-    private String currency;
-
-    @NotNull(message = "End date is required")
-    @JsonFormat(pattern = "dd-MM-yyyy", timezone = "Asia/Kolkata")
-    private Date endDate;
-
-    @NotNull(message = "Start date is required")
-    @JsonFormat(pattern = "dd-MM-yyyy", timezone = "Asia/Kolkata")
-    private Date startDate;
-
-    private Integer page;
-
-    private Integer size;
-
-    private String sortIn;
-
-}
-
-
-
-package com.fincore.enquiry_service.dto;
-
-import java.util.Date;
-
-import com.fasterxml.jackson.annotation.JsonFormat;
-
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-public class GlBalDiffResponseDTO {
-
-    private Integer id;
-
-    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "dd-MM-yyyy", timezone = "Asia/Kolkata")
-    private Date date;
-
-    private String branch;
-
-    private String cgl;
-
-    private String currency;
-
-    private Double balance;
-
-    private String type;
-
-    private Date firstErrorDate;
-
+  }, [editInitialData, callApi, snackbar, onSaved, handleClose]);
+
+  // helpers to decide UI disabled state based on current classification
+  const classification = cglData.acClassification;
+  const isBalFwdDisabled =
+    classification === "A" ||
+    classification === "L" ||
+    classification === "I" ||
+    classification === "E";
+  const balFwdChecked =
+    classification === "A" || classification === "L"
+      ? true
+      : classification === "I" || classification === "E"
+        ? false
+        : cglData.balFwd;
+  const isBalCompareDisabled = classification === "I" || classification === "E";
+
+  const getSegmentValue = (code, allSegments) => {
+    return allSegments.find((segment) => segment.segmentCode === code) || null;
+  };
+
+  return (
+    <>
+      <LoadingOverlay loading={loadOverlay} />
+      <Dialog
+        open={open}
+        fullWidth
+        maxWidth="md"
+        component="form"
+        onSubmit={handleSubmit}
+      >
+        <DialogTitle>
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <Typography variant="h6" color="primary">
+              {editingId ? "Edit CGL" : "Add New CGL"}
+            </Typography>
+            <IconButton onClick={handleClose}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <Divider />
+
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12 }}>
+                <Box display="flex" gap={1}>
+                  <TextField
+                    fullWidth
+                    label="Comp1 *"
+                    name="comp1"
+                    value={cglData.comp1}
+                    onChange={handleChange}
+                    error={!!errors.comp1}
+                    helperText={errors.comp1 || "Exactly 4 numbers(≥1000)"}
+                    placeholder="1000 to 9999"
+                    disabled={!!editingId}
+                    slotProps={{
+                      input: {
+                        maxLength: 4,
+                        inputMode: "numeric",
+                        minWidth: 150,
+                        
+                      },
+                    }}
+                  />
+
+                  {/* <TextField
+                    fullWidth
+                    select
+                    label="Segment Code *"
+                    name="segmentCode"
+                    value={cglData.segmentCode}
+                    onChange={handleChange}
+                    error={!!errors.segmentCode}
+                    helperText={errors.segmentCode}
+                    disabled={!!editingId}
+                  >
+                    <MenuItem value="">Select Segment</MenuItem>
+                    {segments.map((segment) => (
+                      <MenuItem
+                        key={segment.segmentCode}
+                        value={segment.segmentCode}
+                      >
+                        {segment.segmentCode} - {segment.description}
+                      </MenuItem>
+                    ))}
+                  </TextField> */}
+
+                  <Autocomplete
+                    fullWidth
+                    options={segments}
+                    getOptionLabel={(option) =>
+                      `${option.segmentCode} - ${option.description}`
+                    }
+                    value={getSegmentValue(cglData.segmentCode, segments)}
+                    onChange={(event, newValue) => {
+                      // Manually call the parent form handler to update the state with the segmentCode
+                      handleChange({
+                        target: {
+                          name: "segmentCode",
+                          value: newValue ? newValue.segmentCode : "",
+                        },
+                      });
+                    }}
+                    disabled={!!editingId}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Segment Code *"
+                        name="segmentCode" // Name attribute is primarily for form submission, handled by onChange here
+                        error={!!errors.segmentCode}
+                        helperText={errors.segmentCode}
+                        // The value is managed by the Autocomplete component itself
+                      />
+                    )}
+                    // Optional: Add PopperProps for better positioning in small containers
+                    // PopperProps={{ placement: 'bottom-start' }}
+                  />
+
+                  <TextField
+                    fullWidth
+                    label="Comp2 *"
+                    name="comp2"
+                    value={cglData.comp2?.toString()}
+                    onChange={handleChange}
+                    error={!!errors.comp2}
+                    helperText={errors.comp2 || "Exactly 2 numbers(01-99)"}
+                    placeholder="01-99"
+                    disabled={!!editingId}
+                    slotProps={{
+                      input: {
+                        maxLength: 2,
+                      },
+                    }}
+                  />
+                </Box>
+              </Grid>
+
+              <Grid size={{ xs: 12 }}>
+                <Card variant="outlined" sx={{ p: 2, width: "100%" }}>
+                  <Typography variant="h6" color="textDisabled">
+                    CGL Code {cglNumber || ""}
+                  </Typography>
+                </Card>
+              </Grid>
+
+              <Grid size={{ xs: 12 }} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Description *"
+                  name="description"
+                  value={cglData.description}
+                  onChange={handleChange}
+                  error={!!errors.description}
+                  slotProps={{ htmlInput: { maxLength: 100 } }}
+                  helperText={
+                    errors.description ||
+                    'Allowed 5-100 characters (alphabets, numbers, spaces,._"<>/&()=-)'
+                  }
+                  multiline
+                  rows={3}
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12 }}>
+                <Box display="flex" gap={2}>
+                  {/* Account Classification: auto-set & disabled when classificationLocked is true */}
+                  <TextField
+                    select
+                    fullWidth
+                    label="Account Classification *"
+                    name="acClassification"
+                    value={cglData.acClassification}
+                    onChange={handleChange}
+                    error={!!errors.acClassification}
+                    helperText={
+                      classificationLocked
+                        ? "Set by Comp1"
+                        : errors.acClassification || ""
+                    }
+                    disabled={classificationLocked}
+                  >
+                    <MenuItem value="">Select Classification</MenuItem>
+                    {accountClassifications.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+
+                  {/* Default Balance Type is HIDDEN from UI (auto-managed) */}
+                </Box>
+              </Grid>
+
+              <Grid size={{ xs: 12, md: 6 }}>
+                <FormControl component="fieldset" fullWidth>
+                  <FormLabel component="legend">Balance Compare Flag</FormLabel>
+                  <RadioGroup
+                    row
+                    name="balCompare"
+                    value={cglData.balCompare}
+                    onChange={handleChange}
+                  >
+                    <FormControlLabel
+                      value="1"
+                      control={<Radio />}
+                      label="Include"
+                      disabled={isBalCompareDisabled}
+                    />
+                    <FormControlLabel
+                      value="0"
+                      control={<Radio />}
+                      label="Exclude"
+                      disabled={isBalCompareDisabled}
+                    />
+                  </RadioGroup>
+                </FormControl>
+              </Grid>
+
+              <Grid size={{ xs: 12, md: 6 }}>
+                <FormControl component="fieldset" fullWidth>
+                  <FormLabel component="legend">Manual Posting Flag</FormLabel>
+                  <RadioGroup
+                    row
+                    name="manualPosting"
+                    value={cglData.manualPosting}
+                    onChange={handleChange}
+                  >
+                    <FormControlLabel
+                      value="1"
+                      control={<Radio />}
+                      label="Allowed"
+                    />
+                    <FormControlLabel
+                      value="0"
+                      control={<Radio />}
+                      label="Not Allowed"
+                    />
+                  </RadioGroup>
+                </FormControl>
+              </Grid>
+
+              <Grid size={{ xs: 12 }}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      name="balFwd"
+                      checked={!!balFwdChecked}
+                      onChange={handleChange}
+                      disabled={isBalFwdDisabled}
+                    />
+                  }
+                  label="Balance Carry Forward to next year"
+                />
+                <FormHelperText>
+                  {classification === "I" || classification === "E"
+                    ? "Not applicable for Income/Expense accounts (Unchecked)"
+                    : classification === "A" || classification === "L"
+                      ? "Automatically enabled for Asset/Liability"
+                      : ""}
+                </FormHelperText>
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Box
+            sx={{
+              mt: 3,
+              display: "flex",
+              gap: 1,
+              justifyContent: "flex-end",
+            }}
+          >
+            {!editingId && (
+              <Button onClick={handleReset} variant="outlined">
+                Reset
+              </Button>
+            )}
+
+            {permissions?.block &&
+              editingId &&
+              editInitialData.status == "1" && (
+                <Button
+                  onClick={openBlockConfirm}
+                  variant="contained"
+                  color="error"
+                  startIcon={<BlockIcon />}
+                >
+                  Block CGL
+                </Button>
+              )}
+
+            {permissions?.unblock &&
+              editingId &&
+              editInitialData.status == "0" && (
+                <Button
+                  onClick={openBlockConfirm}
+                  variant="contained"
+                  color="warning"
+                  startIcon={<LockOpenIcon />}
+                >
+                  Un Block CGL
+                </Button>
+              )}
+
+            {permissions?.modify && editingId && (
+              <Button
+                type="submit"
+                variant="contained"
+                startIcon={<EditIcon />}
+                disabled={!isFormValid}
+              >
+                Update CGL
+              </Button>
+            )}
+
+            {permissions?.create && !editingId && (
+              <Button
+                type="submit"
+                variant="contained"
+                startIcon={<AddIcon />}
+                disabled={!isFormValid}
+              >
+                Add CGL
+              </Button>
+            )}
+          </Box>
+        </DialogActions>
+      </Dialog>
+
+      {/* Block confirmation dialog (owned by dialog component) */}
+      <Dialog
+        open={blockConfirmOpen}
+        onClose={() => setBlockConfirmOpen(false)}
+      >
+        <DialogTitle>
+          {editingId && editInitialData.status == "1" ? "Block" : "Un Block"}{" "}
+          CGL
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to{" "}
+            {editingId && editInitialData.status == "1" ? "Block" : "Un Block"}{" "}
+            CGL {editingId || cglNumber}?
+          </Typography>
+        </DialogContent>
+        <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end", p: 2 }}>
+          <Button onClick={() => setBlockConfirmOpen(false)}>Cancel</Button>
+          <Button
+            color={
+              editingId && editInitialData.status == "1" ? "error" : "success"
+            }
+            variant="contained"
+            onClick={handleBlockUnBlockConfirm}
+          >
+            {editingId && editInitialData.status == "1"
+              ? "Block CGL"
+              : "Un Block CGL"}
+          </Button>
+        </Box>
+      </Dialog>
+    </>
+  );
 }
