@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import {
-  Autocomplete,
   Button,
   Dialog,
   DialogActions,
@@ -23,7 +22,7 @@ import GppBadIcon from "@mui/icons-material/GppBad";
 import LockOutlineIcon from "@mui/icons-material/LockOutline";
 import useApi from "../../../hooks/useApi";
 import useCustomSnackbar from "../../../utils/useCustomSnackbar";
-//import { Autocomplete } from "@mui/material";
+import Autocomplete from "@mui/material/Autocomplete";
 import _ from "lodash";
 
 /* ================= CONSTANTS ================= */
@@ -72,31 +71,9 @@ export default function UserDialog({
   const { callApi } = useApi();
   const snackbar = useCustomSnackbar();
   const [errors, setErrors] = useState({});
-  const [branches, setBranches] = useState([]);
-  const [branchLoading, setBranchloading] = useState(false);
   const isEdit = Boolean(form.id);
-
-  // fetch branch
-  const fetchBranches = async (searchTerm) => {
-    console.log("calling api", searchTerm);
-    try {
-      setBranchLoading(true);
-
-      const result = await callApi(
-        `/CM/common-master/branches-code-name-only?q=${encodeURIComponent(
-          searchTerm,
-        )}`,
-        null,
-        "GET",
-      );
-
-      setBranches(result?.data || []);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setBranchLoading(false);
-    }
-  };
+  const [branchOptions, setBranchOptions] = useState([]);
+  const [branchLoading, setBranchLoading] = useState(false);
 
   useEffect(() => {
     setErrors({});
@@ -150,6 +127,43 @@ export default function UserDialog({
       clearFieldError("USERID");
     }
   };
+  const fetchBranches = async (searchText) => {
+    if (!searchText || searchText.length < 3) {
+      setBranchOptions([]);
+      return;
+    }
+
+    try {
+      setBranchLoading(true);
+
+      const response = await callApi(
+        `/CM/common-master/branches-code-name-only?q=${searchText}&circleCode=${""}`,
+        {},
+        "GET",
+      );
+
+      setBranchOptions(response?.data || []);
+    } catch (error) {
+      console.error(error);
+      setBranchOptions([]);
+    } finally {
+      setBranchLoading(false);
+    }
+  };
+
+  const debouncedBranchSearch = React.useMemo(
+    () =>
+      _.debounce((value) => {
+        fetchBranches(value);
+      }, 500),
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      debouncedBranchSearch.cancel();
+    };
+  }, [debouncedBranchSearch]);
 
   const fetchUserOnBlur = async () => {
     try {
@@ -292,8 +306,6 @@ export default function UserDialog({
     if (form.PHONE_NUMBER && form.PHONE_NUMBER.length !== 10)
       e.PHONE_NUMBER = "Mobile Number must be exactly 10 digits";
 
-    if (!form.BRANCH_CODE) e.BRANCH_CODE = "Branch is required";
-
     if (!form.ROLE_ID) e.ROLE_ID = "Role is required";
     if (isEdit && !form.ACCOUNT_STATUS) e.ACCOUNT_STATUS = "Status is required";
 
@@ -335,9 +347,9 @@ export default function UserDialog({
         lastName: form.LAST_NAME,
         email: isEdit ? form.EMAIL : form.EMAIL + EMAIL_DOMAIN,
         phoneNumber: form.PHONE_NUMBER,
-        branchCode: form.BRANCH_CODE,
         roleId: form.ROLE_ID,
         roleName: form.ROLE_NAME,
+        branchCode: form.BRANCH_CODE,
         accountStatus: form.ACCOUNT_STATUS || "ACTIVE",
       },
     };
@@ -403,7 +415,9 @@ export default function UserDialog({
             {/* spacer to keep nice balance on first row */}
             <Grid item xs={12} md={4} />
           </Grid>
+
           <Divider />
+
           {/* Row 2 */}
           <Grid container spacing={2}>
             <Grid size={{ xs: 4 }}>
@@ -457,6 +471,7 @@ export default function UserDialog({
               />
             </Grid>
           </Grid>
+
           {/* Row 3 */}
           <Grid container spacing={2}>
             <Grid size={{ xs: 6 }}>
@@ -503,44 +518,44 @@ export default function UserDialog({
                 fullWidth
               />
             </Grid>
-          </Grid>
-
-          <Grid container spacing={2}>
             <Grid size={{ xs: 6 }}>
               <Autocomplete
-                options={branches}
+                options={branchOptions}
                 loading={branchLoading}
-                filterOptions={(x) => x}
-                getOptionLabel={(option) => `${option.code}-${option.name}`}
-                value={
-                  branches.find((b) => b.code === form.BRANCH_CODE) || null
+                // value={
+                //   branchOptions.find((b) => b.code === form.BRANCH_CODE) || null
+                // }
+                isOptionEqualToValue={(option, value) =>
+                  option.code === value.code
                 }
-                onInputChange={(event, value) => {
-                  console.log("typing", value);
-                  if (value && value.length >= 2) {
-                    fetchBranches(value);
+                getOptionLabel={(option) => `${option.code} - ${option.name}`}
+                onInputChange={(event, value, reason) => {
+                  if (reason != "input") return;
+                  if (value.length >= 3) {
+                    debouncedBranchSearch(value);
+                  } else {
+                    setBranchOptions([]);
                   }
                 }}
                 onChange={(event, value) => {
-                  setForm({
-                    ...form,
+                  setForm((prev) => ({
+                    ...prev,
                     BRANCH_CODE: value?.code || "",
-                  });
-
-                  clearFieldError("BRANCH_CODE");
+                    BRANCH_NAME: value?.name || "",
+                  }));
                 }}
                 renderInput={(params) => (
                   <TextField
                     {...params}
-                    label="Branch *"
-                    error={!!errors.BRANCH_CODE}
-                    helperText={errors.BRANCH_CODE}
+                    label="Branch"
+                    placeholder="Type at least 3 characters"
                   />
                 )}
               />
             </Grid>
           </Grid>
 
+          {/* Row 4 */}
           {/* Row 4 */}
           <Grid container spacing={2}>
             <Grid size={{ xs: 6 }}>
@@ -582,6 +597,33 @@ export default function UserDialog({
                 </Typography>
               </FormControl>
             </Grid>
+
+            {/* {isEdit && (
+              <Grid size={{ xs: 6 }}>
+                <FormControl fullWidth error={!!errors.ACCOUNT_STATUS}>
+                  <InputLabel>Status *</InputLabel>
+                  <Select
+                    label="Status *"
+                    value={form.ACCOUNT_STATUS || ""}
+                    onChange={(e) =>
+                      setForm({ ...form, ACCOUNT_STATUS: e.target.value })
+                    }
+                  >
+                    {STATUS_OPTIONS.map((s) => (
+                      <MenuItem key={s.value} value={s.value}>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          {s.icon}
+                          <Typography>{s.label}</Typography>
+                        </Stack>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  <Typography variant="caption" color="error">
+                    {errors.ACCOUNT_STATUS}
+                  </Typography>
+                </FormControl>
+              </Grid>
+            )} */}
           </Grid>
         </Stack>
       </DialogContent>
