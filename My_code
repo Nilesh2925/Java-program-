@@ -349,7 +349,7 @@ export default function UserDialog({
         phoneNumber: form.PHONE_NUMBER,
         roleId: form.ROLE_ID,
         roleName: form.ROLE_NAME,
-        branchCode: form.BRANCH_CODE,
+        branch: form.BRANCH_CODE,
         accountStatus: form.ACCOUNT_STATUS || "ACTIVE",
       },
     };
@@ -518,6 +518,11 @@ export default function UserDialog({
                 fullWidth
               />
             </Grid>
+          </Grid>
+
+          {/* Row 4 */}
+          {/* Row 4 */}
+          <Grid container spacing={2}>
             <Grid size={{ xs: 6 }}>
               <Autocomplete
                 options={branchOptions}
@@ -553,11 +558,6 @@ export default function UserDialog({
                 )}
               />
             </Grid>
-          </Grid>
-
-          {/* Row 4 */}
-          {/* Row 4 */}
-          <Grid container spacing={2}>
             <Grid size={{ xs: 6 }}>
               <FormControl fullWidth error={!!errors.ROLE_ID}>
                 <InputLabel>Role *</InputLabel>
