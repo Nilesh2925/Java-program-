@@ -1,639 +1,775 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
-  Button,
   Dialog,
-  DialogActions,
-  DialogContent,
   DialogTitle,
-  Divider,
-  FormControl,
-  Grid,
-  InputAdornment,
-  InputLabel,
-  MenuItem,
-  Select,
-  Stack,
-  TextField,
+  DialogContent,
+  DialogActions,
+  Button,
   Typography,
+  Grid,
+  Box,
+  Divider,
 } from "@mui/material";
-import PersonIcon from "@mui/icons-material/Person";
-import VerifiedUserIcon from "@mui/icons-material/VerifiedUser";
-import GppBadIcon from "@mui/icons-material/GppBad";
-import LockOutlineIcon from "@mui/icons-material/LockOutline";
+import {
+  timeStampFormatter,
+  toPascalKebabCase,
+  formatKeyForDisplay,
+} from "../../../utils/CommonUtilities";
+
+const UserRequestView = ({ open, handleClose, data }) => {
+  if (!data) return null;
+  console.log("data", data);
+  const viewData = {
+    userId: data?.USERID || "N/A",
+    roleName: data?.ROLE_NAME || "N/A",
+    firstName: data?.FIRST_NAME || "N/A",
+    middleName: data?.MIDDLE_NAME || "N/A",
+    lastName: data?.LAST_NAME || "N/A",
+    email: data?.EMAIL || "N/A",
+    branch: data?.BRANCH_CODE || "N/A",
+    phoneNumber: data?.PHONE_NUMBER || "N/A",
+  };
+
+  const mainDetails = [
+    { label: "Requestor ID", value: data.REQUESTOR_USERID, size: 2 },
+    {
+      label: "Request Type",
+      value:
+        data.REQUEST_TYPE === "CREATE"
+          ? "Created"
+          : data.REQUEST_TYPE === "DELETE"
+            ? "Deleted"
+            : "Modified",
+      size: 2.5,
+    },
+    {
+      label: "Request Status",
+      value: toPascalKebabCase(data.STATUS),
+      size: 2.5,
+    },
+    {
+      label: "Requested Date",
+      value: timeStampFormatter(data.REQUESTED_AT),
+      size: 5,
+    },
+  ];
+
+  return (
+    <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
+      <DialogTitle>
+        Request Details - <b>ID: {data.REQUEST_ID}</b>
+      </DialogTitle>
+
+      <Divider />
+
+      <DialogContent>
+        {/* Main Details */}
+        <Grid container spacing={2}>
+          {mainDetails.map(
+            (item) =>
+              item.label !== "roleId" && (
+                <Grid xs={12} size={{ xs: 12, sm: item.size }} key={item.label}>
+                  <Box sx={{ display: "flex", flexDirection: "column" }}>
+                    <Typography
+                      variant="subtitle2"
+                      sx={{
+                        fontWeight: 800,
+                        color: "text.secondary",
+                      }}
+                    >
+                      {item.label}
+                    </Typography>
+                    <Typography variant="body1" sx={{ color: "text.primary" }}>
+                      {item.value ?? "N/A"}
+                    </Typography>
+                  </Box>
+                </Grid>
+              ),
+          )}
+        </Grid>
+
+        <Divider sx={{ my: 2 }} />
+
+        {/* PAYLOAD VIEW */}
+
+        <Grid container spacing={2}>
+          {Object.entries(viewData).map(([key, value]) => (
+            <Grid
+              xs={12}
+              size={key === "permissions" ? {} : { xs: 12, sm: 6 }}
+              key={key}
+            >
+              <Box sx={{ display: "flex", flexDirection: "column" }}>
+                <Typography
+                  variant="subtitle2"
+                  sx={{
+                    fontWeight: 800,
+                    color: "text.secondary",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {formatKeyForDisplay(key)}
+                </Typography>
+
+                <Typography
+                  variant="body1"
+                  sx={{ color: "text.primary", wordBreak: "break-word" }}
+                >
+                  {Array.isArray(value)
+                    ? JSON.stringify(value)
+                    : typeof value === "object" && value !== null
+                      ? JSON.stringify(value, null, 2)
+                      : String(value ?? "N/A")}
+                </Typography>
+              </Box>
+            </Grid>
+          ))}
+        </Grid>
+      </DialogContent>
+
+      <Divider />
+
+      <DialogActions sx={{ p: 2, justifyContent: "flex-end" }}>
+        <Button
+          variant="contained"
+          onClick={handleClose}
+          color="primary"
+          sx={{ textTransform: "none", borderRadius: 2, px: 3 }}
+        >
+          Close
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
+export default UserRequestView;
+
+
+
+
+
+
+//tab 1
+import React, { useEffect, useState, useCallback } from "react";
+import { Box, Fab } from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
 import useApi from "../../../hooks/useApi";
 import useCustomSnackbar from "../../../utils/useCustomSnackbar";
-import Autocomplete from "@mui/material/Autocomplete";
-import _ from "lodash";
+import UsersTable from "../components/UsersTable";
+import UserDialog from "../components/UserDialog";
+import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
 
-/* ================= CONSTANTS ================= */
-
-//const USERID_REGEX = /^(?:\d{7}|v\d{7}|tcs\d{7}|tcsv\d{7})$/i;
-// const NAME_REGEX = /^[a-zA-Z\s.]*$/;
-const NAME_REGEX = /^(?!.* {2})[a-zA-Z\s.]*$/;
-const DIGITS_REGEX = /^[0-9]*$/;
-const EMAIL_DOMAIN = "@sbi.co.in";
-const EMAIL_PREFIX_REGEX = /^[a-zA-Z0-9._]+$/;
-// const USERID_REGEX = /^[0-9]*$/;
-const USERID_REGEX = /^(?:\d{7}|v\d{7}|tcs\d{7}|vtcs\d{7})$/i;
-const EMAIL_PREFIX_MAX = 50;
-
-// Restricted role
-const FORBIDDEN_ROLE_ID = 11; // f1bog
-
-const STATUS_OPTIONS = [
-  {
-    value: "ACTIVE",
-    label: "Active",
-    icon: <VerifiedUserIcon color="success" />,
-  },
-  {
-    value: "INACTIVE",
-    label: "Inactive",
-    icon: <GppBadIcon color="warning" />,
-  },
-  {
-    value: "LOCKED",
-    label: "Locked",
-    icon: <LockOutlineIcon color="error" />,
-  },
-];
-
-/* ================= COMPONENT ================= */
-
-export default function UserDialog({
-  open,
-  onClose,
-  roles,
-  form,
-  setForm,
-  initialState,
-}) {
-  const { callApi } = useApi();
+export default function UserManagement() {
+  const { callApi, loading } = useApi();
   const snackbar = useCustomSnackbar();
-  const [errors, setErrors] = useState({});
-  const isEdit = Boolean(form.id);
-  const [branchOptions, setBranchOptions] = useState([]);
-  const [branchLoading, setBranchLoading] = useState(false);
+  const [rows, setRows] = useState([]);
+  const [roles, setRoles] = useState([]);
 
-  useEffect(() => {
-    setErrors({});
-  }, [open]);
+  const emptyForm = {
+    id: null,
+    USERID: "",
+    FIRST_NAME: "",
+    MIDDLE_NAME: "",
+    LAST_NAME: "",
+    EMAIL: "@sbi.co.in",
+    PHONE_NUMBER: "",
+    ROLE_NAME: "",
+    ROLE_ID: "",
+    BRANCH_CODE: "",
+    ACCOUNT_STATUS: "",
+  };
 
-  /* ---------- ROLE STATE ---------- */
-  const isOriginalF1BOG = initialState?.ROLE_ID === FORBIDDEN_ROLE_ID;
-  const isDowngradingF1BOG =
-    isOriginalF1BOG && form.ROLE_ID !== FORBIDDEN_ROLE_ID;
+  const [form, setForm] = useState(emptyForm);
+  const [initialState, setInitialState] = useState({});
+  const [openEdit, setOpenEdit] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
-  /* ================= ERROR HELPERS ================= */
-
-  const setFieldError = (name, msg) =>
-    setErrors((p) => ({ ...p, [name]: msg }));
-
-  const clearFieldError = (name) => setErrors((p) => ({ ...p, [name]: "" }));
-
-  const handleUserIdChange = (value) => {
-    const lower = value.toLowerCase();
-
-    let maxLength = 7;
-
-    if (lower.startsWith("vtcs")) maxLength = 11;
-    else if (lower.startsWith("tcs")) maxLength = 10;
-    else if (lower.startsWith("v")) maxLength = 8;
-
-    if (value.length > maxLength) {
-      snackbar("Maximum allowed length reached", "warning");
-      return;
-    }
-
-    const typingRegex =
-      /^(?:\d{0,7}|v\d{0,7}|tcs\d{0,7}|vtcs\d{0,7}|v|t|tc|tcs|vt|vtc|vtcs)$/i;
-
-    if (!typingRegex.test(value)) {
-      snackbar("User ID must start with digits, v, tcs, or vtcs only", "error");
-      return;
-    }
-
-    setForm((p) => ({
-      ...p,
-      USERID: value,
+  const normalizeUsers = useCallback((users = []) => {
+    return users.map((u, idx) => ({
+      id: u.USERID || String(idx + 1),
+      USERID: u.USERID,
+      FIRST_NAME: u.FIRST_NAME,
+      MIDDLE_NAME: u.MIDDLE_NAME,
+      LAST_NAME: u.LAST_NAME,
+      EMAIL: u.EMAIL,
+      PHONE_NUMBER: u.PHONE_NUMBER,
+      ROLE_NAME: u.ROLE_NAME,
+      ROLE_ID: u.ROLE_ID,
+      BRANCH_CODE: u.BRANCH_CODE,
+      ACCOUNT_STATUS: u.ACCOUNT_STATUS,
+      __name: `${u.FIRST_NAME || ""} ${u.MIDDLE_NAME || ""} ${
+        u.LAST_NAME || ""
+      }`.trim(),
     }));
+  }, []);
 
-    if (value && !USERID_REGEX.test(value)) {
-      setFieldError(
-        "USERID",
-        "Allowed formats: 1234567, v1234567, tcs1234567, vtcs1234567",
-      );
-    } else {
-      clearFieldError("USERID");
-    }
-  };
-  const fetchBranches = async (searchText) => {
-    if (!searchText || searchText.length < 3) {
-      setBranchOptions([]);
-      return;
-    }
-
+  const fetchUsers = useCallback(async () => {
     try {
-      setBranchLoading(true);
+      const data = await callApi("/UM/user/user-details", null, "GET");
+      setRows(normalizeUsers(data?.result?.users || []));
+    } catch {
+      setRows([]);
+      snackbar("Failed to load users", "error");
+    }
+  }, [callApi, normalizeUsers, snackbar]);
 
-      const response = await callApi(
-        `/CM/common-master/branches-code-name-only?q=${searchText}&circleCode=${""}`,
-        {},
+  const fetchRoles = useCallback(async () => {
+    try {
+      const data = await callApi(
+        "/UM/role/get-roles",
+        { permissions: false },
         "GET",
       );
-
-      setBranchOptions(response?.data || []);
-    } catch (error) {
-      console.error(error);
-      setBranchOptions([]);
-    } finally {
-      setBranchLoading(false);
+      setRoles(
+        (data?.result?.roles || []).map((r) => ({
+          id: r.roleId,
+          name: r.roleName,
+        })),
+      );
+    } catch {
+      snackbar("Failed to load roles", "error");
     }
-  };
-
-  const debouncedBranchSearch = React.useMemo(
-    () =>
-      _.debounce((value) => {
-        fetchBranches(value);
-      }, 500),
-    [],
-  );
+  }, [callApi, snackbar]);
 
   useEffect(() => {
-    return () => {
-      debouncedBranchSearch.cancel();
-    };
-  }, [debouncedBranchSearch]);
+    fetchUsers();
+    fetchRoles();
+  }, [fetchUsers, fetchRoles]);
 
-  const fetchUserOnBlur = async () => {
-    try {
-      const res = await callApi(
-        "/UM/user/validate/userid",
-        { userId: form.USERID },
-        "GET",
-      );
-      console.log("response", res.result);
-      const isExists = res?.result?.exists || false;
-      console.log(isExists);
-
-      if (!isExists) return;
-      snackbar("User already exists, Kindly change user ID.", "warning");
-      setFieldError("USERID", "User already exists");
-    } catch {
-      snackbar("User lookup failed", "error");
-    }
-  };
-
-  /* ================= NAME ================= */
-
-  const handleNameChange = (name, value, mandatory) => {
-    if (value === "") {
-      setForm((p) => ({ ...p, [name]: "" }));
-      clearFieldError(name);
-      return;
-    }
-    if (value && !/[A-Za-z]/.test(value[0])) {
-      snackbar("Should not start with special character", "error");
-      return;
-    }
-
-    if (!NAME_REGEX.test(value)) {
-      snackbar(
-        "only letters, spaces(single spaces only between words) and dot are allowed",
-        "error",
-      );
-      return;
-    }
-
-    if (!value && mandatory) {
-      setFieldError(name, "This field is required");
-    } else if (value && value.length < 3 && mandatory) {
-      setFieldError(name, "Minimum 3 characters required");
-    } else if (value && value.length < 1 && !mandatory) {
-      setFieldError(name, "Minimum 3 characters required");
-    } else if (value.length > 30) {
-      setFieldError(name, "Maximum 30 characters allowed");
-    } else {
-      clearFieldError(name);
-    }
-
-    setForm((p) => ({ ...p, [name]: value }));
-  };
-
-  /* ================= EMAIL ================= */
-
-  const handleEmailChange = (value) => {
-    if (value.includes("@")) return;
-    if (value.length > EMAIL_PREFIX_MAX) return;
-
-    if (value && !EMAIL_PREFIX_REGEX.test(value)) {
-      snackbar(
-        "Only letters, numbers, dot (.) and underscore (_) allowed",
-        "error",
-      );
-      return;
-    }
-
-    if (value.length < 3) {
-      setFieldError("EMAIL", "Minimum 3 characters required before @");
-    } else {
-      clearFieldError("EMAIL");
-    }
-
-    setForm((p) => ({ ...p, EMAIL: value }));
-  };
-
-  /* ================= MOBILE ================= */
-
-  // const isAllZeros = (str) => {
-  //   return /^0+$/.test(str);
-  // };
-
-  const handleMobileChange = (value = "") => {
-    if (value && !/^[1-9]$/.test(value[0])) {
-      snackbar(
-        "Mobile Number should start only with greater than zero",
-        "error",
-      );
-      return;
-    }
-    if (!DIGITS_REGEX.test(value)) {
-      snackbar("Only digits are allowed", "error");
-      return;
-    }
-
-    if (value && value.length !== 10) {
-      setFieldError("PHONE_NUMBER", "Mobile Number must be exactly 10 digits");
-    } else {
-      clearFieldError("PHONE_NUMBER");
-    }
-
-    if (value.length <= 10) {
-      setForm((p) => ({
-        ...p,
-        PHONE_NUMBER: value,
-      }));
-    }
-  };
-
-  /* ================= FINAL VALIDATION ================= */
-
-  const validateFinal = () => {
-    const e = {};
-
-    // if (!USERID_REGEX.test(form.USERID)) e.USERID = "Valid User ID required";
-    // if (!form.USERID) e.USERID = "User ID is required";
-    // if (form.USERID && form.USERID.length !== 7) {
-    //   e.USERID = "User ID must be exactly 7 digits";
-    //   //snackbar("User ID must be exactly 7 digits","error");
-    // }
-    if (!form.USERID) {
-      e.USERID = "User ID is required";
-    } else if (!USERID_REGEX.test(form.USERID)) {
-      e.USERID = "Allowed formats: 1234567, v1234567, tcs1234567, vtcs1234567";
-    }
-
-    if (!form.FIRST_NAME || form.FIRST_NAME.trim().length < 3)
-      e.FIRST_NAME = "First Name must be at least 3 characters";
-
-    const email = form.EMAIL.replace(EMAIL_DOMAIN, "") || "";
-
-    if (!email) e.EMAIL = "Email is required";
-    else if (email.length < 3) e.EMAIL = "Email must be at least 3 characters";
-    else if (!EMAIL_PREFIX_REGEX.test(email))
-      e.EMAIL = "Only letters, numbers, dot (.) and underscore (_) allowed";
-
-    if (form.PHONE_NUMBER && form.PHONE_NUMBER.length !== 10)
-      e.PHONE_NUMBER = "Mobile Number must be exactly 10 digits";
-
-    if (!form.ROLE_ID) e.ROLE_ID = "Role is required";
-    if (isEdit && !form.ACCOUNT_STATUS) e.ACCOUNT_STATUS = "Status is required";
-
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  };
-
-  /* ================= SAVE ================= */
-
-  const onSave = async () => {
-    if (!validateFinal()) {
-      snackbar("Please enter required fields", "error");
-      return;
-    }
-
-    if (_.isEqual(form, initialState)) {
-      snackbar("No Changes detected, Kindly modify before saving", "warning");
-      return;
-    }
-
-    const wasF1BOG = initialState?.ROLE_ID === FORBIDDEN_ROLE_ID;
-    const isF1BOGNow = form?.ROLE_ID === FORBIDDEN_ROLE_ID;
-
-    if (!wasF1BOG && isF1BOGNow) {
-      snackbar(
-        "Assignment of role 'f1bog' is restricted and not allowed",
-        "error",
-      );
-      return;
-    }
-
+  const handleDelete = useCallback(async () => {
     const payload = {
-      targetUserId: form.USERID,
-      requestType: isEdit ? "MODIFY" : "CREATE",
+      targetUserId: deleteTarget.USERID,
+      requestType: "DELETE",
       requestPayload: {
-        userId: form.USERID,
-        firstName: form.FIRST_NAME,
-        middleName: form.MIDDLE_NAME,
-        lastName: form.LAST_NAME,
-        email: isEdit ? form.EMAIL : form.EMAIL + EMAIL_DOMAIN,
-        phoneNumber: form.PHONE_NUMBER,
-        roleId: form.ROLE_ID,
-        roleName: form.ROLE_NAME,
-        branch: form.BRANCH_CODE,
-        accountStatus: form.ACCOUNT_STATUS || "ACTIVE",
+        userId: deleteTarget.USERID,
+        firstName: deleteTarget.FIRST_NAME,
+        middleName: deleteTarget.MIDDLE_NAME,
+        lastName: deleteTarget.LAST_NAME,
+        email: deleteTarget.EMAIL,
+        phoneNumber: deleteTarget.PHONE_NUMBER,
+        roleId: deleteTarget.ROLE_ID,
+        roleName: deleteTarget.ROLE_NAME,
+        branch: deleteTarget.BRANCH_CODE,
+        accountStatus: deleteTarget.ACCOUNT_STATUS || "ACTIVE"
       },
     };
-
     try {
       const response = await callApi(
         "/UM/user/create-request",
         payload,
         "POST",
       );
-      snackbar(
-        isEdit
-          ? "User update request submitted successfully with request id " +
-              response?.result?.userRequest?.requestId
-          : "User creation request submitted successfully with request id " +
-              response?.result?.userRequest?.requestId,
-        "success",
-      );
-      onClose();
+      if (response) {
+        fetchUsers();
+        fetchRoles();
+        setDeleteTarget(null);
+      }
+      snackbar("User delete request submitted successfully", "success");
     } catch (error) {
-      console.error(error);
       snackbar(
-        error?.message || "Something went wrong, Kindly try again",
+        error?.message ||
+          "Something went wrong while deleting user, Kindly try again",
         "error",
       );
     }
-  };
-
-  /* ================= RENDER ================= */
+  }, [callApi, deleteTarget, fetchRoles, fetchUsers, snackbar]);
 
   return (
-    <Dialog open={open} fullWidth maxWidth="md">
-      <DialogTitle>{isEdit ? "Edit User" : "Create User"}</DialogTitle>
+    <Box>
+      <UsersTable
+        rows={rows}
+        roles={roles}
+        loading={loading}
+        onEditRow={(row) => {
+          setForm(row);
+          setInitialState(row);
+          setOpenEdit(true);
+        }}
+        onDeleteRow={(row) => setDeleteTarget(row)}
+      />
 
-      <DialogContent>
-        <Stack spacing={2} mt={1}>
-          {/* Row 1 */}
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 8 }}>
-              <TextField
-                label="User ID *"
-                placeholder="eg: 1234567"
-                value={form.USERID}
-                onChange={(e) => handleUserIdChange(e.target.value)}
-                onBlur={fetchUserOnBlur}
-                disabled={isEdit}
-                error={!!errors.USERID}
-                helperText={
-                  errors.USERID ||
-                  "After the prefix (v, tcs, or vtcs), enter exactly 7 numeric digits"
-                }
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <PersonIcon />
-                    </InputAdornment>
-                  ),
-                }}
-                fullWidth
-                inputProps={{ maxLength: 12 }}
-              />
-            </Grid>
-            {/* spacer to keep nice balance on first row */}
-            <Grid item xs={12} md={4} />
-          </Grid>
+      <UserDialog
+        open={openEdit}
+        roles={roles}
+        form={form}
+        setForm={setForm}
+        initialState={initialState}
+        onClose={() => setOpenEdit(false)}
+      />
 
-          <Divider />
+      <DeleteConfirmDialog
+        open={!!deleteTarget}
+        name={deleteTarget?.__name}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => handleDelete()}
+      />
 
-          {/* Row 2 */}
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 4 }}>
-              <TextField
-                label="First Name *"
-                value={form.FIRST_NAME ?? ""}
-                error={!!errors.FIRST_NAME}
-                helperText={
-                  errors.FIRST_NAME ||
-                  "Allowed 3-30 characters (letters,spaces, .)"
-                }
-                onChange={(e) =>
-                  handleNameChange("FIRST_NAME", e.target.value, true)
-                }
-                fullWidth
-                slotProps={{ htmlInput: { maxLength: 30 } }}
-              />
-            </Grid>
+      <Fab
+        color="primary"
+        variant="extended"
+        onClick={() => {
+          setForm(emptyForm);
+          setInitialState({});
+          setOpenEdit(true);
+        }}
+        sx={{
+          position: "fixed",
+          bottom: 15,
+          right: 30,
+          borderRadius: 1,
+        }}
+      >
+        <AddIcon sx={{ mr: 1 }} />
+        Create
+      </Fab>
+    </Box>
+  );
+}
 
-            <Grid size={{ xs: 4 }}>
-              <TextField
-                label="Middle Name"
-                value={form.MIDDLE_NAME ?? ""}
-                error={!!errors.MIDDLE_NAME}
-                helperText={
-                  errors.MIDDLE_NAME ||
-                  "Allowed 1-30 characters (letters,spaces, .)"
-                }
-                onChange={(e) =>
-                  handleNameChange("MIDDLE_NAME", e.target.value, false)
-                }
-                fullWidth
-                slotProps={{ htmlInput: { maxLength: 30 } }}
-              />
-            </Grid>
 
-            <Grid size={{ xs: 4 }}>
-              <TextField
-                label="Last Name"
-                value={form.LAST_NAME ?? ""}
-                error={!!errors.LAST_NAME}
-                helperText={
-                  errors.LAST_NAME ||
-                  "Allowed 1-30 characters (letters,spaces, .)"
-                }
-                onChange={(e) =>
-                  handleNameChange("LAST_NAME", e.target.value, false)
-                }
-                fullWidth
-                slotProps={{ htmlInput: { maxLength: 30 } }}
-              />
-            </Grid>
-          </Grid>
+//tab2
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+import {
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Stack,
+  Typography,
+  Tooltip,
+  IconButton,
+} from "@mui/material";
+import { DataGrid } from "@mui/x-data-grid";
+import useApi from "../../../hooks/useApi";
+import CancelIcon from "@mui/icons-material/Cancel";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import AddBoxIcon from "@mui/icons-material/AddBox";
+import AutoDeleteIcon from "@mui/icons-material/AutoDelete";
+import EditDocumentIcon from "@mui/icons-material/EditDocument";
+import useCustomSnackbar from "../../../utils/useCustomSnackbar";
+import PendingActionsIcon from "@mui/icons-material/PendingActions";
+import BlockFlippedIcon from "@mui/icons-material/BlockFlipped";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import GppBadIcon from "@mui/icons-material/GppBad";
+import { getPermissions } from "../../../utils/CommonUtilities";
+import CustomChip from "../../../utils/CustomChip";
+import InfoIcon from "@mui/icons-material/Info";
+import ViewMyRequestDialog from "../../common/ViewMyRequestDialog";
+import { useSelector } from "react-redux";
+function CustomNoRowsOverlay() {
+  return (
+    <Stack height="100%" alignItems="center" justifyContent="center">
+      <InfoIcon sx={{ fontSize: 48, color: "text.secondary", mb: 2 }} />
+      <Typography variant="h6">No Role Requests Found</Typography>
+      <Typography>You have not created any Role requests.</Typography>
+    </Stack>
+  );
+}
 
-          {/* Row 3 */}
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 6 }}>
-              <TextField
-                label="Email *"
-                value={form.EMAIL.replace(EMAIL_DOMAIN, "")}
-                error={!!errors.EMAIL}
-                helperText={
-                  errors.EMAIL ||
-                  "Allowed 3-40 characters(. and _) and domain will be auto set"
-                }
-                onChange={(e) => handleEmailChange(e.target.value)}
-                fullWidth
-                slotProps={{ htmlInput: { maxLength: 50 } }}
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <Typography
-                        variant="body1"
-                        sx={{
-                          color: "text.disabled",
-                          cursor: "default",
-                          userSelect: "none",
-                        }}
-                      >
-                        {EMAIL_DOMAIN}
-                      </Typography>
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Grid>
+export default function UserManagementTab2() {
+  const { callApi } = useApi();
+  const selectedMenu = useSelector((state) => state.menus.selectedMenuItem);
+  const permissions = getPermissions(selectedMenu);
+  const showSnackBar = useCustomSnackbar();
+  const [isLoading, setIsLoading] = useState(true);
+  const [rows, setRows] = useState([]);
+  const [confirmDialog, setConfirmDialog] = useState(false);
+  const [requestId, setRequestId] = useState(null);
+  const [viewOpen, setViewOpen] = useState(false);
+  const [viewData, setViewData] = useState(null);
 
-            <Grid size={{ xs: 6 }}>
-              <TextField
-                label="Mobile Number"
-                value={form.PHONE_NUMBER ?? ""}
-                error={!!errors.PHONE_NUMBER}
-                helperText={
-                  errors.PHONE_NUMBER || "Allowed 10 numeric digits only"
-                }
-                onChange={(e) => handleMobileChange(e.target.value)}
-                inputProps={{ maxLength: 10 }}
-                fullWidth
-              />
-            </Grid>
-          </Grid>
+  const fetchData = useCallback(async () => {
+    try {
+      const response = await callApi("/UM/user/my-requests", null, "GET");
+      console.log(response);
+      if (response?.result) {
+        const res = response?.result?.myRequests;
+        const result = res.map((row) => {
+          let parsedPayload = {};
+          parsedPayload = row.requestPayload
+            ? JSON.parse(row.requestPayload)
+            : {};
 
-          {/* Row 4 */}
-          {/* Row 4 */}
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 6 }}>
-              <Autocomplete
-                options={branchOptions}
-                loading={branchLoading}
-                // value={
-                //   branchOptions.find((b) => b.code === form.BRANCH_CODE) || null
-                // }
-                isOptionEqualToValue={(option, value) =>
-                  option.code === value.code
-                }
-                getOptionLabel={(option) => `${option.code} - ${option.name}`}
-                onInputChange={(event, value, reason) => {
-                  if (reason != "input") return;
-                  if (value.length >= 3) {
-                    debouncedBranchSearch(value);
-                  } else {
-                    setBranchOptions([]);
-                  }
-                }}
-                onChange={(event, value) => {
-                  setForm((prev) => ({
-                    ...prev,
-                    BRANCH_CODE: value?.code || "",
-                    BRANCH_NAME: value?.name || "",
-                  }));
-                }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Branch"
-                    placeholder="Type at least 3 characters"
-                  />
-                )}
-              />
-            </Grid>
-            <Grid size={{ xs: 6 }}>
-              <FormControl fullWidth error={!!errors.ROLE_ID}>
-                <InputLabel>Role *</InputLabel>
-                <Select
-                  label="Role *"
-                  value={form.ROLE_ID || ""}
-                  onChange={(e) => {
-                    const r = roles.find((x) => x.id === e.target.value);
-                    setForm({ ...form, ROLE_ID: r.id, ROLE_NAME: r.name });
-                    clearFieldError("ROLE_ID");
+          return {
+            ...parsedPayload,
+            ...row,
+          };
+        });
+        setRows(result);
+      } else {
+        setRows([]);
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [callApi]);
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const handleCancelRequest = async () => {
+    try {
+      const payload = {
+        requestId,
+        actionFlag: "CANCEL",
+        remarks: "User canceled this Request",
+      };
+      const response = await callApi(
+        "/UM/user/cancel-request",
+        payload,
+        "POST",
+      );
+      console.log(response);
+      if (response?.result?.status) {
+        showSnackBar(
+          `Request Id ${requestId} Cancelled Successfully.`,
+          "success",
+        );
+      } else {
+        showSnackBar(
+          response?.result?.message
+            ? response?.result?.message
+            : "Failed to process your cancel request, Kindly try again",
+          "error",
+        );
+      }
+    } catch (error) {
+      console.log(error);
+    } finally {
+      fetchData();
+      setConfirmDialog(false);
+    }
+  };
+
+  const handleViewClick = (data) => {
+    console.log(data);
+    const {
+      requestId,
+      requestStatus,
+      requestDate,
+      userId,
+      accountStatus,
+      firstName,
+      middleName,
+      lastName,
+      email,
+      phoneNumber,
+      branch,
+      roleName,
+      requestorUserId,
+      requestType,
+      approvalDate,
+      approverId,
+      rejectionReason,
+    } = data;
+    const showData = {
+      userId,
+      roleName,
+      firstName,
+      middleName,
+      lastName,
+      email,
+      branch,
+      phoneNumber,
+    };
+    data.id = requestId;
+    data.reqDate = requestDate;
+    data.changeType = requestType === "CREATE" ? "ADD" : requestType;
+    data.reqStatus = requestStatus;
+    data.creatorId = requestorUserId;
+    data.executorId = approverId;
+    data.executorRemarks = rejectionReason;
+    data.executionDate = approvalDate;
+
+    data.showData = showData;
+    setViewData(data);
+    setViewOpen(true);
+  };
+
+  const columns = useMemo(
+    () => [
+      {
+        field: "requestId",
+        headerName: "Request Id",
+        flex: 0.5,
+        minWidth: 150,
+      },
+      { field: "userId", headerName: "User ID", flex: 0.5, minWidth: 150 },
+      {
+        field: "userName",
+        headerName: "User Name",
+        flex: 1.3,
+        minWidth: 250,
+        renderCell: (p) =>
+          `${p.row.firstName} ${p?.row?.middleName || ""} ${
+            p?.row?.lastName || ""
+          }`,
+      },
+      {
+        field: "requestType",
+        headerName: "Request Type",
+        flex: 0.5,
+        minWidth: 150,
+        align: "center",
+        headerAlign: "center",
+        filterable: false,
+        sortable: false,
+        disableColumnMenu: true,
+        renderCell: (params) => {
+          const val = params.value;
+          const color =
+            val === "CREATE"
+              ? "success"
+              : val === "DELETE"
+                ? "error"
+                : "warning";
+          const icon =
+            val === "ADD" ? (
+              <AddBoxIcon />
+            ) : val === "DELETE" ? (
+              <AutoDeleteIcon />
+            ) : (
+              <EditDocumentIcon />
+            );
+          return (
+            <CustomChip
+              variant="outlined"
+              icon={icon}
+              label={
+                val === "CREATE"
+                  ? "Created"
+                  : val === "DELETE"
+                    ? "Deleted"
+                    : "Modified"
+              }
+              color={color}
+            />
+          );
+        },
+      },
+
+      {
+        field: "requestDate",
+        headerName: "Requested Date",
+        flex: 1,
+        minWidth: 250,
+        // align: "center",
+        // headerAlign: "center",
+        renderCell: (params) => {
+          const isoString = params.value;
+          if (!isoString) return null;
+
+          const date = new Date(isoString);
+          return (
+            <Typography component="span">
+              {date.toLocaleString("en-IN", {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: true,
+              })}
+            </Typography>
+          );
+        },
+      },
+
+      // ... rest of your DataGrid setup
+      {
+        field: "requestStatus",
+        headerName: "Status",
+        flex: 1,
+        minWidth: 120,
+        align: "center",
+        headerAlign: "center",
+        filterable: false,
+        sortable: false,
+        disableColumnMenu: true,
+        renderCell: (params) => (
+          <Box
+            sx={{
+              color:
+                params.value === "REJECTED"
+                  ? "error.main"
+                  : params.value === "ACCEPTED"
+                    ? "success.dark"
+                    : "warning.main",
+              fontWeight: "bold",
+            }}
+          >
+            <CustomChip
+              variant="outlined"
+              icon={
+                params.value === "REJECTED" ? (
+                  <BlockFlippedIcon />
+                ) : params.value === "ACCEPTED" ? (
+                  <CheckCircleIcon />
+                ) : params.value === "CANCELLED" ? (
+                  <GppBadIcon />
+                ) : (
+                  <PendingActionsIcon />
+                )
+              }
+              label={
+                params.value === "REJECTED"
+                  ? "Rejected"
+                  : params.value === "ACCEPTED"
+                    ? "Approved"
+                    : params.value === "CANCELLED"
+                      ? "Cancelled"
+                      : "Pending"
+              }
+              sx={{
+                color:
+                  params.value === "REJECTED"
+                    ? "error.dark"
+                    : params.value === "ACCEPTED"
+                      ? "success.dark"
+                      : params.value === "CANCELLED"
+                        ? "primary.dark"
+                        : "warning.light",
+
+                "& .MuiChip-icon": {
+                  color:
+                    params.value === "REJECTED"
+                      ? "error.dark"
+                      : params.value === "ACCEPTED"
+                        ? "success.dark"
+                        : params.value === "CANCELLED"
+                          ? "primary.dark"
+                          : "warning.light",
+                },
+              }}
+            />
+          </Box>
+        ),
+      },
+      {
+        field: "action",
+        headerName: "Action",
+        flex: 0.6,
+        minWidth: 120,
+        align: "center",
+        headerAlign: "center",
+        filterable: false,
+        sortable: false,
+        disableColumnMenu: true,
+        renderCell: (params) => (
+          <Stack
+            direction="row"
+            spacing={1}
+            justifyContent="center"
+            alignItems="center"
+            height="100%"
+          >
+            {permissions.view && (
+              <Tooltip title="View">
+                <IconButton
+                  // color="primary"
+                  onClick={() => handleViewClick(params.row)}
+                >
+                  <VisibilityIcon />
+                </IconButton>
+              </Tooltip>
+            )}
+            {params.row.requestStatus === "PENDING" && permissions.cancel && (
+              <Tooltip title={"Cancel Request"}>
+                <IconButton
+                  onClick={() => {
+                    setConfirmDialog(true);
+                    setRequestId(params.row.requestId);
                   }}
                 >
-                  {roles.map((r) => (
-                    <MenuItem
-                      key={r.id}
-                      value={r.id}
-                      disabled={r.id === FORBIDDEN_ROLE_ID}
-                    >
-                      {r.name}
-                    </MenuItem>
-                  ))}
-                </Select>
+                  <CancelIcon fontSize="inherit" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Stack>
+        ),
+      },
+    ],
+    [],
+  );
 
-                {isDowngradingF1BOG && (
-                  <Typography
-                    variant="caption"
-                    color="warning.main"
-                    sx={{ mt: 0.5 }}
-                  >
-                    ⚠️ This user currently has the <b>f1bog</b> role. Once
-                    changed, it cannot be assigned again.
-                  </Typography>
-                )}
+  const filteredColumns = useMemo(() => {
+    console.log(permissions);
+    if (permissions.view || permissions.cancel) {
+      return columns;
+    }
+    // Otherwise, filter out the column where field name is 'action'.
+    else {
+      return columns.filter((column) => column.field !== "action");
+    }
+  }, [columns, permissions]);
 
-                <Typography variant="caption" color="error">
-                  {errors.ROLE_ID}
-                </Typography>
-              </FormControl>
-            </Grid>
+  return (
+    <>
+      <Box>
+        <DataGrid
+          rows={rows}
+          loading={isLoading}
+          columns={filteredColumns}
+          disableRowSelectionOnClick
+          pageSizeOptions={[5, 10, 25, 50]}
+          initialState={{
+            pagination: { paginationModel: { pageSize: 10, page: 0 } },
+            sorting: { sortModel: [{ field: "reqDate", sort: "desc" }] },
+          }}
+          getRowId={(row) => row.requestId}
+          slots={{
+            noRowsOverlay: CustomNoRowsOverlay,
+          }}
+        />
+      </Box>
 
-            {/* {isEdit && (
-              <Grid size={{ xs: 6 }}>
-                <FormControl fullWidth error={!!errors.ACCOUNT_STATUS}>
-                  <InputLabel>Status *</InputLabel>
-                  <Select
-                    label="Status *"
-                    value={form.ACCOUNT_STATUS || ""}
-                    onChange={(e) =>
-                      setForm({ ...form, ACCOUNT_STATUS: e.target.value })
-                    }
-                  >
-                    {STATUS_OPTIONS.map((s) => (
-                      <MenuItem key={s.value} value={s.value}>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          {s.icon}
-                          <Typography>{s.label}</Typography>
-                        </Stack>
-                      </MenuItem>
-                    ))}
-                  </Select>
-                  <Typography variant="caption" color="error">
-                    {errors.ACCOUNT_STATUS}
-                  </Typography>
-                </FormControl>
-              </Grid>
-            )} */}
-          </Grid>
-        </Stack>
-      </DialogContent>
-
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={onSave}>
-          {isEdit ? "Save Changes" : "Create User"}
-        </Button>
-      </DialogActions>
-    </Dialog>
+      <ViewMyRequestDialog
+        open={viewOpen}
+        handleClose={() => setViewOpen(false)}
+        data={viewData}
+      />
+      <Dialog
+        open={confirmDialog}
+        onClose={() => {
+          setConfirmDialog(false);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600 }}>
+          Cancel Request ID: {requestId}
+        </DialogTitle>
+        <DialogContent>
+          <Typography sx={{ p: 1 }}>
+            Are you sure you want to cancel this request Please confirm ?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setConfirmDialog(false);
+            }}
+            variant="outlined"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleCancelRequest}
+            color="error"
+            variant="contained"
+          >
+            Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
   );
 }
