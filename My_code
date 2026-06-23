@@ -1,775 +1,129 @@
-import React from "react";
-import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
-  Typography,
-  Grid,
-  Box,
-  Divider,
-} from "@mui/material";
-import {
-  timeStampFormatter,
-  toPascalKebabCase,
-  formatKeyForDisplay,
-} from "../../../utils/CommonUtilities";
+@Override
+    @Transactional
+    public ResponseEntity<ResponseVO<Map<String, Object>>> acceptOrRejectRoleRequest(Map<String, Object> request, String userId) {
+        String actionFlag = (String) request.get("actionFlag");
+        int requestId = Integer.parseInt(String.valueOf(request.get("requestId")));
+        String remarks = (String) request.getOrDefault("remarks", "No Remarks: Rejected by approver");
 
-const UserRequestView = ({ open, handleClose, data }) => {
-  if (!data) return null;
-  console.log("data", data);
-  const viewData = {
-    userId: data?.USERID || "N/A",
-    roleName: data?.ROLE_NAME || "N/A",
-    firstName: data?.FIRST_NAME || "N/A",
-    middleName: data?.MIDDLE_NAME || "N/A",
-    lastName: data?.LAST_NAME || "N/A",
-    email: data?.EMAIL || "N/A",
-    branch: data?.BRANCH_CODE || "N/A",
-    phoneNumber: data?.PHONE_NUMBER || "N/A",
-  };
+        RoleRequest roleRequest = roleRequestRepository.findRoleRequestByRequestId(requestId);
+        roleRequest.setApproverUserId(userId);
+        roleRequest.setApprovalDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
 
-  const mainDetails = [
-    { label: "Requestor ID", value: data.REQUESTOR_USERID, size: 2 },
-    {
-      label: "Request Type",
-      value:
-        data.REQUEST_TYPE === "CREATE"
-          ? "Created"
-          : data.REQUEST_TYPE === "DELETE"
-            ? "Deleted"
-            : "Modified",
-      size: 2.5,
-    },
-    {
-      label: "Request Status",
-      value: toPascalKebabCase(data.STATUS),
-      size: 2.5,
-    },
-    {
-      label: "Requested Date",
-      value: timeStampFormatter(data.REQUESTED_AT),
-      size: 5,
-    },
-  ];
+        Map<String, Object> result = new HashMap<>();
+        boolean isApproved = Constant.ACCEPT.equalsIgnoreCase(actionFlag);
 
-  return (
-    <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
-      <DialogTitle>
-        Request Details - <b>ID: {data.REQUEST_ID}</b>
-      </DialogTitle>
+        performUpdateOperation(result, actionFlag, roleRequest, remarks);
 
-      <Divider />
+        // Notification (To Requestor)
+        // Msg: "Your Role Request (ID: 55) for Role 51 has been ACCEPTED."
+        String status = isApproved ? "ACCEPTED" : "REJECTED";
+        String notifMsg = String.format("Your Role Request (ID: %s) for Role %s has been %s.", roleRequest.getRequestId(), roleRequest.getTargetRoleId(), status);
 
-      <DialogContent>
-        {/* Main Details */}
-        <Grid container spacing={2}>
-          {mainDetails.map(
-            (item) =>
-              item.label !== "roleId" && (
-                <Grid xs={12} size={{ xs: 12, sm: item.size }} key={item.label}>
-                  <Box sx={{ display: "flex", flexDirection: "column" }}>
-                    <Typography
-                      variant="subtitle2"
-                      sx={{
-                        fontWeight: 800,
-                        color: "text.secondary",
-                      }}
-                    >
-                      {item.label}
-                    </Typography>
-                    <Typography variant="body1" sx={{ color: "text.primary" }}>
-                      {item.value ?? "N/A"}
-                    </Typography>
-                  </Box>
-                </Grid>
-              ),
-          )}
-        </Grid>
+        if (!isApproved) {
+            notifMsg += " Reason: " + roleRequest.getReasonForRejection();
+        }
 
-        <Divider sx={{ my: 2 }} />
+        createNotification(roleRequest.getRequestorUserId(), null, "/role-management", notifMsg, String.valueOf(roleRequest.getRequestId()));
 
-        {/* PAYLOAD VIEW */}
-
-        <Grid container spacing={2}>
-          {Object.entries(viewData).map(([key, value]) => (
-            <Grid
-              xs={12}
-              size={key === "permissions" ? {} : { xs: 12, sm: 6 }}
-              key={key}
-            >
-              <Box sx={{ display: "flex", flexDirection: "column" }}>
-                <Typography
-                  variant="subtitle2"
-                  sx={{
-                    fontWeight: 800,
-                    color: "text.secondary",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {formatKeyForDisplay(key)}
-                </Typography>
-
-                <Typography
-                  variant="body1"
-                  sx={{ color: "text.primary", wordBreak: "break-word" }}
-                >
-                  {Array.isArray(value)
-                    ? JSON.stringify(value)
-                    : typeof value === "object" && value !== null
-                      ? JSON.stringify(value, null, 2)
-                      : String(value ?? "N/A")}
-                </Typography>
-              </Box>
-            </Grid>
-          ))}
-        </Grid>
-      </DialogContent>
-
-      <Divider />
-
-      <DialogActions sx={{ p: 2, justifyContent: "flex-end" }}>
-        <Button
-          variant="contained"
-          onClick={handleClose}
-          color="primary"
-          sx={{ textTransform: "none", borderRadius: 2, px: 3 }}
-        >
-          Close
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
-};
-
-export default UserRequestView;
-
-
-
-
-
-
-//tab 1
-import React, { useEffect, useState, useCallback } from "react";
-import { Box, Fab } from "@mui/material";
-import AddIcon from "@mui/icons-material/Add";
-import useApi from "../../../hooks/useApi";
-import useCustomSnackbar from "../../../utils/useCustomSnackbar";
-import UsersTable from "../components/UsersTable";
-import UserDialog from "../components/UserDialog";
-import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
-
-export default function UserManagement() {
-  const { callApi, loading } = useApi();
-  const snackbar = useCustomSnackbar();
-  const [rows, setRows] = useState([]);
-  const [roles, setRoles] = useState([]);
-
-  const emptyForm = {
-    id: null,
-    USERID: "",
-    FIRST_NAME: "",
-    MIDDLE_NAME: "",
-    LAST_NAME: "",
-    EMAIL: "@sbi.co.in",
-    PHONE_NUMBER: "",
-    ROLE_NAME: "",
-    ROLE_ID: "",
-    BRANCH_CODE: "",
-    ACCOUNT_STATUS: "",
-  };
-
-  const [form, setForm] = useState(emptyForm);
-  const [initialState, setInitialState] = useState({});
-  const [openEdit, setOpenEdit] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-
-  const normalizeUsers = useCallback((users = []) => {
-    return users.map((u, idx) => ({
-      id: u.USERID || String(idx + 1),
-      USERID: u.USERID,
-      FIRST_NAME: u.FIRST_NAME,
-      MIDDLE_NAME: u.MIDDLE_NAME,
-      LAST_NAME: u.LAST_NAME,
-      EMAIL: u.EMAIL,
-      PHONE_NUMBER: u.PHONE_NUMBER,
-      ROLE_NAME: u.ROLE_NAME,
-      ROLE_ID: u.ROLE_ID,
-      BRANCH_CODE: u.BRANCH_CODE,
-      ACCOUNT_STATUS: u.ACCOUNT_STATUS,
-      __name: `${u.FIRST_NAME || ""} ${u.MIDDLE_NAME || ""} ${
-        u.LAST_NAME || ""
-      }`.trim(),
-    }));
-  }, []);
-
-  const fetchUsers = useCallback(async () => {
-    try {
-      const data = await callApi("/UM/user/user-details", null, "GET");
-      setRows(normalizeUsers(data?.result?.users || []));
-    } catch {
-      setRows([]);
-      snackbar("Failed to load users", "error");
+        return ResponseEntity.ok(ResponseVO.<Map<String, Object>>builder().statusCode(HttpStatus.OK).message((String) result.get(Constant.MESSAGE)).result(result).build());
     }
-  }, [callApi, normalizeUsers, snackbar]);
 
-  const fetchRoles = useCallback(async () => {
-    try {
-      const data = await callApi(
-        "/UM/role/get-roles",
-        { permissions: false },
-        "GET",
-      );
-      setRoles(
-        (data?.result?.roles || []).map((r) => ({
-          id: r.roleId,
-          name: r.roleName,
-        })),
-      );
-    } catch {
-      snackbar("Failed to load roles", "error");
+
+
+private void performUpdateOperation(Map<String, Object> result, String actionFlag, RoleRequest roleRequest, String remarks) {
+        if (actionFlag.equalsIgnoreCase(Constant.ACCEPT)) {
+            // Read CLOB payload safely
+            String jsonPayload = ClobUtil.clobToString(roleRequest.getRequestPayload());
+            RoleRequestPayload payload;
+            try {
+                payload = objectMapper.readValue(jsonPayload, RoleRequestPayload.class);
+            } catch (JsonProcessingException e) {
+                log.error("Failed to parse RoleRequest payload for ID: {}", roleRequest.getRequestId());
+                throw new IllegalArgumentException("Invalid payload format in request storage.");
+            }
+
+            // 1. Get the Reserved ID from the Request
+            int roleId = roleRequest.getTargetRoleId();
+
+            Role role = roleRepository.findRoleByRoleId(roleId);
+
+            boolean isCreate = Constant.CREATE.equalsIgnoreCase(roleRequest.getRequestType());
+
+            if (isCreate) {
+                if (role != null) {
+                    throw new IllegalArgumentException("Role ID " + roleId + " already exists. Cannot Create.");
+                }
+                role = new Role();
+                role.setRoleId(roleId);
+            } else {
+                if (role == null) {
+                    throw new ResourceNotFoundException("Role ID " + roleId + " not found for Update.");
+                }
+            }
+
+            role.setRoleName(payload.getRoleName());
+            role.setDescription(payload.getDescription());
+            role.setStatus(Constant.ACTIVE);
+
+            roleRepository.save(role);
+            savePermissions(payload, roleId);
+
+            // 1. Evict the notification permissions Cache
+            evictPermissionCache(payload.getPermissions());
+
+            // 2. INSTANT REDIS REFRESH
+            permissionCacheService.refreshRolePermissions((long) roleId);
+
+            roleRequest.setRequestStatus(Constant.ACCEPTED);
+            roleRequest.setExecutionDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            roleRequest.setExecutionDetails("SUCCESS");
+            roleRequestRepository.save(roleRequest);
+
+            result.put(Constant.STATUS, true);
+            result.put(Constant.MESSAGE, isCreate ? "Role Created" : "Role Updated");
+        } else {
+            // REJECT Logic
+            roleRequest.setRequestStatus(Constant.REJECTED);
+            roleRequest.setReasonForRejection(remarks);
+            roleRequest.setExecutionDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            roleRequest.setExecutionDetails("SUCCESS");
+            roleRequestRepository.save(roleRequest);
+
+            result.put(Constant.STATUS, true);
+            result.put(Constant.MESSAGE, "Request Rejected");
+        }
     }
-  }, [callApi, snackbar]);
 
-  useEffect(() => {
-    fetchUsers();
-    fetchRoles();
-  }, [fetchUsers, fetchRoles]);
 
-  const handleDelete = useCallback(async () => {
-    const payload = {
-      targetUserId: deleteTarget.USERID,
-      requestType: "DELETE",
-      requestPayload: {
-        userId: deleteTarget.USERID,
-        firstName: deleteTarget.FIRST_NAME,
-        middleName: deleteTarget.MIDDLE_NAME,
-        lastName: deleteTarget.LAST_NAME,
-        email: deleteTarget.EMAIL,
-        phoneNumber: deleteTarget.PHONE_NUMBER,
-        roleId: deleteTarget.ROLE_ID,
-        roleName: deleteTarget.ROLE_NAME,
-        branch: deleteTarget.BRANCH_CODE,
-        accountStatus: deleteTarget.ACCOUNT_STATUS || "ACTIVE"
-      },
-    };
-    try {
-      const response = await callApi(
-        "/UM/user/create-request",
-        payload,
-        "POST",
-      );
-      if (response) {
-        fetchUsers();
-        fetchRoles();
-        setDeleteTarget(null);
-      }
-      snackbar("User delete request submitted successfully", "success");
-    } catch (error) {
-      snackbar(
-        error?.message ||
-          "Something went wrong while deleting user, Kindly try again",
-        "error",
-      );
+private void savePermissions(RoleRequestPayload payload, int roleId) {
+        List<PermissionList> newPerms = payload.getPermissions();
+        if (newPerms == null) return;
+
+        // 1. Fetch the authoritative list of what this role is ACTUALLY allowed to have
+        List<Permissions> eligiblePermissions = permissionsRepository.findEligiblePermissions(roleId);
+        Set<Integer> eligibleMenuIds = eligiblePermissions.stream()
+                .map(Permissions::getMenuId)
+                .collect(Collectors.toSet());
+
+        // 2. Cross-check incoming payload against the allowed list
+        for (PermissionList incomingPerm : newPerms) {
+            if (!eligibleMenuIds.contains(incomingPerm.getId())) {
+                log.error("SECURITY VIOLATION: Attempted to assign restricted/invalid MENU_ID {} to ROLE_ID {}", incomingPerm.getId(), roleId);
+                throw new SecurityException("Payload contains restricted permissions not authorized for this role.");
+            }
+        }
+
+        // 3. If validation passes, proceed with saving
+        List<RolePermissions> current = rolePermissionsRepository.findByIdRoleId(roleId);
+        rolePermissionsRepository.deleteAll(current);
+        rolePermissionsRepository.flush();
+
+        List<RolePermissions> toSave = newPerms.stream().map(p -> {
+            RolePermissions rp = new RolePermissions();
+            rp.setId(new RolePermissionId(roleId, p.getId()));
+            rp.setPermissionOrder(p.getOrder());
+            return rp;
+        }).collect(Collectors.toList());
+
+        rolePermissionsRepository.saveAll(toSave);
     }
-  }, [callApi, deleteTarget, fetchRoles, fetchUsers, snackbar]);
-
-  return (
-    <Box>
-      <UsersTable
-        rows={rows}
-        roles={roles}
-        loading={loading}
-        onEditRow={(row) => {
-          setForm(row);
-          setInitialState(row);
-          setOpenEdit(true);
-        }}
-        onDeleteRow={(row) => setDeleteTarget(row)}
-      />
-
-      <UserDialog
-        open={openEdit}
-        roles={roles}
-        form={form}
-        setForm={setForm}
-        initialState={initialState}
-        onClose={() => setOpenEdit(false)}
-      />
-
-      <DeleteConfirmDialog
-        open={!!deleteTarget}
-        name={deleteTarget?.__name}
-        onCancel={() => setDeleteTarget(null)}
-        onConfirm={() => handleDelete()}
-      />
-
-      <Fab
-        color="primary"
-        variant="extended"
-        onClick={() => {
-          setForm(emptyForm);
-          setInitialState({});
-          setOpenEdit(true);
-        }}
-        sx={{
-          position: "fixed",
-          bottom: 15,
-          right: 30,
-          borderRadius: 1,
-        }}
-      >
-        <AddIcon sx={{ mr: 1 }} />
-        Create
-      </Fab>
-    </Box>
-  );
-}
-
-
-//tab2
-import React, { useEffect, useMemo, useState, useCallback } from "react";
-import {
-  Box,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Stack,
-  Typography,
-  Tooltip,
-  IconButton,
-} from "@mui/material";
-import { DataGrid } from "@mui/x-data-grid";
-import useApi from "../../../hooks/useApi";
-import CancelIcon from "@mui/icons-material/Cancel";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import AddBoxIcon from "@mui/icons-material/AddBox";
-import AutoDeleteIcon from "@mui/icons-material/AutoDelete";
-import EditDocumentIcon from "@mui/icons-material/EditDocument";
-import useCustomSnackbar from "../../../utils/useCustomSnackbar";
-import PendingActionsIcon from "@mui/icons-material/PendingActions";
-import BlockFlippedIcon from "@mui/icons-material/BlockFlipped";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import GppBadIcon from "@mui/icons-material/GppBad";
-import { getPermissions } from "../../../utils/CommonUtilities";
-import CustomChip from "../../../utils/CustomChip";
-import InfoIcon from "@mui/icons-material/Info";
-import ViewMyRequestDialog from "../../common/ViewMyRequestDialog";
-import { useSelector } from "react-redux";
-function CustomNoRowsOverlay() {
-  return (
-    <Stack height="100%" alignItems="center" justifyContent="center">
-      <InfoIcon sx={{ fontSize: 48, color: "text.secondary", mb: 2 }} />
-      <Typography variant="h6">No Role Requests Found</Typography>
-      <Typography>You have not created any Role requests.</Typography>
-    </Stack>
-  );
-}
-
-export default function UserManagementTab2() {
-  const { callApi } = useApi();
-  const selectedMenu = useSelector((state) => state.menus.selectedMenuItem);
-  const permissions = getPermissions(selectedMenu);
-  const showSnackBar = useCustomSnackbar();
-  const [isLoading, setIsLoading] = useState(true);
-  const [rows, setRows] = useState([]);
-  const [confirmDialog, setConfirmDialog] = useState(false);
-  const [requestId, setRequestId] = useState(null);
-  const [viewOpen, setViewOpen] = useState(false);
-  const [viewData, setViewData] = useState(null);
-
-  const fetchData = useCallback(async () => {
-    try {
-      const response = await callApi("/UM/user/my-requests", null, "GET");
-      console.log(response);
-      if (response?.result) {
-        const res = response?.result?.myRequests;
-        const result = res.map((row) => {
-          let parsedPayload = {};
-          parsedPayload = row.requestPayload
-            ? JSON.parse(row.requestPayload)
-            : {};
-
-          return {
-            ...parsedPayload,
-            ...row,
-          };
-        });
-        setRows(result);
-      } else {
-        setRows([]);
-      }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [callApi]);
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const handleCancelRequest = async () => {
-    try {
-      const payload = {
-        requestId,
-        actionFlag: "CANCEL",
-        remarks: "User canceled this Request",
-      };
-      const response = await callApi(
-        "/UM/user/cancel-request",
-        payload,
-        "POST",
-      );
-      console.log(response);
-      if (response?.result?.status) {
-        showSnackBar(
-          `Request Id ${requestId} Cancelled Successfully.`,
-          "success",
-        );
-      } else {
-        showSnackBar(
-          response?.result?.message
-            ? response?.result?.message
-            : "Failed to process your cancel request, Kindly try again",
-          "error",
-        );
-      }
-    } catch (error) {
-      console.log(error);
-    } finally {
-      fetchData();
-      setConfirmDialog(false);
-    }
-  };
-
-  const handleViewClick = (data) => {
-    console.log(data);
-    const {
-      requestId,
-      requestStatus,
-      requestDate,
-      userId,
-      accountStatus,
-      firstName,
-      middleName,
-      lastName,
-      email,
-      phoneNumber,
-      branch,
-      roleName,
-      requestorUserId,
-      requestType,
-      approvalDate,
-      approverId,
-      rejectionReason,
-    } = data;
-    const showData = {
-      userId,
-      roleName,
-      firstName,
-      middleName,
-      lastName,
-      email,
-      branch,
-      phoneNumber,
-    };
-    data.id = requestId;
-    data.reqDate = requestDate;
-    data.changeType = requestType === "CREATE" ? "ADD" : requestType;
-    data.reqStatus = requestStatus;
-    data.creatorId = requestorUserId;
-    data.executorId = approverId;
-    data.executorRemarks = rejectionReason;
-    data.executionDate = approvalDate;
-
-    data.showData = showData;
-    setViewData(data);
-    setViewOpen(true);
-  };
-
-  const columns = useMemo(
-    () => [
-      {
-        field: "requestId",
-        headerName: "Request Id",
-        flex: 0.5,
-        minWidth: 150,
-      },
-      { field: "userId", headerName: "User ID", flex: 0.5, minWidth: 150 },
-      {
-        field: "userName",
-        headerName: "User Name",
-        flex: 1.3,
-        minWidth: 250,
-        renderCell: (p) =>
-          `${p.row.firstName} ${p?.row?.middleName || ""} ${
-            p?.row?.lastName || ""
-          }`,
-      },
-      {
-        field: "requestType",
-        headerName: "Request Type",
-        flex: 0.5,
-        minWidth: 150,
-        align: "center",
-        headerAlign: "center",
-        filterable: false,
-        sortable: false,
-        disableColumnMenu: true,
-        renderCell: (params) => {
-          const val = params.value;
-          const color =
-            val === "CREATE"
-              ? "success"
-              : val === "DELETE"
-                ? "error"
-                : "warning";
-          const icon =
-            val === "ADD" ? (
-              <AddBoxIcon />
-            ) : val === "DELETE" ? (
-              <AutoDeleteIcon />
-            ) : (
-              <EditDocumentIcon />
-            );
-          return (
-            <CustomChip
-              variant="outlined"
-              icon={icon}
-              label={
-                val === "CREATE"
-                  ? "Created"
-                  : val === "DELETE"
-                    ? "Deleted"
-                    : "Modified"
-              }
-              color={color}
-            />
-          );
-        },
-      },
-
-      {
-        field: "requestDate",
-        headerName: "Requested Date",
-        flex: 1,
-        minWidth: 250,
-        // align: "center",
-        // headerAlign: "center",
-        renderCell: (params) => {
-          const isoString = params.value;
-          if (!isoString) return null;
-
-          const date = new Date(isoString);
-          return (
-            <Typography component="span">
-              {date.toLocaleString("en-IN", {
-                year: "numeric",
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-                hour12: true,
-              })}
-            </Typography>
-          );
-        },
-      },
-
-      // ... rest of your DataGrid setup
-      {
-        field: "requestStatus",
-        headerName: "Status",
-        flex: 1,
-        minWidth: 120,
-        align: "center",
-        headerAlign: "center",
-        filterable: false,
-        sortable: false,
-        disableColumnMenu: true,
-        renderCell: (params) => (
-          <Box
-            sx={{
-              color:
-                params.value === "REJECTED"
-                  ? "error.main"
-                  : params.value === "ACCEPTED"
-                    ? "success.dark"
-                    : "warning.main",
-              fontWeight: "bold",
-            }}
-          >
-            <CustomChip
-              variant="outlined"
-              icon={
-                params.value === "REJECTED" ? (
-                  <BlockFlippedIcon />
-                ) : params.value === "ACCEPTED" ? (
-                  <CheckCircleIcon />
-                ) : params.value === "CANCELLED" ? (
-                  <GppBadIcon />
-                ) : (
-                  <PendingActionsIcon />
-                )
-              }
-              label={
-                params.value === "REJECTED"
-                  ? "Rejected"
-                  : params.value === "ACCEPTED"
-                    ? "Approved"
-                    : params.value === "CANCELLED"
-                      ? "Cancelled"
-                      : "Pending"
-              }
-              sx={{
-                color:
-                  params.value === "REJECTED"
-                    ? "error.dark"
-                    : params.value === "ACCEPTED"
-                      ? "success.dark"
-                      : params.value === "CANCELLED"
-                        ? "primary.dark"
-                        : "warning.light",
-
-                "& .MuiChip-icon": {
-                  color:
-                    params.value === "REJECTED"
-                      ? "error.dark"
-                      : params.value === "ACCEPTED"
-                        ? "success.dark"
-                        : params.value === "CANCELLED"
-                          ? "primary.dark"
-                          : "warning.light",
-                },
-              }}
-            />
-          </Box>
-        ),
-      },
-      {
-        field: "action",
-        headerName: "Action",
-        flex: 0.6,
-        minWidth: 120,
-        align: "center",
-        headerAlign: "center",
-        filterable: false,
-        sortable: false,
-        disableColumnMenu: true,
-        renderCell: (params) => (
-          <Stack
-            direction="row"
-            spacing={1}
-            justifyContent="center"
-            alignItems="center"
-            height="100%"
-          >
-            {permissions.view && (
-              <Tooltip title="View">
-                <IconButton
-                  // color="primary"
-                  onClick={() => handleViewClick(params.row)}
-                >
-                  <VisibilityIcon />
-                </IconButton>
-              </Tooltip>
-            )}
-            {params.row.requestStatus === "PENDING" && permissions.cancel && (
-              <Tooltip title={"Cancel Request"}>
-                <IconButton
-                  onClick={() => {
-                    setConfirmDialog(true);
-                    setRequestId(params.row.requestId);
-                  }}
-                >
-                  <CancelIcon fontSize="inherit" />
-                </IconButton>
-              </Tooltip>
-            )}
-          </Stack>
-        ),
-      },
-    ],
-    [],
-  );
-
-  const filteredColumns = useMemo(() => {
-    console.log(permissions);
-    if (permissions.view || permissions.cancel) {
-      return columns;
-    }
-    // Otherwise, filter out the column where field name is 'action'.
-    else {
-      return columns.filter((column) => column.field !== "action");
-    }
-  }, [columns, permissions]);
-
-  return (
-    <>
-      <Box>
-        <DataGrid
-          rows={rows}
-          loading={isLoading}
-          columns={filteredColumns}
-          disableRowSelectionOnClick
-          pageSizeOptions={[5, 10, 25, 50]}
-          initialState={{
-            pagination: { paginationModel: { pageSize: 10, page: 0 } },
-            sorting: { sortModel: [{ field: "reqDate", sort: "desc" }] },
-          }}
-          getRowId={(row) => row.requestId}
-          slots={{
-            noRowsOverlay: CustomNoRowsOverlay,
-          }}
-        />
-      </Box>
-
-      <ViewMyRequestDialog
-        open={viewOpen}
-        handleClose={() => setViewOpen(false)}
-        data={viewData}
-      />
-      <Dialog
-        open={confirmDialog}
-        onClose={() => {
-          setConfirmDialog(false);
-        }}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle sx={{ fontWeight: 600 }}>
-          Cancel Request ID: {requestId}
-        </DialogTitle>
-        <DialogContent>
-          <Typography sx={{ p: 1 }}>
-            Are you sure you want to cancel this request Please confirm ?
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button
-            onClick={() => {
-              setConfirmDialog(false);
-            }}
-            variant="outlined"
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleCancelRequest}
-            color="error"
-            variant="contained"
-          >
-            Confirm
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </>
-  );
-}
