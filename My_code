@@ -1,129 +1,639 @@
-@Override
-    @Transactional
-    public ResponseEntity<ResponseVO<Map<String, Object>>> acceptOrRejectRoleRequest(Map<String, Object> request, String userId) {
-        String actionFlag = (String) request.get("actionFlag");
-        int requestId = Integer.parseInt(String.valueOf(request.get("requestId")));
-        String remarks = (String) request.getOrDefault("remarks", "No Remarks: Rejected by approver");
+package com.fincore.enquiry_service.model;
 
-        RoleRequest roleRequest = roleRequestRepository.findRoleRequestByRequestId(requestId);
-        roleRequest.setApproverUserId(userId);
-        roleRequest.setApprovalDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 
-        Map<String, Object> result = new HashMap<>();
-        boolean isApproved = Constant.ACCEPT.equalsIgnoreCase(actionFlag);
+import java.util.Date;
 
-        performUpdateOperation(result, actionFlag, roleRequest, remarks);
+@Getter
+@Setter
+@Entity
+@Table(name = "SUSPENSE_TRACKER")
+@ToString
+public class GlBalanceDifference {
 
-        // Notification (To Requestor)
-        // Msg: "Your Role Request (ID: 55) for Role 51 has been ACCEPTED."
-        String status = isApproved ? "ACCEPTED" : "REJECTED";
-        String notifMsg = String.format("Your Role Request (ID: %s) for Role %s has been %s.", roleRequest.getRequestId(), roleRequest.getTargetRoleId(), status);
+    // @GeneratedValue(strategy = GenerationType.SEQUENCE, generator =
+    // "gl_balance_seq_gen")
 
-        if (!isApproved) {
-            notifMsg += " Reason: " + roleRequest.getReasonForRejection();
+    // @SequenceGenerator(name = "gl_balance_seq_gen", sequenceName =
+    // "GL_BALANCE_SEQ", allocationSize = 1)
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "ID")
+    private Integer id;
+    @Column(name = "BALANCE_DATE")
+    private Date date;
+    @Column(name = "BRANCH_CODE")
+    private String branch;
+    @Column(name = "CURRENCY")
+    private String currency;
+    @Column(name = "CGL")
+    private String cgl;
+    @Column(name = "BALANCE")
+    private Double balance;
+    @Column(name = "INR_BALANCE")
+    private Double inrBalance;
+    @Column(name = "TYPE")
+    private String type;
+    @Column(name = "FIRST_ERROR_DATE")
+    private Date firstErrorDate;
+
+}
+
+
+package com.fincore.enquiry_service.repository;
+
+
+import java.util.Date;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import com.fincore.enquiry_service.model.GlBalanceDifference;
+
+public interface GlBalanceDifferenceRepo extends JpaRepository<GlBalanceDifference, Integer> {
+
+    Page<GlBalanceDifference> findByBranchAndCglAndCurrencyAndDateBetween(String branch, String cgl, String currency,
+                                                                          String adjustedStartDate, String adjustedEndDate, Pageable pageable);
+
+}
+package com.fincore.enquiry_service.service;
+
+import java.util.Calendar;
+import java.util.Date;
+import java.util.List;
+import java.util.TimeZone;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+
+import com.fincore.enquiry_service.dto.BalanceRequestDTO;
+import com.fincore.enquiry_service.dto.GlBalDiffResponseDTO;
+import com.fincore.enquiry_service.dto.PaginatedResponseDTO;
+import com.fincore.enquiry_service.exception.NoDataFoundException;
+import com.fincore.enquiry_service.model.GlBalanceDifference;
+import com.fincore.enquiry_service.repository.GlBalanceDifferenceRepo;
+import com.fincore.enquiry_service.service.export.GlBalanceDiffStreamingExportService;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+@Service
+@Slf4j
+@RequiredArgsConstructor
+public class GlBalanceDiffServiceImpl implements GlBalanceDiffService {
+
+    private final GlBalanceDifferenceRepo repo;
+
+    private static final String ZONE_IST = "Asia/Kolkata";
+    private final GlBalanceDiffStreamingExportService glBalanceDiffStreamingExportService;
+
+    @Override
+    public PaginatedResponseDTO<GlBalDiffResponseDTO> getBalanceDiffDetails(BalanceRequestDTO request) {
+//        if (request.getEndDate().before(request.getStartDate())) {
+//            log.error("End date must be after start date.");
+//            throw new IllegalArgumentException("End date must be after start date");
+//        }
+
+        // 1. Force Start Date to 00:00:00 IST
+        String adjustedStartDate = request.getStartDate();
+        // 2. Force End Date to 23:59:59 IST
+        String adjustedEndDate = request.getEndDate();
+
+        int page = (request.getPage() != null && request.getPage() >= 0) ? request.getPage() : 0;
+        int size = (request.getSize() != null && request.getSize() >= 0) ? request.getSize() : 10;
+
+        String sortIn = (request.getSortIn() != null && !request.getSortIn().isBlank())
+                ? request.getSortIn().toUpperCase()
+                : "ASC";
+
+        Sort sort = sortIn.equals("DESC") ? Sort.by("date").descending() : Sort.by("date").ascending();
+        PageRequest pageRequest = PageRequest.of(page, size, sort);
+
+        log.info("Adjusted Start Date : {}", adjustedStartDate);
+        log.info("Adjusted End Date : {}", adjustedEndDate);
+
+        Page<GlBalanceDifference> records = repo.findByBranchAndCglAndCurrencyAndDateBetween(
+                request.getBranch(), request.getCgl(), request.getCurrency(),
+                adjustedStartDate, adjustedEndDate,
+                pageRequest);
+
+        if (records.isEmpty()) {
+            log.warn("No records found for the given filters.");
+            throw new NoDataFoundException("No records found for given filters");
         }
 
-        createNotification(roleRequest.getRequestorUserId(), null, "/role-management", notifMsg, String.valueOf(roleRequest.getRequestId()));
+        List<GlBalDiffResponseDTO> list = records.stream()
+                .map(r -> new GlBalDiffResponseDTO(
+                        r.getId(), r.getDate(), r.getBranch(), r.getCgl(), r.getCurrency(), r.getBalance(),
+                        r.getType(), r.getFirstErrorDate()))
+                .toList();
 
-        return ResponseEntity.ok(ResponseVO.<Map<String, Object>>builder().statusCode(HttpStatus.OK).message((String) result.get(Constant.MESSAGE)).result(result).build());
+        String actualSort = records.getSort().stream().findFirst().map(order -> order.getDirection().name())
+                .orElse("UNSORTED");
+
+        return new PaginatedResponseDTO<>(
+                records.getNumber(), records.getTotalPages(), records.getSize(), records.getTotalElements(), actualSort,
+                list, null);
     }
 
+    @Override
+    public byte[] exportBalanceDiffToExcel(
+            BalanceRequestDTO request, String userId) {
+
+        return glBalanceDiffStreamingExportService.export(request, userId);
+    }
+
+    /**
+     * Helper Method: Forces the date to Start of Day (00:00:00) in Asia/Kolkata
+     * regardless of Server TimeZone.
+     */
+    private Date convertToStartOfDay(Date date) {
+        if (date == null)
+            return null;
+        Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(ZONE_IST));
+        calendar.setTime(date);
+        calendar.set(Calendar.HOUR_OF_DAY, 0);
+        calendar.set(Calendar.MINUTE, 0);
+        calendar.set(Calendar.SECOND, 0);
+        calendar.set(Calendar.MILLISECOND, 0);
+        return calendar.getTime();
+    }
+
+    /**
+     * Helper Method: Forces the date to End of Day (23:59:59) in Asia/Kolkata
+     * regardless of Server TimeZone.
+     */
+    private Date convertToEndOfDay(Date date) {
+        if (date == null)
+            return null;
+        Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(ZONE_IST));
+        calendar.setTime(date);
+        calendar.set(Calendar.HOUR_OF_DAY, 23);
+        calendar.set(Calendar.MINUTE, 59);
+        calendar.set(Calendar.SECOND, 59);
+        calendar.set(Calendar.MILLISECOND, 999);
+        return calendar.getTime();
+    }
+
+}
+
+package com.fincore.enquiry_service.controller;
+
+import com.fincore.commonutilities.jwt.JwtUtil;
+import com.fincore.enquiry_service.dto.ApiResponse;
+import com.fincore.enquiry_service.dto.BalanceRequestDTO;
+import com.fincore.enquiry_service.dto.GlBalDiffResponseDTO;
+import com.fincore.enquiry_service.dto.PaginatedResponseDTO;
+import com.fincore.enquiry_service.service.GlBalanceDiffService;
+
+import lombok.RequiredArgsConstructor;
+
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/suspense-tracker")
+@RequiredArgsConstructor
+public class GLBalanceDiffController {
+
+        private final GlBalanceDiffService service;
+        private final JwtUtil jwtUtil;
+
+        /**
+         * Difference Enquiry API
+         */
+        @PostMapping("/enquires")
+        public ResponseEntity<ApiResponse<PaginatedResponseDTO<GlBalDiffResponseDTO>>> getBalance(
+                        @RequestBody BalanceRequestDTO request) {
+
+                PaginatedResponseDTO<GlBalDiffResponseDTO> result = service.getBalanceDiffDetails(request);
+                return ResponseEntity.ok(ApiResponse.success(result, "Balance records fetched Successfully"));
+        }
+
+        @PostMapping("/export")
+        public ResponseEntity<byte[]> exportBalanceDiff(
+                        @RequestHeader("Authorization") String token,
+                        @RequestBody BalanceRequestDTO request) {
+
+                String userId = jwtUtil.getUserIdFromToken(token);
+
+                byte[] file = service.exportBalanceDiffToExcel(request,userId);
+
+                return ResponseEntity.ok()
+                                .header(
+                                                HttpHeaders.CONTENT_DISPOSITION,
+                                                "attachment; filename=GL_Balance_Difference.xlsx")
+                                .contentType(
+                                                MediaType.APPLICATION_OCTET_STREAM)
+                                .body(file);
+        }
+
+}
 
 
-private void performUpdateOperation(Map<String, Object> result, String actionFlag, RoleRequest roleRequest, String remarks) {
-        if (actionFlag.equalsIgnoreCase(Constant.ACCEPT)) {
-            // Read CLOB payload safely
-            String jsonPayload = ClobUtil.clobToString(roleRequest.getRequestPayload());
-            RoleRequestPayload payload;
-            try {
-                payload = objectMapper.readValue(jsonPayload, RoleRequestPayload.class);
-            } catch (JsonProcessingException e) {
-                log.error("Failed to parse RoleRequest payload for ID: {}", roleRequest.getRequestId());
-                throw new IllegalArgumentException("Invalid payload format in request storage.");
-            }
+package com.fincore.enquiry_service.service.export;
 
-            // 1. Get the Reserved ID from the Request
-            int roleId = roleRequest.getTargetRoleId();
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.sql.Timestamp;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.concurrent.atomic.AtomicInteger;
 
-            Role role = roleRepository.findRoleByRoleId(roleId);
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.ss.util.CellRangeAddress;
+import org.apache.poi.xssf.streaming.SXSSFSheet;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
 
-            boolean isCreate = Constant.CREATE.equalsIgnoreCase(roleRequest.getRequestType());
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fincore.enquiry_service.dto.BalanceRequestDTO;
+import com.fincore.enquiry_service.dto.MyDownloadsRequestDTO;
+import com.fincore.enquiry_service.exception.ExportGenerationException;
+import com.fincore.enquiry_service.service.MyDownloadsService;
+import com.fincore.enquiry_service.service.utils.BaseStreamingExcelExporter;
+import com.fincore.enquiry_service.service.utils.ExcelExportUtil;
+import com.fincore.enquiry_service.service.utils.ExcelStyleUtil;
 
-            if (isCreate) {
-                if (role != null) {
-                    throw new IllegalArgumentException("Role ID " + roleId + " already exists. Cannot Create.");
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class GlBalanceDiffStreamingExportService extends BaseStreamingExcelExporter {
+
+        private final JdbcTemplate jdbcTemplate;
+        private final MyDownloadsService myDownloadsService;
+
+        public byte[] export(
+                        BalanceRequestDTO request, String userId) {
+
+                // if (request.getEndDate().before(request.getStartDate())) {
+                //
+                // throw new IllegalArgumentException(
+                // "End date must be after start date");
+                // }
+
+                try (
+
+                                SXSSFWorkbook workbook = new SXSSFWorkbook(100);
+                                ByteArrayOutputStream out = new ByteArrayOutputStream()
+
+                ) {
+
+                        workbook.setCompressTempFiles(true);
+
+                        SXSSFSheet sheet = workbook.createSheet(
+                                        "Suspense Report");
+
+                        // ==================================================
+                        // STYLES
+                        // ==================================================
+
+                        CellStyle headerStyle = ExcelStyleUtil.createHeaderStyle(workbook);
+
+                        CellStyle titleStyle = ExcelStyleUtil.createTitleStyle(workbook);
+
+                        CellStyle amountStyle = ExcelStyleUtil.createAmountStyle(workbook);
+
+                        CreationHelper creationHelper = workbook.getCreationHelper();
+
+                        CellStyle dateStyle = workbook.createCellStyle();
+
+                        dateStyle.setDataFormat(
+                                        creationHelper.createDataFormat()
+                                                        .getFormat("dd-MM-yyyy"));
+
+                        CellStyle centerStyle = workbook.createCellStyle();
+
+                        centerStyle.setAlignment(
+                                        HorizontalAlignment.CENTER);
+
+                        AtomicInteger rowNum = new AtomicInteger(0);
+
+                        // ==================================================
+                        // TITLE
+                        // ==================================================
+
+                        Row titleRow = sheet.createRow(
+                                        rowNum.getAndIncrement());
+
+                        Cell titleCell = titleRow.createCell(0);
+
+                        titleCell.setCellValue(
+                                        "Suspense Report Enquiry");
+
+                        titleCell.setCellStyle(titleStyle);
+
+                        sheet.addMergedRegion(
+                                        new CellRangeAddress(
+                                                        0,
+                                                        0,
+                                                        0,
+                                                        7));
+
+                        rowNum.incrementAndGet();
+
+                        // ==================================================
+                        // SUMMARY HEADER
+                        // ==================================================
+
+                        Row summaryHeader = sheet.createRow(
+                                        rowNum.getAndIncrement());
+
+                        String[] summaryHeaders = {
+                                        "Branch",
+                                        "Currency",
+                                        "CGL",
+                                        "From Date",
+                                        "To Date"
+                        };
+
+                        for (int i = 0; i < summaryHeaders.length; i++) {
+
+                                Cell cell = summaryHeader.createCell(i);
+
+                                cell.setCellValue(
+                                                summaryHeaders[i]);
+
+                                cell.setCellStyle(headerStyle);
+                        }
+
+                        // ==================================================
+                        // SUMMARY VALUES
+                        // ==================================================
+
+                        Row summaryRow = sheet.createRow(
+                                        rowNum.getAndIncrement());
+
+                        summaryRow.createCell(0)
+                                        .setCellValue(request.getBranch());
+
+                        summaryRow.createCell(1)
+                                        .setCellValue(request.getCurrency());
+
+                        summaryRow.createCell(2)
+                                        .setCellValue(request.getCgl());
+
+                        Cell startDateCell = summaryRow.createCell(3);
+
+                        startDateCell.setCellValue(
+                                        request.getStartDate());
+
+                        startDateCell.setCellStyle(dateStyle);
+
+                        Cell endDateCell = summaryRow.createCell(4);
+
+                        endDateCell.setCellValue(
+                                        request.getEndDate());
+
+                        endDateCell.setCellStyle(dateStyle);
+
+                        rowNum.incrementAndGet();
+
+                        // ==================================================
+                        // MAIN HEADER
+                        // ==================================================
+
+                        String[] columns = {
+                                        "ID",
+                                        "Date",
+                                        "Branch",
+                                        "CGL",
+                                        "Currency",
+                                        "Balance",
+                                        "Type",
+                                        "First Error Date"
+                        };
+
+                        Row headerRow = sheet.createRow(
+                                        rowNum.getAndIncrement());
+
+                        for (int i = 0; i < columns.length; i++) {
+
+                                Cell cell = headerRow.createCell(i);
+
+                                cell.setCellValue(columns[i]);
+
+                                cell.setCellStyle(headerStyle);
+                        }
+
+                        // ==================================================
+                        // DATE ADJUSTMENT
+                        // ==================================================
+
+                        String adjustedStartDate = request.getStartDate();
+
+                        String adjustedEndDate = request.getEndDate();
+
+                        log.info(
+                                        "Adjusted Start Date : {}",
+                                        adjustedStartDate);
+
+                        log.info(
+                                        "Adjusted End Date : {}",
+                                        adjustedEndDate);
+
+                        // ==================================================
+                        // SQL
+                        // ==================================================
+
+                        String sql = """
+                                        SELECT
+                                            ID,
+                                            BALANCE_DATE,
+                                            BRANCH_CODE,
+                                            CGL,
+                                            CURRENCY,
+                                            BALANCE,
+                                            TYPE,
+                                            FIRST_ERROR_DATE
+                                        FROM SUSPENSE_TRACKER
+                                        WHERE BRANCH_CODE = ?
+                                        AND CGL = ?
+                                        AND CURRENCY = ?
+                                        AND BALANCE_DATE BETWEEN ? AND ?
+                                        ORDER BY BALANCE_DATE
+                                        """;
+
+                        jdbcTemplate.setFetchSize(20000);
+
+                        jdbcTemplate.query(
+                                        connection -> {
+
+                                                var ps = connection.prepareStatement(sql);
+
+                                                ps.setFetchSize(20000);
+
+                                                ps.setString(
+                                                                1,
+                                                                request.getBranch());
+
+                                                ps.setString(
+                                                                2,
+                                                                request.getCgl());
+
+                                                ps.setString(
+                                                                3,
+                                                                request.getCurrency());
+
+                                                ps.setString(
+                                                                4,
+                                                                adjustedStartDate);
+
+                                                ps.setString(
+                                                                5,
+                                                                adjustedEndDate);
+
+                                                return ps;
+                                        },
+                                        rs -> {
+
+                                                Row row = sheet.createRow(
+                                                                rowNum.getAndIncrement());
+
+                                                int col = 0;
+
+                                                row.createCell(col++)
+                                                                .setCellValue(
+                                                                                rs.getLong("ID"));
+
+                                                Cell dateCell = row.createCell(col++);
+
+                                                if (rs.getTimestamp("BALANCE_DATE") != null) {
+
+                                                        dateCell.setCellValue(
+                                                                        rs.getTimestamp("BALANCE_DATE"));
+
+                                                        dateCell.setCellStyle(dateStyle);
+                                                }
+
+                                                row.createCell(col++)
+                                                                .setCellValue(
+                                                                                ExcelExportUtil.safeString(
+                                                                                                rs.getString("BRANCH_CODE")));
+
+                                                row.createCell(col++)
+                                                                .setCellValue(
+                                                                                ExcelExportUtil.safeString(
+                                                                                                rs.getString("CGL")));
+
+                                                row.createCell(col++)
+                                                                .setCellValue(
+                                                                                ExcelExportUtil.safeString(
+                                                                                                rs.getString("CURRENCY")));
+
+                                                Cell balanceCell = row.createCell(col++);
+
+                                                balanceCell.setCellValue(
+                                                                rs.getDouble("BALANCE"));
+
+                                                balanceCell.setCellStyle(amountStyle);
+
+                                                Cell typeCell = row.createCell(col++);
+
+                                                typeCell.setCellValue(
+                                                                ExcelExportUtil.safeString(
+                                                                                rs.getString("TYPE")));
+
+                                                typeCell.setCellStyle(centerStyle);
+
+                                                Cell firstErrorDateCell = row.createCell(col++);
+
+                                                if (rs.getTimestamp("FIRST_ERROR_DATE") != null) {
+
+                                                        firstErrorDateCell.setCellValue(
+                                                                        rs.getTimestamp("FIRST_ERROR_DATE"));
+
+                                                        firstErrorDateCell.setCellStyle(dateStyle);
+                                                }
+
+                                                ExcelExportUtil.flushIfNeeded(
+                                                                sheet,
+                                                                rowNum.get());
+                                        });
+
+                        // ==================================================
+                        // COLUMN WIDTHS
+                        // ==================================================
+
+                        sheet.setColumnWidth(0, 5000);
+                        sheet.setColumnWidth(1, 5000);
+                        sheet.setColumnWidth(2, 5000);
+                        sheet.setColumnWidth(3, 5000);
+                        sheet.setColumnWidth(4, 5000);
+                        sheet.setColumnWidth(5, 7000);
+                        sheet.setColumnWidth(6, 5000);
+                        sheet.setColumnWidth(7, 6000);
+
+                        workbook.write(out);
+
+                        byte[] bytes = out.toByteArray();
+
+                        MyDownloadsRequestDTO downloadRequest = new MyDownloadsRequestDTO();
+
+                        downloadRequest.setUserId(userId);
+
+                        downloadRequest.setFileName(
+                                        "Balance_Enquiry.xlsx");
+
+                        downloadRequest.setMenuId(33);
+                        String json = new ObjectMapper().writeValueAsString(request);
+
+                        downloadRequest.setSearchCriteria(json);
+
+                        downloadRequest.setResultData(
+                                        bytes);
+
+                        myDownloadsService.insertRequest(downloadRequest);
+
+                        return bytes;
+
+                } catch (IOException e) {
+
+                        throw new ExportGenerationException(
+                                        "Suspense Report export failed",
+                                        e);
                 }
-                role = new Role();
-                role.setRoleId(roleId);
-            } else {
-                if (role == null) {
-                    throw new ResourceNotFoundException("Role ID " + roleId + " not found for Update.");
-                }
-            }
-
-            role.setRoleName(payload.getRoleName());
-            role.setDescription(payload.getDescription());
-            role.setStatus(Constant.ACTIVE);
-
-            roleRepository.save(role);
-            savePermissions(payload, roleId);
-
-            // 1. Evict the notification permissions Cache
-            evictPermissionCache(payload.getPermissions());
-
-            // 2. INSTANT REDIS REFRESH
-            permissionCacheService.refreshRolePermissions((long) roleId);
-
-            roleRequest.setRequestStatus(Constant.ACCEPTED);
-            roleRequest.setExecutionDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
-            roleRequest.setExecutionDetails("SUCCESS");
-            roleRequestRepository.save(roleRequest);
-
-            result.put(Constant.STATUS, true);
-            result.put(Constant.MESSAGE, isCreate ? "Role Created" : "Role Updated");
-        } else {
-            // REJECT Logic
-            roleRequest.setRequestStatus(Constant.REJECTED);
-            roleRequest.setReasonForRejection(remarks);
-            roleRequest.setExecutionDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
-            roleRequest.setExecutionDetails("SUCCESS");
-            roleRequestRepository.save(roleRequest);
-
-            result.put(Constant.STATUS, true);
-            result.put(Constant.MESSAGE, "Request Rejected");
-        }
-    }
-
-
-private void savePermissions(RoleRequestPayload payload, int roleId) {
-        List<PermissionList> newPerms = payload.getPermissions();
-        if (newPerms == null) return;
-
-        // 1. Fetch the authoritative list of what this role is ACTUALLY allowed to have
-        List<Permissions> eligiblePermissions = permissionsRepository.findEligiblePermissions(roleId);
-        Set<Integer> eligibleMenuIds = eligiblePermissions.stream()
-                .map(Permissions::getMenuId)
-                .collect(Collectors.toSet());
-
-        // 2. Cross-check incoming payload against the allowed list
-        for (PermissionList incomingPerm : newPerms) {
-            if (!eligibleMenuIds.contains(incomingPerm.getId())) {
-                log.error("SECURITY VIOLATION: Attempted to assign restricted/invalid MENU_ID {} to ROLE_ID {}", incomingPerm.getId(), roleId);
-                throw new SecurityException("Payload contains restricted permissions not authorized for this role.");
-            }
         }
 
-        // 3. If validation passes, proceed with saving
-        List<RolePermissions> current = rolePermissionsRepository.findByIdRoleId(roleId);
-        rolePermissionsRepository.deleteAll(current);
-        rolePermissionsRepository.flush();
+        private Date convertToStartOfDay(Date date) {
 
-        List<RolePermissions> toSave = newPerms.stream().map(p -> {
-            RolePermissions rp = new RolePermissions();
-            rp.setId(new RolePermissionId(roleId, p.getId()));
-            rp.setPermissionOrder(p.getOrder());
-            return rp;
-        }).collect(Collectors.toList());
+                Calendar calendar = Calendar.getInstance();
 
-        rolePermissionsRepository.saveAll(toSave);
-    }
+                calendar.setTime(date);
+
+                calendar.set(Calendar.HOUR_OF_DAY, 0);
+                calendar.set(Calendar.MINUTE, 0);
+                calendar.set(Calendar.SECOND, 0);
+                calendar.set(Calendar.MILLISECOND, 0);
+
+                return calendar.getTime();
+        }
+
+        private Date convertToEndOfDay(Date date) {
+
+                Calendar calendar = Calendar.getInstance();
+
+                calendar.setTime(date);
+
+                calendar.set(Calendar.HOUR_OF_DAY, 23);
+                calendar.set(Calendar.MINUTE, 59);
+                calendar.set(Calendar.SECOND, 59);
+                calendar.set(Calendar.MILLISECOND, 999);
+
+                return calendar.getTime();
+        }
+}
