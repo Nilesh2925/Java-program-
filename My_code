@@ -1,178 +1,39 @@
-import React, { useEffect, useState, useCallback } from "react";
-import { Box, Fab } from "@mui/material";
-import AddIcon from "@mui/icons-material/Add";
-import useApi from "../../../hooks/useApi";
-import useCustomSnackbar from "../../../utils/useCustomSnackbar";
-import UsersTable from "../components/UsersTable";
-import UserDialog from "../components/UserDialog";
-import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
 
-export default function UserManagement() {
-  const { callApi, loading } = useApi();
-  const snackbar = useCustomSnackbar();
-  const [rows, setRows] = useState([]);
-  const [roles, setRoles] = useState([]);
+useEffect(() => {
+  const loadSelectedBranch = async () => {
+    if (!open || !isEdit || !form.BRANCH_CODE || form.BRANCH_NAME) return;
 
-  const emptyForm = {
-    id: null,
-    USERID: "",
-    FIRST_NAME: "",
-    MIDDLE_NAME: "",
-    LAST_NAME: "",
-    EMAIL: "@sbi.co.in",
-    PHONE_NUMBER: "",
-    ROLE_NAME: "",
-    ROLE_ID: "",
-    BRANCH_CODE: "",
-    BRANCH_NAME: "",
-    ACCOUNT_STATUS: "",
+    try {
+      setBranchLoading(true);
+
+      const branchCode = String(form.BRANCH_CODE).padStart(5, "0");
+
+      const response = await callApi(
+        `/CM/common-master/branches-code-name-only?q=${branchCode}&circleCode=`,
+        {},
+        "GET"
+      );
+
+      if (response?.data?.length) {
+        const branch = {
+          ...response.data[0],
+          code: String(response.data[0].code).trim(),
+          name: response.data[0].name.trim(),
+        };
+
+        setBranchOptions([branch]);
+
+        setForm((prev) => ({
+          ...prev,
+          BRANCH_NAME: branch.name,
+        }));
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setBranchLoading(false);
+    }
   };
 
-  const [form, setForm] = useState(emptyForm);
-  const [initialState, setInitialState] = useState({});
-  const [openEdit, setOpenEdit] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-
-  const normalizeUsers = useCallback((users = []) => {
-    return users.map((u, idx) => ({
-      id: u.USERID || String(idx + 1),
-      USERID: u.USERID,
-      FIRST_NAME: u.FIRST_NAME,
-      MIDDLE_NAME: u.MIDDLE_NAME,
-      LAST_NAME: u.LAST_NAME,
-      EMAIL: u.EMAIL,
-      PHONE_NUMBER: u.PHONE_NUMBER,
-      ROLE_NAME: u.ROLE_NAME,
-      ROLE_ID: u.ROLE_ID,
-      BRANCH_CODE: u.BRANCH,
-      ACCOUNT_STATUS: u.ACCOUNT_STATUS,
-      __name: `${u.FIRST_NAME || ""} ${u.MIDDLE_NAME || ""} ${
-        u.LAST_NAME || ""
-      }`.trim(),
-    }));
-  }, []);
-
-  const fetchUsers = useCallback(async () => {
-    try {
-      const data = await callApi("/UM/user/user-details", null, "GET");
-      setRows(normalizeUsers(data?.result?.users || []));
-    } catch {
-      setRows([]);
-      snackbar("Failed to load users", "error");
-    }
-  }, [callApi, normalizeUsers, snackbar]);
-
-  const fetchRoles = useCallback(async () => {
-    try {
-      const data = await callApi(
-        "/UM/role/get-roles",
-        { permissions: false },
-        "GET",
-      );
-      setRoles(
-        (data?.result?.roles || []).map((r) => ({
-          id: r.roleId,
-          name: r.roleName,
-        })),
-      );
-    } catch {
-      snackbar("Failed to load roles", "error");
-    }
-  }, [callApi, snackbar]);
-
-  useEffect(() => {
-    fetchUsers();
-    fetchRoles();
-  }, [fetchUsers, fetchRoles]);
-
-  const handleDelete = useCallback(async () => {
-    const payload = {
-      targetUserId: deleteTarget.USERID,
-      requestType: "DELETE",
-      requestPayload: {
-        userId: deleteTarget.USERID,
-        firstName: deleteTarget.FIRST_NAME,
-        middleName: deleteTarget.MIDDLE_NAME,
-        lastName: deleteTarget.LAST_NAME,
-        email: deleteTarget.EMAIL,
-        phoneNumber: deleteTarget.PHONE_NUMBER,
-        roleId: deleteTarget.ROLE_ID,
-        roleName: deleteTarget.ROLE_NAME,
-        branch: deleteTarget.BRANCH_CODE,
-        accountStatus: deleteTarget.ACCOUNT_STATUS || "ACTIVE",
-      },
-    };
-    console.log("payload", payload);
-    try {
-      const response = await callApi(
-        "/UM/user/create-request",
-        payload,
-        "POST",
-      );
-      if (response) {
-        fetchUsers();
-        fetchRoles();
-        setDeleteTarget(null);
-      }
-      snackbar("User delete request submitted successfully", "success");
-    } catch (error) {
-      snackbar(
-        error?.message ||
-          "Something went wrong while deleting user, Kindly try again",
-        "error",
-      );
-    }
-  }, [callApi, deleteTarget, fetchRoles, fetchUsers, snackbar]);
-
-  return (
-    <Box>
-      <UsersTable
-        rows={rows}
-        roles={roles}
-        loading={loading}
-        onEditRow={(row) => {
-          console.log("editrow", row);
-          setForm(row);
-          setInitialState(row);
-          setOpenEdit(true);
-        }}
-        onDeleteRow={(row) => setDeleteTarget(row)}
-      />
-
-      <UserDialog
-        open={openEdit}
-        roles={roles}
-        form={form}
-        setForm={setForm}
-        initialState={initialState}
-        onClose={() => setOpenEdit(false)}
-      />
-
-      <DeleteConfirmDialog
-        open={!!deleteTarget}
-        name={deleteTarget?.__name}
-        onCancel={() => setDeleteTarget(null)}
-        onConfirm={() => handleDelete()}
-      />
-
-      <Fab
-        color="primary"
-        variant="extended"
-        onClick={() => {
-          setForm(emptyForm);
-          setInitialState({});
-          setOpenEdit(true);
-        }}
-        sx={{
-          position: "fixed",
-          bottom: 15,
-          right: 30,
-          borderRadius: 1,
-        }}
-      >
-        <AddIcon sx={{ mr: 1 }} />
-        Create
-      </Fab>
-    </Box>
-  );
-}
+  loadSelectedBranch();
+}, [open]);
