@@ -1,39 +1,278 @@
-
-useEffect(() => {
-  const loadSelectedBranch = async () => {
-    if (!open || !isEdit || !form.BRANCH_CODE || form.BRANCH_NAME) return;
-
-    try {
-      setBranchLoading(true);
-
-      const branchCode = String(form.BRANCH_CODE).padStart(5, "0");
-
-      const response = await callApi(
-        `/CM/common-master/branches-code-name-only?q=${branchCode}&circleCode=`,
-        {},
-        "GET"
-      );
-
-      if (response?.data?.length) {
-        const branch = {
-          ...response.data[0],
-          code: String(response.data[0].code).trim(),
-          name: response.data[0].name.trim(),
-        };
-
-        setBranchOptions([branch]);
-
-        setForm((prev) => ({
-          ...prev,
-          BRANCH_NAME: branch.name,
-        }));
-      }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setBranchLoading(false);
+package com.fincore.analyticsservice.service;
+ 
+import com.fincore.analyticsservice.client.DruidRestClient;
+import com.fincore.analyticsservice.component.DruidQueryBuilder;
+import com.fincore.analyticsservice.dto.*;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
+ 
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+/**
+ * The "Brain" of the Semantic Layer.
+ * This service takes a "Logical" request from the frontend (e.g., "Give me the Total Balance for Branches"),
+ * looks up the physical rules in Oracle, translates the request, enforces RBAC, and executes it.
+ */
+@Slf4j
+@Service
+public class SemanticDrillDownService {
+    private static final Integer ROLE_ADMIN = 10;
+ 
+    private final DruidRestClient druidRestClient;
+    private final DruidQueryBuilder queryBuilder;
+    private final ReportMetadataProvider metadataProvider;
+ 
+    public SemanticDrillDownService(
+            DruidRestClient druidRestClient,
+            DruidQueryBuilder queryBuilder,
+            ReportMetadataProvider metadataProvider) {
+        this.druidRestClient = druidRestClient;
+        this.queryBuilder = queryBuilder;
+        this.metadataProvider = metadataProvider;
     }
-  };
-
-  loadSelectedBranch();
-}, [open]);
+ 
+    /**
+     * Executes the Drill-Down operation. Cached to ensure identical clicks return instantly.
+     */
+    @Cacheable(value = "drillDownData", key = "T(java.lang.String).valueOf(#request.hashCode())")
+    public DrillDownResponse executeDrillDown(DrillDownRequest request, Integer roleId) {
+        long startTime = System.currentTimeMillis();
+        String logicalTargetDim = request.dimensions().getFirst();
+ 
+        log.info("Executing DrillDown for view: [{}], logicalDim: [{}]", request.viewCode(), logicalTargetDim);
+ 
+        // 1. Fetch Metadata context for this view from Oracle
+        ViewMetadataContext context = metadataProvider.getViewContext(request.viewCode());
+ 
+        // 2. Perform RBAC validation (Are they allowed to see this specific view?)
+        validateAccess(context.requiredRoleIds(), roleId);
+ 
+        // 3. Translate Logical to DimensionConfig (e.g., "Branch" -> "BRANCH_CODE")
+        DimensionConfig targetDimConfig = translateDimension(logicalTargetDim, context.dimensionMap());
+        Map<String, String> resolvedMetricsSql = resolveMetrics(request.metrics(), context.metricMap());
+ 
+        // 4. Build the SQL Query string
+        Map<String, Object> druidPayload = queryBuilder.buildSqlPayload(
+                context.physicalDruidTable(),
+                logicalTargetDim,
+                targetDimConfig,
+                request.metrics(),
+                resolvedMetricsSql,
+                request.reportDate(),
+                request.filters(),
+                context.dimensionMap()
+        );
+ 
+        log.info("Final druid payload to be executed: {}", druidPayload);
+ 
+        // 5. Execute against Druid
+        List<Map<String, Object>> rawDruidData = druidRestClient.executeQuery(druidPayload);
+ 
+        if (CollectionUtils.isEmpty(rawDruidData)) {
+            return new DrillDownResponse(new Meta("SUCCESS", logicalTargetDim, 0, System.currentTimeMillis() - startTime), Collections.emptyList());
+        }
+ 
+        // 6. Determine UI Hierarchy State ([+] button logic)
+        boolean hasChildren = determineIfHasChildren(logicalTargetDim, context.logicalHierarchyOrdered());
+ 
+        // 7. Format Final UI Response with unique IDs
+        List<Map<String, Object>> formattedData = formatResponseData(rawDruidData, logicalTargetDim, hasChildren);
+ 
+        long executionTime = System.currentTimeMillis() - startTime;
+        return new DrillDownResponse(new Meta("SUCCESS", logicalTargetDim, formattedData.size(), executionTime), formattedData);
+    }
+ 
+    /**
+     * Validates if the user's integer role ID is permitted to view this report.
+     * * @param requiredRoleIds A comma-separated string from DB (e.g., "54,56"). Null means public.
+     *
+     * @param roleId The user's actual role ID from JWT.
+     */
+    private void validateAccess(String requiredRoleIds, Integer roleId) {
+        // Admin always has access to everything
+        if (ROLE_ADMIN.equals(roleId)) {
+            return;
+        }
+ 
+        // If DB has no restrictions, allow access
+        if (requiredRoleIds == null || requiredRoleIds.trim().isEmpty() || "NULL".equalsIgnoreCase(requiredRoleIds.trim())) {
+            return;
+        }
+ 
+        // Parse comma-separated list and check for match
+        List<String> allowedRoles = Arrays.asList(requiredRoleIds.split(","));
+ 
+        if (!allowedRoles.contains(String.valueOf(roleId))) {
+            log.warn("Security Alert: User with Role ID [{}] attempted to access restricted view requiring roles [{}]", roleId, requiredRoleIds);
+            throw new AccessDeniedException("Insufficient permissions to execute drill-down for this view.");
+        }
+    }
+ 
+    private DimensionConfig translateDimension(String logicalName, Map<String, DimensionConfig> dimMap) {
+        DimensionConfig config = dimMap.get(logicalName);
+        if (config == null) {
+            throw new IllegalArgumentException("Logical dimension '" + logicalName + "' is not supported in this view.");
+        }
+        return config;
+    }
+ 
+    private Map<String, String> resolveMetrics(List<String> logicalMetrics, Map<String, String> metricMap) {
+        Map<String, String> resolved = new HashMap<>();
+        for (String logicalName : logicalMetrics) {
+            String sqlExpression = metricMap.get(logicalName);
+            if (sqlExpression == null || sqlExpression.isBlank()) {
+                throw new IllegalArgumentException("Logical metric '" + logicalName + "' is not supported in this view.");
+            }
+            resolved.put(logicalName, sqlExpression);
+        }
+        return resolved;
+    }
+ 
+    private boolean determineIfHasChildren(String currentDim, List<String> hierarchy) {
+        int index = hierarchy.indexOf(currentDim);
+        return index != -1 && index < hierarchy.size() - 1;
+    }
+ 
+    private List<Map<String, Object>> formatResponseData(List<Map<String, Object>> rawData, String logicalDim, boolean hasChildren) {
+        String idPrefix = logicalDim.toLowerCase() + "_";
+        List<Map<String, Object>> result = new ArrayList<>(rawData.size());
+ 
+        for (Map<String, Object> row : rawData) {
+            Map<String, Object> formattedRow = new LinkedHashMap<>();
+ 
+            // Safe extraction because the QueryBuilder AS aliased the complex expression back to the simple logicalDim string
+            Object nameObj = row.get(logicalDim);
+            String nameValue = (nameObj != null && !nameObj.toString().isBlank()) ? nameObj.toString() : "Unassigned";
+ 
+            formattedRow.put("id", idPrefix + nameValue.toLowerCase().replaceAll("[^a-z0-9]", "_"));
+            formattedRow.put("name", nameValue);
+ 
+            for (Map.Entry<String, Object> entry : row.entrySet()) {
+                if (!entry.getKey().equals(logicalDim)) {
+                    formattedRow.put(entry.getKey(), entry.getValue() == null ? 0.0 : entry.getValue());
+                }
+            }
+            formattedRow.put("hasChildren", hasChildren);
+            result.add(formattedRow);
+        }
+        return result;
+    }
+}
+ 
+package com.fincore.analyticsservice.service;
+ 
+import com.fincore.analyticsservice.dto.MetricConfig;
+import com.fincore.analyticsservice.dto.ReportConfigResponse;
+import com.fincore.analyticsservice.dto.ViewConfig;
+import com.fincore.analyticsservice.model.DrReport;
+import com.fincore.analyticsservice.model.DrReportView;
+import com.fincore.analyticsservice.model.DrViewDimension;
+import com.fincore.analyticsservice.repository.DrReportRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+ 
+ 
+import java.util.*;
+ 
+@Service
+public class ReportConfigService {
+ 
+    private static final Integer ROLE_ADMIN = 10;
+    private static final Logger log = LoggerFactory.getLogger(ReportConfigService.class);
+    private final DrReportRepository reportRepository;
+ 
+    public ReportConfigService(DrReportRepository reportRepository,SemanticDrillDownService semanticDrillDownService) {
+        this.reportRepository = reportRepository;
+    }
+ 
+    /**
+     * Fetches UI metadata.
+     * Caches the response by User Roles to ensure users only see their permitted views.
+     */
+    @Transactional(readOnly = true)
+    @Cacheable(value = "uiReportConfig", key = "#roleId")
+    public List<ReportConfigResponse> getPermittedConfigurations(Integer roleId) {
+        log.info("Fetching Oracle UI configurations for roles: {}", roleId);
+ 
+        List<DrReport> allActiveReports = reportRepository.findAllActiveReportsWithViews();
+        List<ReportConfigResponse> permittedReports = new ArrayList<>();
+ 
+        for (DrReport report : allActiveReports) {
+            List<ViewConfig> permittedViews = processViews(report.getViews(), roleId);
+           
+            // Only return the report if the user has access to at least one view inside it
+            if (!permittedViews.isEmpty()) {
+                permittedReports.add(new ReportConfigResponse(
+                        report.getReportCode(),
+                        report.getDisplayName(),
+                        permittedViews
+                ));
+            }
+        }
+ 
+        if (permittedReports.isEmpty()) {
+            log.warn("User with role {} requested config but has zero report permissions.", roleId);
+            throw new AccessDeniedException("You do not have permission to view any reports.");
+        }
+ 
+        return permittedReports;
+    }
+ 
+    private List<ViewConfig> processViews(Set<DrReportView> views, Integer roleId) {
+        List<ViewConfig> permittedViews = new ArrayList<>();
+ 
+        for (DrReportView view : views) {
+            if (hasAccess(roleId, view.getRequiredRoleIds())) {
+ 
+                // 1. Map Hierarchy (Must be strictly ordered by drillLevel)
+                List<String> logicalHierarchy = view.getDimensions().stream()
+                        .sorted(Comparator.comparing(DrViewDimension::getDrillLevel))
+                        .map(DrViewDimension::getLogicalName)
+                        .toList();
+ 
+                // 2. Map Metrics
+                List<MetricConfig> logicalMetrics = view.getMetrics().stream()
+                        .map(m -> new MetricConfig(m.getLogicalName(), m.getDisplayName()))//Cannot resolve method 'getDisplayName' in 'DrViewMetric'
+                        .toList();
+ 
+                permittedViews.add(new ViewConfig(
+                        view.getViewCode(),
+                        // Assuming you have a displayName in DrReportView, otherwise use viewCode
+                        view.getViewCode(),
+                        logicalHierarchy,
+                        logicalMetrics
+                ));
+            }
+        }
+        return permittedViews;
+    }
+ 
+    private boolean hasAccess(Integer roleId, String requiredRoleIds) {
+        // admin has access of everything
+        if (ROLE_ADMIN.equals(roleId)) {
+            return true;
+        }
+ 
+        // If no role is required, it's public. Otherwise, check user roles.
+        if (requiredRoleIds == null || requiredRoleIds.isBlank() || "NULL".equalsIgnoreCase(requiredRoleIds.trim())) {
+            return true;
+        }
+ 
+        List<String> allowedRoles = Arrays.asList(requiredRoleIds.split(","));
+ 
+        // return true if allowed roles contains the role id
+        return allowedRoles.contains(String.valueOf(roleId));
+    }
+}
+ 
+ 
