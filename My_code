@@ -1,22 +1,281 @@
-SELECT 
-    cm.CURRENCY_CODE,
-    cm.CURRENCY_NAME,
-    cm.CURRENCY_RATE,
-    cm.UPDATED_AT,
-    CASE
-        WHEN crc.rate_change_date IS NULL AND p.REQ_STATUS IS NULL THEN 'U'
-        WHEN p.REQ_STATUS = 'P' THEN 'P'
-        ELSE 'A'
-    END AS CHANGE_STATUS
-FROM 
-    currency_master cm
-LEFT JOIN 
-    currency_rate_change crc 
-    ON cm.currency_code = crc.currency_code
-    AND crc.rate_change_date BETWEEN SYSDATE - 7 AND SYSDATE + 7
-LEFT JOIN 
-    COMMON_REQ p 
-    ON cm.currency_code = p.TARGET_ID
-    AND p.REQ_TYPE = 'CURRENCY_RATE_CHANGE'
-    AND p.REQ_DATE BETWEEN SYSDATE - 7 AND SYSDATE + 7
-    AND p.REQ_STATUS = 'P';   
+package com.tcs.fincore.CommonMasterService.Controller;
+
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import com.tcs.fincore.CommonMasterService.dto.ApiResponse;
+import com.tcs.fincore.CommonMasterService.dto.BranchDto;
+import com.tcs.fincore.CommonMasterService.dto.BranchStateCircleResponseDTO;
+import com.tcs.fincore.CommonMasterService.dto.CGLSegmentResponseDTO;
+import com.tcs.fincore.CommonMasterService.dto.CircleDto;
+import com.tcs.fincore.CommonMasterService.dto.GlccValidationRequest;
+import com.tcs.fincore.CommonMasterService.dto.GlccValidationResponse;
+import com.tcs.fincore.CommonMasterService.dto.MainDataParametersDTO;
+import com.tcs.fincore.CommonMasterService.dto.SearchRequest;
+import com.tcs.fincore.CommonMasterService.dto.ZoneDto;
+import com.tcs.fincore.CommonMasterService.dto.PaginatedResponseDto;
+import com.tcs.fincore.CommonMasterService.model.BranchCodeNameOnly;
+import com.tcs.fincore.CommonMasterService.model.BranchMaster;
+import com.tcs.fincore.CommonMasterService.model.CGLCodeDescriptionOnly;
+import com.tcs.fincore.CommonMasterService.model.CalenderConfigModel;
+import com.tcs.fincore.CommonMasterService.model.CircleCodeNameOnly;
+import com.tcs.fincore.CommonMasterService.model.CircleMaster;
+import com.tcs.fincore.CommonMasterService.model.CurrencyCodeNameOnly;
+import com.tcs.fincore.CommonMasterService.model.CurrencyMasterModel;
+import com.tcs.fincore.CommonMasterService.model.CurrencyRateChange;
+import com.tcs.fincore.CommonMasterService.model.FileType;
+import com.tcs.fincore.CommonMasterService.model.SegmentCodeMaster;
+import com.tcs.fincore.CommonMasterService.model.SourceFlag;
+import com.tcs.fincore.CommonMasterService.model.StateMaster;
+import com.tcs.fincore.CommonMasterService.model.ZoneMaster;
+import com.tcs.fincore.CommonMasterService.service.CommonMasterService;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
+@RequiredArgsConstructor
+@RestController
+@RequestMapping("/api/common-master")
+public class CommonMasterController {
+
+    private final CommonMasterService service;
+
+    @GetMapping("/segment-codes")
+    public List<SegmentCodeMaster> getSegmentCodes(@RequestHeader("Authorization") String authorizationHeader) {
+        log.info("Received request to fetch all Segment Codes");
+        return service.getSegmentCodes();
+    }
+
+    @PostMapping("/cgls")
+    public PaginatedResponseDto<?> getCGLs(
+            @RequestHeader("Authorization") String authorizationHeader,
+            @RequestHeader("X-Request-Type") String requestType,
+            @RequestBody SearchRequest request) {
+        log.info("Received request to fetch all CGLs");
+        return service.searchAnyMaster(requestType, request);
+    }
+
+    @GetMapping("/cgl-code-description-only")
+    public List<CGLCodeDescriptionOnly> getCGLsCodeDescriptionOnly(@RequestParam String q) {
+        log.info("Received request to fetch all CGL Code descriptions");
+        return service.getCGLsCodeDescriptionOnly(q);
+    }
+
+    @GetMapping("/cgl-codes")
+    public List<String> getCGLCodes(@RequestHeader("Authorization") String authorizationHeader) {
+        log.info("Received request to fetch all CGL Codes");
+        return service.getCGLCodes();
+    }
+
+    @GetMapping("/states")
+    public List<StateMaster> getStateList(@RequestHeader("Authorization") String authorizationHeader) {
+        log.info("Received request to fetch all States");
+        return service.getStateList();
+    }
+
+    @GetMapping("/branches")
+    public List<BranchMaster> getBranches(@RequestHeader("Authorization") String authorizationHeader) {
+        log.info("Received request to fetch all Branches");
+        return service.getBranches();
+    }
+
+    @GetMapping("/branches-code-name-only")
+    public List<BranchCodeNameOnly> getBranchesCodeNameOnly(@RequestParam String q, @RequestParam String circleCode) {
+        log.info("Received request to fetch all Branch Code names");
+        return service.getBranchesCodeNameOnly(q, circleCode);
+    }
+
+    @GetMapping("/zone-codes")
+    public List<ZoneMaster> getZoneCodes() {
+        log.info("Received request to fetch all Zone Codes");
+        return service.getZoneCodes();
+    }
+
+    @GetMapping("/circle-codes")
+    public List<CircleMaster> getCircleList() {
+        log.info("Received request to fetch all Circle Codes");
+        return service.getCircleList();
+    }
+
+    @GetMapping("/circles-code-name-only")
+    public List<CircleCodeNameOnly> getCircleCodeNameOnly(@RequestParam String q) {
+        log.info("Received request to fetch all Circle Code names with query: {}", q);
+        return service.getCircleCodeNameOnly(q);
+    }
+
+    @GetMapping("/currency-master")
+    public List<CurrencyMasterModel> getCurrency(@RequestHeader("Authorization") String authorizationHeader) {
+        log.info("Received request to fetch all Currencies from Currency Master");
+        return service.getCurrency();
+    }
+
+    @GetMapping("/currency-code-name-only")
+    public List<CurrencyCodeNameOnly> getCurrencyCodeNameOnly(
+            @RequestHeader("Authorization") String authorizationHeader) {
+        log.info("Received request to fetch all Currency Code names");
+        return service.getCurrencyCodeNameOnly();
+    }
+
+    @GetMapping("/currency")
+    public List<String> getCurrencies(@RequestHeader("Authorization") String authorizationHeader) {
+        log.info("Received request to fetch all Currency");
+        return service.getCurrencies();
+    }
+
+    @GetMapping("/calendar-configuration")
+    public CalenderConfigModel getCalenderConfig(@RequestHeader("Authorization") String authorizationHeader) {
+        log.info("Received request to fetch all Calender Configurations");
+        return service.getCalenderConfig();
+    }
+
+    @GetMapping("/currency-rate-change")
+    public List<CurrencyRateChange> getRateChange(@RequestHeader("Authorization") String authorizationHeader) {
+        log.info("Received request to fetch all Currency rate change");
+        return service.getRateChange();
+    }
+
+    @PostMapping("/branches-master")
+    public PaginatedResponseDto<?> getBranchNames(@RequestHeader("Authorization") String authorizationHeader,
+            @RequestHeader("X-Request-Type") String requestType,
+            @RequestBody SearchRequest request) {
+        log.info("Received request to Search in Master table for {}.", requestType);
+        return service.searchAnyMaster(requestType, request);
+    }
+
+    /**
+     * Api end point for ViewCgl
+     * 
+     * @author Jailabdin [v1023042]
+     * @since 2025-12-08
+     */
+    @GetMapping("/view-cgl")
+    public ResponseEntity<ApiResponse<PaginatedResponseDto<CGLSegmentResponseDTO>>> searchCglWithSegment(
+            @RequestParam String cglCodeOrDesc, @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        log.info("Received request to view paginated CGL details.");
+        PaginatedResponseDto<CGLSegmentResponseDTO> result = service.searchCglWithSegment(cglCodeOrDesc, page, size);
+
+        return ResponseEntity.ok(ApiResponse.success(result, "CGL Details fetched Successfully"));
+    }
+
+    /**
+     * Api end point for ViewBranchDetails
+     * 
+     * @author Jailabdin [v1023042]
+     * @since 2025-12-08
+     */
+    @GetMapping("/view-branch")
+    public ResponseEntity<ApiResponse<List<BranchStateCircleResponseDTO>>> searchByBranchNameORCode(
+            @RequestParam String branchCodeOrName) {
+        log.info("Received request to view Branch details");
+        List<BranchStateCircleResponseDTO> result = service.searchByBranchNameORCode(branchCodeOrName);
+        return ResponseEntity.ok(ApiResponse.success(result, "Branch Details Fetched Successfully"));
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // -------------------- Apis for branch wise report download screen
+    // ---------------------
+    // ---------------------------------------------------------------------------------------
+    // Zones (INDIAN only)
+    @GetMapping("/indian-zones")
+    public List<ZoneDto> getZones() {
+        log.info("Received request to fetch all Indian zones");
+        return service.getZones();
+    }
+
+    // Circles (INDIAN / FOREIGN)
+    @GetMapping("/indian-foreign-circles")
+    public List<CircleDto> getCircles(
+            @RequestParam String bankType,
+            @RequestParam(required = true) String zoneCode) {
+        log.info("Received request to fetch {} circles", bankType);
+        return service.getCircles(bankType, zoneCode);
+    }
+
+    // Branches
+    @GetMapping("/indian-foreign-branches")
+    public PaginatedResponseDto<BranchDto> getAllBranches(
+            @RequestParam String circleCode, Integer page, Integer size) {
+        log.info("Received request to fetch branches under circle code: {}", circleCode);
+        return service.getAllBranches(circleCode, page, size);
+    }
+
+    /* To get data from File_Type_Master */
+    @GetMapping("/files")
+    public List<FileType> getFileTypes() {
+        return service.getFileTypes();
+    }
+
+    /*
+     * APi that used to fetch unique file type from FILE TYPE MASTER Table
+     */
+
+    @GetMapping("/files-sub-types")
+    public List<String> getSubTypes() {
+        return service.getSubTypes();
+    }
+
+    /*
+     * API END Point for FIle-Defination Screen
+     * Returns Data from the MAIN__DATA_PARAMETERS table grouped by FILE_TYPE
+     */
+    @GetMapping("/data-parameters")
+    public List<MainDataParametersDTO> getDataParameters() {
+        return service.getGroupedData();
+    }
+
+    /**
+     * Checks if a branch exists.
+     * Endpoint: GET /branches-check?code=BR001
+     */
+    @GetMapping("/branches-check")
+    public ResponseEntity<?> checkBranch(@RequestParam(name = "code") String branchCode) {
+        try {
+            boolean exists = service.isBranchCodeExists(branchCode);
+            // Return structured JSON response
+            return ResponseEntity.ok(Map.of(
+                    "exists", exists,
+                    "message", exists ? "Branch code found" : "Branch code available/not found",
+                    "code", branchCode));
+        } catch (IllegalArgumentException e) {
+            // Handle invalid input (400 Bad Request)
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            // Handle unexpected errors (500 Internal Server Error)
+            log.error("Error checking branch: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "An unexpected error occurred"));
+        }
+    }
+
+    /**
+     * Returns Source Flag list to FE from DB.
+     * 
+     * @Author v1023042
+     */
+    @GetMapping("/source-flag")
+    public List<SourceFlag> findSourceFlags() {
+        return service.findSourceFlags();
+    }
+
+    /**
+     * Checks if a GLCC is validate or not.
+     * 
+     * @Author v1023042
+     */
+    @PostMapping("/validate-glcc")
+    public ResponseEntity<ApiResponse<GlccValidationResponse>> validateGlcc(
+            @RequestBody GlccValidationRequest dto) {
+
+        return ResponseEntity.ok(
+                ApiResponse.success(
+                        service.validateGlcc(dto),
+                        "GLCC validated successfully"));
+    }
+}
