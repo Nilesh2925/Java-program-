@@ -1,729 +1,124 @@
-package com.tcs.fincore.CommonMasterService.service;
+package com.tcs.fincore.CommonMasterService.repository;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.tcs.fincore.CommonMasterService.dto.*;
-import com.tcs.fincore.CommonMasterService.exception.NoDataFoundException;
-import com.tcs.fincore.CommonMasterService.model.*;
-import com.tcs.fincore.CommonMasterService.repository.*;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.jpa.domain.Specification;
-import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import com.tcs.fincore.CommonMasterService.Specification.GenericSpecification;
-import com.tcs.fincore.CommonMasterService.enums.MasterType;
-import com.tcs.fincore.CommonMasterService.resolver.MasterResolver;
+import java.util.List;
+import java.util.Optional;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.CrudRepository;
+
+import com.tcs.fincore.CommonMasterService.model.CurrencyCodeNameOnly;
+import com.tcs.fincore.CommonMasterService.model.CurrencyMasterModel;
+
+public interface CurrencyMasterRepository extends CrudRepository<CurrencyMasterModel, String> {
+
+	@Query(nativeQuery = true, value = """
+			SELECT CURRENCY_CODE FROM CURRENCY_MASTER
+			""")
+	List<String> findAllCurrency();
+
+	List<CurrencyCodeNameOnly> findAllBy();
+
+	@Query("SELECT c.currencyCode, c.currencyName FROM CurrencyMasterModel c")
+	List<Object[]> fetchCurrencies();
+
+	CurrencyMasterModel findByCurrencyCode(String currencyCode);
+}
+
+
+package com.tcs.fincore.CommonMasterService.model;
+
+
+import java.time.LocalDateTime;
+import java.util.Date;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.util.*;
-import java.util.stream.Collectors;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
-@Slf4j
-@Service
-@RequiredArgsConstructor
-public class CommonMasterServiceImpl implements CommonMasterService {
+@Entity
+@Table(name = "CURRENCY_MASTER")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 
-	private static final int EXPORT_CHUNK_SIZE = 500;
-	private static final String ZONE_IST = "Asia/Kolkata";
+public class CurrencyMasterModel {
+ 
+     @Id
+     @Column(name = "CURRENCY_CODE", nullable = false, unique = true, length = 3)
+     private String currencyCode;
 
-	private final SegmentCodeMasterRepository repository;
-	private final CGLMasterRepository cglMasterRepository;
-	private final StateMasterRepository stateMasterRepository;
-	private final BranchMasterRepository branchMasterRepository;
-	private final ZoneMasterRepository zoneMasterRepository;
-	private final CircleMasterRepository circleMasterRepository;
-	private final CurrencyMasterRepository currencyMasterRepo;
-	private final CalenderConfigRepository calenderConfigRepository;
-	private final CurrencyRateChangeRepo currencyRateChangeRepo;
-	private final BalanceRecordRepository balanceRecordRepository;
-	private final CGLMasterWithSegmentRepository cglWithSegmentRepository;
-	private final BranchMasterWithStateCircleRepository branchMasterWithStateCircleRepository;
-	private final MainDataParametersRepository MainDataParrepository;
-	private final MasterResolver resolver;
-	private final FileTypeRepository fileTypeRepo;
-	private final CommonRequestRepository commonRequestRepository;
-	private final LhoSummaryRepository lhoSummaryRepository;
-	private final ObjectMapper objectMapper;
-	private final PLTransferRepository plTransferRepository;
-	private final SourceFlagRepository sourceFlagRepo;
+     @Column(name = "CURRENCY_NAME", nullable = false, length = 50)
+     private String currencyName;
 
-	@Override
-	public List<SegmentCodeMaster> getSegmentCodes() {
-		return (List<SegmentCodeMaster>) repository.findAll();
-	}
+     @Column(name = "FLAG", nullable = false)
+     private Integer flag;
 
-	@Override
-	public List<CGLCodeDescriptionOnly> getCGLsCodeDescriptionOnly(String query) {
-		return cglMasterRepository.findBycglNumberContainingIgnoreCaseOrDescriptionContainingIgnoreCase(query, query);
-	}
+     @Column(name = "CURRENCY_RATE")
+     private BigDecimal currencyRate;
 
-	@Override
-	public List<String> getCGLCodes() {
-		return cglMasterRepository.findAllCGLNumbers();
-	}
+     @Column(name = "RATE_DATE")
+     private Date rateDate;
 
-	@Override
-	public List<String> getCurrencies() {
-		return currencyMasterRepo.findAllCurrency();
-	}
+     @Column(name = "CREATED_AT", updatable = false)
+     private LocalDateTime createdAt;
 
-	@Override
-	public List<StateMaster> getStateList() {
-		return (List<StateMaster>) stateMasterRepository.findAll();
-	}
+     @Column(name = "UPDATED_AT")
+     private LocalDateTime updatedAt;
 
-	@Override
-	public List<BranchMaster> getBranches() {
-		return (List<BranchMaster>) branchMasterRepository.findAll();
-	}
+     @PrePersist
+     
+     protected void onCreate() {
+         this.createdAt = LocalDateTime.now();
+         this.updatedAt = LocalDateTime.now();
+     }
 
-	@Override
-	public List<BranchCodeNameOnly> getBranchesCodeNameOnly(String query, String circleCode) {
+     @PreUpdate
+     protected void onUpdate() {
+         this.updatedAt = LocalDateTime.now();
+     }
+ 
+ 
+ 
+}
 
-		String searchTerm = (query != null && !query.trim().isEmpty())
-				? "%" + query.trim() + "%"
-				: null;
 
-		String circleType = (circleCode == null
-				|| "null".equalsIgnoreCase(circleCode)
-				|| "100".equals(circleCode))
-						? "ALL"
-						: circleCode.trim().toUpperCase();
+package com.tcs.fincore.CommonMasterService.repository;
 
-		Pageable topOneHundred = PageRequest.of(0, 100);
+import com.tcs.fincore.CommonMasterService.model.CommonRequest;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.stereotype.Repository;
 
-		return branchMasterRepository.findBranches(
-				searchTerm,
-				searchTerm,
-				circleType,
-				topOneHundred);
+import java.util.List;
 
-	}
+@Repository
+public interface CommonRequestRepository extends JpaRepository<CommonRequest, Long>, JpaSpecificationExecutor<CommonRequest> {
+    // Standard CRUD and Specification methods are inherited
 
-	@Override
-	public List<CircleCodeNameOnly> getCircleCodeNameOnly(String query) {
-		return circleMasterRepository.findTop100ByCircleCodeContainingIgnoreCaseOrCircleNameContainingIgnoreCase(query,
-				query);
-	}
+    boolean existsByRequestTypeAndStatusIn(String requestType, List<String> statuses);
+}
 
-	@Override
-	public List<ZoneMaster> getZoneCodes() {
-		return zoneMasterRepository.findAll();
-	}
 
-	@Override
-	public List<CircleMaster> getCircleList() {
-		return circleMasterRepository.findAll();
-	}
+package com.tcs.fincore.CommonMasterService.repository;
 
-	@Override
-	public List<CurrencyMasterModel> getCurrency() {
-		return (List<CurrencyMasterModel>) currencyMasterRepo.findAll();
-	}
+import java.awt.List;
 
-	@Override
-	public List<CurrencyCodeNameOnly> getCurrencyCodeNameOnly() {
-		return currencyMasterRepo.findAllBy();
-	}
+import org.springframework.data.repository.CrudRepository;
 
-	@Override
-	public CalenderConfigModel getCalenderConfig() {
-		return calenderConfigRepository.findByActiveFlag(1);
-	}
+import com.tcs.fincore.CommonMasterService.model.CurrencyRateChange;
 
-	@Override
-	public List<CurrencyRateChange> getRateChange() {
-		return (List<CurrencyRateChange>) currencyRateChangeRepo.findAll();
-	}
 
-	@Override
-	public PaginatedResponseDto<BalanceResponseDTO> getBalanceDetails(BalanceRequestDTO request) {
-		if (request.getEndDate().before(request.getStartDate())) {
-			log.error("End date must be after start date.");
-			throw new IllegalArgumentException("End date must be after start date");
-		}
-
-		// 1. Force Start Date to 00:00:00 IST
-		Date adjustedStartDate = convertToStartOfDay(request.getStartDate());
-		// 2. Force End Date to 23:59:59 IST
-		Date adjustedEndDate = convertToEndOfDay(request.getEndDate());
-
-		int page = (request.getPage() != null && request.getPage() >= 0) ? request.getPage() : 0;
-		int size = (request.getSize() != null && request.getSize() >= 0) ? request.getSize() : 10;
-
-		String sortIn = (request.getSortIn() != null && !request.getSortIn().isBlank())
-				? request.getSortIn().toUpperCase()
-				: "ASC";
-
-		Sort sort = sortIn.equals("DESC") ? Sort.by("date").descending() : Sort.by("date").ascending();
-		PageRequest pageRequest = PageRequest.of(page, size, sort);
-
-		log.info("Adjusted Start Date : {}", adjustedStartDate);
-		log.info("Adjusted End Date : {}", adjustedEndDate);
-
-		Page<BalanceRecord> records = balanceRecordRepository.findByBranchAndCglAndCurrencyAndDateBetween(
-				request.getBranch(), request.getCgl(), request.getCurrency(),
-				adjustedStartDate, adjustedEndDate,
-				pageRequest);
-
-		if (records.isEmpty()) {
-			log.warn("No records found for the given filters.");
-			throw new NoDataFoundException("No records found for given filters");
-		}
-
-		List<BalanceResponseDTO> list = records.stream()
-				.map(r -> new BalanceResponseDTO(
-						r.getId(), r.getDate(), r.getBranch(), r.getCgl(), r.getCurrency(), r.getBalance()))
-				.toList();
-
-		String actualSort = records.getSort().stream().findFirst().map(order -> order.getDirection().name())
-				.orElse("UNSORTED");
-
-		return new PaginatedResponseDto<>(
-				records.getNumber(), records.getTotalPages(), records.getSize(), records.getTotalElements(), actualSort,
-				list);
-	}
-
-	@Override
-	public byte[] exportBalanceToExcel(BalanceRequestDTO request) {
-
-		if (request.getEndDate().before(request.getStartDate())) {
-			throw new IllegalArgumentException("End date must be after start date");
-		}
-
-		// Adjusted dates
-		Date adjustedStartDate = convertToStartOfDay(request.getStartDate());
-		Date adjustedEndDate = convertToEndOfDay(request.getEndDate());
-
-		try (Workbook workbook = new XSSFWorkbook();
-				ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-			Sheet sheet = workbook.createSheet("Balance Enquiry");
-
-			CellStyle headerStyle = workbook.createCellStyle();
-			Font headereFont = workbook.createFont();
-			headereFont.setBold(true);
-			headerStyle.setFont(headereFont);
-
-			CellStyle dateStyle = workbook.createCellStyle();
-			CreationHelper creationHelper = workbook.getCreationHelper();
-			short dateFormat = creationHelper.createDataFormat().getFormat("dd-MM-yyyy");
-			dateStyle.setDataFormat(dateFormat);
-
-			CellStyle balanceStyle = workbook.createCellStyle();
-			short balanceFormat = creationHelper.createDataFormat().getFormat("#,##0.00");
-			balanceStyle.setDataFormat(balanceFormat);
-
-			String[] columns = { "ID", "Date", "Branch", "CGL", "Currency", "Balance" };
-			Row header = sheet.createRow(0);
-			for (int i = 0; i < columns.length; i++) {
-				Cell cell = header.createCell(i);
-				cell.setCellValue(columns[i]);
-				cell.setCellStyle(headerStyle);
-			}
-
-			int rowIdx = 1;
-			int page = 0;
-			Page<BalanceRecord> recordsPage;
-
-			do {
-				Pageable pageable = PageRequest.of(page, EXPORT_CHUNK_SIZE, Sort.by("date").ascending());
-
-				recordsPage = balanceRecordRepository.findByBranchAndCglAndCurrencyAndDateBetween(
-						request.getBranch(),
-						request.getCgl(),
-						request.getCurrency(),
-						adjustedStartDate,
-						adjustedEndDate,
-						pageable);
-
-				if (page == 0 && recordsPage.isEmpty()) {
-					workbook.write(out);
-					return out.toByteArray();
-				}
-
-				for (BalanceRecord r : recordsPage.getContent()) {
-					Row row = sheet.createRow(rowIdx++);
-					if (r.getId() != null) {
-						row.createCell(0).setCellValue(r.getId());
-					} else {
-						row.createCell(0).setCellValue("");
-					}
-					Cell dateCell = row.createCell(1);
-					if (r.getDate() != null) {
-						dateCell.setCellValue(r.getDate());
-						dateCell.setCellStyle(dateStyle);
-					} else {
-						dateCell.setCellValue("");
-					}
-
-					row.createCell(2).setCellValue(r.getBranch() != null ? r.getBranch() : "");
-					row.createCell(3).setCellValue(r.getCgl() != null ? r.getCgl() : "");
-					row.createCell(4).setCellValue(r.getCurrency() != null ? r.getCurrency() : "");
-					Cell balanceCell = row.createCell(5);
-					balanceCell.setCellValue(r.getBalance());
-					balanceCell.setCellStyle(balanceStyle);
-				}
-				page++;
-			} while (!recordsPage.isLast());
-
-			for (int i = 0; i < columns.length; i++) {
-				sheet.autoSizeColumn(i);
-			}
-			workbook.write(out);
-			return out.toByteArray();
-
-		} catch (IOException e) {
-			throw new RuntimeException("Failed to generate Excel file", e);
-		}
-	}
-
-	@Override
-	public Page<BranchMaster> getBranchNames(Pageable pageable) {
-
-		return branchMasterRepository.findAll(pageable);
-	}
-
-	@Override
-	@Transactional
-	public PaginatedResponseDto<CGLSegmentResponseDTO> searchCglWithSegment(String text, Integer page, Integer size) {
-		int pageNo = (page == null || page < 0) ? 0 : page;
-		int pageSize = (size == null || size <= 0) ? 10 : size;
-
-		Pageable pageable = PageRequest.of(pageNo, pageSize);
-
-		Page<CGLMasterWithSegment> pageResult = cglWithSegmentRepository
-				.findByCglNumberContainingIgnoreCaseOrDescriptionContainingIgnoreCase(text.trim(), text.trim(),
-						pageable);
-
-		List<CGLSegmentResponseDTO> list = pageResult.getContent().stream().map(this::toCGLDto).toList();
-		if (list.isEmpty()) {
-			throw new NoDataFoundException("No records found for " + text + " !!");
-		}
-		return new PaginatedResponseDto<>(pageResult.getNumber(), pageResult.getTotalPages(), pageResult.getSize(),
-				pageResult.getTotalElements(), null, list);
-
-	}
-
-	// Helper Class for searchCglWithSegment to convert entity to DTO
-	public CGLSegmentResponseDTO toCGLDto(CGLMasterWithSegment c) {
-		return new CGLSegmentResponseDTO(c.getCglNumber(), c.getDescription(), c.getComp1(), c.getComp2(),
-				c.getAcClassification(), c.getSegmentCode(),
-				(c.getSegment() != null ? c.getSegment().getDescription() : null), c.getBalFwd(), c.getDefBalType(),
-				c.getStatus(), c.getOpenDate(), c.getCloseDate(), c.getBalCompare(), c.getManualPosting());
-	}
-
-	public List<BranchStateCircleResponseDTO> searchByBranchNameORCode(String name) {
-
-		List<BranchMasterWithCircleState> branches = branchMasterWithStateCircleRepository
-				.findByCodeContainingIgnoreCaseOrNameContainingIgnoreCase(name.trim(), name.trim());
-
-		if (branches.isEmpty()) {
-			throw new NoDataFoundException("No branches found for " + name + " !!");
-		}
-
-		return branches.stream().map(this::toBranchDto).toList();
-
-	}
-
-	// Helper Class for searchByBranchNameORCode to convert entity to DTO
-	public BranchStateCircleResponseDTO toBranchDto(BranchMasterWithCircleState b) {
-		return new BranchStateCircleResponseDTO(b.getCode(), b.getName(), b.getCity(), b.getCircleCode(),
-				(b.getCircle() != null ? b.getCircle().getCircleName() : null), b.getStateCode(),
-				(b.getState() != null ? b.getState().getStateName() : null), b.getAddress(), b.getPinCode(),
-				b.getPhoneNumber(), b.getEmailId(), b.getNmrCode(), b.getStatus(), b.getOpenDate(), b.getCloseDate(),
-				b.getMergeDate(), b.getMergedWithBranch(), b.getLastChangeDate(), b.getCpcFlag(), b.getFoodCreditFlag(),
-				b.getCurrChestFlag(), b.getBranchType());
-	}
-
-	public boolean isBranchCodeExists(String branchCode) {
-		// if (branchCode == null || branchCode.isEmpty()) {
-		// return false;
-		// }
-		Optional<BranchMaster> result = branchMasterRepository.findById(branchCode);
-		if (result.isPresent()) {
-			log.info("Branch {} already exist!", branchCode);
-			return true;
-		}
-		return false;
-	}
-
-	@Override
-	public PaginatedResponseDto<?> searchAnyMaster(String requestType, SearchRequest request) {
-		MasterType masterType;
-		try {
-			masterType = MasterType.valueOf(requestType.toUpperCase());
-		} catch (IllegalArgumentException e) {
-			throw new IllegalArgumentException("Invalid X-Request-Type: " + requestType);
-		}
-
-		JpaSpecificationExecutor<?> repo = resolver.resolve(masterType);
-
-		PageRequest pageRequest;
-
-		if (request.getSortField() != null && request.getSortOrder() != null) {
-			Sort.Direction direction = Sort.Direction.fromString(request.getSortOrder());
-			pageRequest = PageRequest.of(request.getPage(), request.getSize(),
-					Sort.by(direction, request.getSortField()));
-		} else {
-			pageRequest = PageRequest.of(request.getPage(), request.getSize());
-		}
-		Page<?> page = repo.findAll(
-				GenericSpecification.build(request.getFilters()),
-				pageRequest);
-
-		PaginatedResponseDto<Object> response = new PaginatedResponseDto<>();
-		response.setData(page.getContent());
-		response.setCurrentPage(page.getNumber());
-		response.setPageSize(page.getSize());
-		response.setTotalPages(page.getTotalPages());
-		response.setTotalElements(page.getTotalElements());
-
-		return response;
-	}
-
-	/**
-	 * Helper Method: Forces the date to Start of Day (00:00:00) in Asia/Kolkata
-	 * regardless of Server TimeZone.
-	 */
-	private Date convertToStartOfDay(Date date) {
-		if (date == null)
-			return null;
-		// Use Calendar with Specific TimeZone to avoid UTC shifts
-		Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(ZONE_IST));
-		calendar.setTime(date);
-		calendar.set(Calendar.HOUR_OF_DAY, 0);
-		calendar.set(Calendar.MINUTE, 0);
-		calendar.set(Calendar.SECOND, 0);
-		calendar.set(Calendar.MILLISECOND, 0);
-		return calendar.getTime();
-	}
-
-	/**
-	 * Helper Method: Forces the date to End of Day (23:59:59) in Asia/Kolkata
-	 * regardless of Server TimeZone.
-	 */
-	private Date convertToEndOfDay(Date date) {
-		if (date == null)
-			return null;
-		// Use Calendar with Specific TimeZone to avoid UTC shifts
-		Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(ZONE_IST));
-		calendar.setTime(date);
-		calendar.set(Calendar.HOUR_OF_DAY, 23);
-		calendar.set(Calendar.MINUTE, 59);
-		calendar.set(Calendar.SECOND, 59);
-		calendar.set(Calendar.MILLISECOND, 999);
-		return calendar.getTime();
-	}
-
-	@Override
-	public List<ZoneDto> getZones() {
-		return zoneMasterRepository.findIndianZones().stream()
-				.map(z -> new ZoneDto(z.getId(), z.getDescription()))
-				.toList();
-	}
-
-	@Override
-	public List<CircleDto> getCircles(String bankType, String zoneCode) {
-		log.info("bank : {}", bankType);
-		String finalZoneCode = "Foreign".equalsIgnoreCase(bankType.trim()) ? zoneMasterRepository.findForeignZones()
-				: zoneCode;
-		return circleMasterRepository.findByZoneCodes(finalZoneCode).stream()
-				.map(c -> new CircleDto(c.getCircleCode(), c.getCircleName()))
-				.toList();
-	}
-
-	@Override
-	public PaginatedResponseDto<BranchDto> getAllBranches(String circleCode, Integer page, Integer size) {
-
-		int pageNo = (page == null || page < 0) ? 0 : page;
-		int pageSize = (size == null || size <= 0) ? 20 : size;
-
-		Pageable pageable = PageRequest.of(pageNo, pageSize);
-
-		Page<BranchMaster> pageResult = branchMasterRepository.findByCircleCodes(circleCode, pageable);
-		List<BranchDto> list = pageResult.stream().map(r -> new BranchDto(r.getCode(), r.getName())).toList();
-		return new PaginatedResponseDto<>(pageResult.getNumber(), pageResult.getTotalPages(), pageResult.getSize(),
-				pageResult.getTotalElements(), "ASC", list);
-		// return branchMasterRepository.findByCircleCodes(circleCode).stream()
-		// .map(b -> new BranchDto(b.getCode(), b.getName()))
-		// .toList();
-	}
-
-	@Override
-	public List<FileType> getFileTypes() {
-
-		return fileTypeRepo.findAll(Sort.by("type").and(Sort.by("stream").descending()));
-	}
-
-	/*
-	 * Method used to fetch unique file type from FILE TYPE MASTER Table
-	 */
-	@Override
-	public List<String> getSubTypes() {
-		return fileTypeRepo.findDistinctBySubType();
-	}
-
-	/*
-	 * Returns Data from the MAIN__DATA_PARAMETERS table grouped by FILE_TYPE
-	 */
-	@Override
-	public List<MainDataParametersDTO> getGroupedData() {
-		List<MainDataParameters> list = MainDataParrepository.findAllByOrderByFileTypeAscColumnIdAsc();
-		Map<String, List<MainDataParameters>> grouped = list.stream().collect(
-				Collectors.groupingBy(MainDataParameters::getFileType, LinkedHashMap::new, Collectors.toList()));
-		return grouped.entrySet().stream().map(entry -> new MainDataParametersDTO(entry.getKey(), entry.getValue()
-				.stream()
-				.map(e -> new MainDataParametersDTO.RowDto(e.getColumnId(), e.getColumnName(), e.getStartValue(),
-						e.getEndValue(), e.getToBeIncluded(), e.getDataType(), e.getDecimalCount()))
-				.toList())).toList();
-	}
-
-	@Override
-	public PaginatedResponseDto<CommonRequestDto> searchLhoTransfers(SearchRequest request) {
-		log.info("Searching Common Requests for REQ_TYPE: YEAR_END_PROFIT_TRANSFER");
-
-		// Set up Pagination & Sorting
-		Sort.Direction direction = (request.getSortOrder() != null && request.getSortOrder().equalsIgnoreCase("DESC"))
-				? Sort.Direction.DESC
-				: Sort.Direction.ASC;
-		String sortField = (request.getSortField() != null) ? request.getSortField() : "requestDate";
-
-		PageRequest pageRequest = PageRequest.of(request.getPage(), request.getSize(), Sort.by(direction, sortField));
-
-		// Business Rule: Hard filter for LHO_TRANSFER
-		Specification<CommonRequest> lhoTypeSpec = (root, query, cb) -> cb.equal(root.get("requestType"),
-				"YEAR_END_PROFIT_TRANSFER");
-
-		// Combine with dynamic UI filters using your GenericSpecification
-		Specification<CommonRequest> finalSpec = lhoTypeSpec.and(GenericSpecification.build(request.getFilters()));
-
-		Page<CommonRequest> page = commonRequestRepository.findAll(finalSpec, pageRequest);
-
-		if (page.isEmpty()) {
-			throw new NoDataFoundException("No YEAR_END_PROFIT records found.");
-		}
-
-		List<CommonRequestDto> dtoList = page.getContent().stream()
-				.map(this::mapToRequestDto)
-				.toList();
-
-		return new PaginatedResponseDto<>(
-				page.getNumber(),
-				page.getTotalPages(),
-				page.getSize(),
-				page.getTotalElements(),
-				direction.name(),
-				dtoList);
-	}
-
-	@Override
-	public CommonRequestDto getLhoTransferById(Long id) {
-		CommonRequest entity = commonRequestRepository.findById(id)
-				.orElseThrow(() -> new NoDataFoundException("Request " + id + " not found."));
-
-		// Enforce type check for security
-		if (!"YEAR_END_PROFIT_TRANSFER".equalsIgnoreCase(entity.getRequestType())) {
-			throw new IllegalArgumentException("Access Denied: Record is not an LHO Transfer.");
-		}
-
-		return mapToRequestDto(entity);
-	}
-
-	/**
-	 * Helper Mapper: Entity to DTO
-	 */
-	private CommonRequestDto mapToRequestDto(CommonRequest entity) {
-		return CommonRequestDto.builder()
-				.id(entity.getId())
-				.requestType(entity.getRequestType())
-				.changeType(entity.getChangeType())
-				.status(entity.getStatus())
-				.requestDate(entity.getRequestDate())
-				.creatorId(entity.getCreatorId())
-				.creatorRemarks(entity.getCreatorRemarks())
-				.executionDate(entity.getExecutionDate())
-				.executionRemarks(entity.getExecutionRemarks())
-				.executorId(entity.getExecutorId())
-				.executorRemarks(entity.getExecutorRemarks())
-				.payload(entity.getPayload())
-				.targetId(entity.getTargetId())
-				.build();
-	}
-
-	@Override
-	@Transactional
-	public Object getOrGenerateLhoSummary(Long id) {
-		log.info("Processing LHO Summary request for ID: {}", id);
-
-		// --- STEP 1: CACHE CHECK ---
-		Optional<LhoTransferSummary> cached = lhoSummaryRepository.findById(id);
-		if (cached.isPresent()) {
-			try {
-				JsonNode node = objectMapper.readTree(cached.get().getPayload());
-				// Check if it's the new structure and has a valid totalAmount
-				if (node.has("circleWiseDetails") && node.get("totalAmount").asDouble() != 0) {
-					return objectMapper.treeToValue(node, LhoSummaryResponseDto.class);
-				}
-			} catch (Exception e) {
-				log.warn("Refreshing cache for ID: {}", id);
-			}
-		}
-
-		// --- STEP 2: AGGREGATE USING NEW JOIN QUERY ---
-		List<Object[]> aggregatedData = plTransferRepository.getAggregatedSummary();
-		if (aggregatedData.isEmpty()) {
-			return LhoSummaryResponseDto.builder()
-					.totalAmount(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP))
-					.totalRecordCount(0)
-					.circleWiseDetails(Collections.emptyMap())
-					.build();
-		}
-
-		// --- STEP 3: MAPPING & CALCULATION ---
-		Map<String, BigDecimal> summaryMap = new HashMap<>();
-		BigDecimal runningTotal = BigDecimal.ZERO;
-
-		for (Object[] row : aggregatedData) {
-			// row[0] is now the CIRCLE_NAME from the database (or null if LEFT JOIN missed)
-			String circleName = (row[0] != null) ? String.valueOf(row[0]) : "UNKNOWN_CIRCLE";
-
-			// Convert with high precision
-			BigDecimal totalPL = (row[1] != null)
-					? new BigDecimal(row[1].toString())
-					: BigDecimal.ZERO;
-
-			runningTotal = runningTotal.add(totalPL);
-
-			// Put the Circle Name and the Balance into the map
-			summaryMap.put(circleName, totalPL.setScale(2, RoundingMode.HALF_UP));
-		}
-
-		// --- STEP 4: CONSTRUCT RESPONSE ---
-		LhoSummaryResponseDto responseDto = LhoSummaryResponseDto.builder()
-				.totalAmount(runningTotal.setScale(2, RoundingMode.HALF_UP))
-				.totalRecordCount(summaryMap.size()) // Count of unique circles
-				.circleWiseDetails(summaryMap)
-				.build();
-
-		// --- STEP 5: PERSIST ---
-		try {
-			String jsonPayload = objectMapper.writeValueAsString(responseDto);
-			LhoTransferSummary summaryEntity = LhoTransferSummary.builder()
-					.id(id)
-					.payload(jsonPayload)
-					.build();
-
-			lhoSummaryRepository.save(summaryEntity);
-			return responseDto;
-		} catch (Exception e) {
-			log.error("Serialization failed: {}", e.getMessage());
-			throw new RuntimeException("Error persisting LHO Summary.");
-		}
-	}
-
-	@Override
-	public YearEndTransferEligibilityDto checkYearEndProfitTransferEligibility() {
-		log.info("Evaluating eligibility for YEAR_END_PROFIT_TRANSFER...");
-
-		// Check if ANY request exists that is either in Queue ('Q') or Accepted ('A')
-		boolean isAlreadyProcessingOrCompleted = commonRequestRepository.existsByRequestTypeAndStatusIn(
-				"YEAR_END_PROFIT_TRANSFER",
-				List.of("Q", "A") // Using modern Java List.of()
-		);
-
-		// Business Rule: If it exists in Q or A, return false (not eligible). Otherwise
-		// true.
-		boolean isEligible = !isAlreadyProcessingOrCompleted;
-
-		log.info("Year End Profit Transfer Eligibility: {}", isEligible);
-
-		return YearEndTransferEligibilityDto.builder()
-				.isEligible(isEligible)
-				.build();
-	}
-
-	// This method will fetch all the data in Source Flag Table and return to FE.
-	@Override
-	public List<SourceFlag> findSourceFlags() {
-		return sourceFlagRepo.findAll();
-	}
-
-	@Override
-	public GlccValidationResponse validateGlcc(
-			GlccValidationRequest dto) {
-
-		String glcc = dto.getGlcc();
-		String circleCode = dto.getCircleCode();
-
-		List<String> errors = new ArrayList<>();
-
-		if (glcc == null || glcc.trim().length() != 18) {
-
-			return GlccValidationResponse.builder()
-					.valid(false)
-					.errors(List.of("GLCC must be exactly 18 characters"))
-					.build();
-		}
-
-		glcc = glcc.trim();
-
-		String branchCode = glcc.substring(0, 5);
-		String currencyCode = glcc.substring(5, 8);
-		String cglNumber = glcc.substring(8, 18);
-
-		BranchMaster branch = branchMasterRepository
-				.findByCode(circleCode, branchCode);
-
-		CurrencyMasterModel currency = currencyMasterRepo
-				.findByCurrencyCode(currencyCode);
-
-		CGLMaster cgl = cglMasterRepository
-				.findByCglNumber(cglNumber);
-
-		if (branch == null) {
-			errors.add("Invalid Branch");
-		}
-
-		if (currency == null) {
-			errors.add("Invalid Currency");
-		}
-
-		if (cgl == null) {
-			errors.add("Invalid CGL");
-		}
-
-		if (!errors.isEmpty()) {
-
-			return GlccValidationResponse.builder()
-					.valid(false)
-					.errors(errors)
-					.build();
-		}
-
-		return GlccValidationResponse.builder()
-				.valid(true)
-
-				.branchCode(branch.getCode())
-				.branchName(branch.getName())
-
-				.currencyCode(currency.getCurrencyCode())
-				.currencyName(currency.getCurrencyName())
-
-				.cglNumber(cgl.getCglNumber())
-				.cglDescription(cgl.getDescription())
-
-				.message("Valid GLCC")
-				.build();
-	}
+public interface CurrencyRateChangeRepo extends CrudRepository<CurrencyRateChange, Long> {
+	
+	
+	
 }
