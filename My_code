@@ -1,124 +1,61 @@
-package com.tcs.fincore.CommonMasterService.repository;
-
-import java.util.List;
-import java.util.Optional;
-
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.CrudRepository;
-
-import com.tcs.fincore.CommonMasterService.model.CurrencyCodeNameOnly;
-import com.tcs.fincore.CommonMasterService.model.CurrencyMasterModel;
-
-public interface CurrencyMasterRepository extends CrudRepository<CurrencyMasterModel, String> {
-
-	@Query(nativeQuery = true, value = """
-			SELECT CURRENCY_CODE FROM CURRENCY_MASTER
-			""")
-	List<String> findAllCurrency();
-
-	List<CurrencyCodeNameOnly> findAllBy();
-
-	@Query("SELECT c.currencyCode, c.currencyName FROM CurrencyMasterModel c")
-	List<Object[]> fetchCurrencies();
-
-	CurrencyMasterModel findByCurrencyCode(String currencyCode);
-}
-
-
 package com.tcs.fincore.CommonMasterService.model;
 
-
+import jakarta.persistence.*;
+import lombok.*;
+import org.hibernate.annotations.CreationTimestamp;
 import java.time.LocalDateTime;
-import java.util.Date;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
-import jakarta.persistence.Table;
-import lombok.AllArgsConstructor;
-import java.math.BigDecimal;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
-
-@Entity
-@Table(name = "CURRENCY_MASTER")
 @Getter
 @Setter
-@NoArgsConstructor
+@Entity
 @AllArgsConstructor
+@NoArgsConstructor
+@Builder
+@Table(name = "COMMON_REQ")
+public class CommonRequest {
 
-public class CurrencyMasterModel {
- 
-     @Id
-     @Column(name = "CURRENCY_CODE", nullable = false, unique = true, length = 3)
-     private String currencyCode;
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "common_req_seq")
+    @SequenceGenerator(name = "common_req_seq", sequenceName = "COMMON_REQ_SEQ", allocationSize = 1)
+    @Column(name = "REQ_ID")
+    private Long id;
 
-     @Column(name = "CURRENCY_NAME", nullable = false, length = 50)
-     private String currencyName;
+    @Column(name = "REQ_TYPE", length = 20, nullable = false)
+    private String requestType;
 
-     @Column(name = "FLAG", nullable = false)
-     private Integer flag;
+    @Column(name = "CHANGE_TYPE", length = 2, nullable = false)
+    private String changeType;
 
-     @Column(name = "CURRENCY_RATE")
-     private BigDecimal currencyRate;
+    @Column(name = "REQ_STATUS", length = 2, nullable = false)
+    private String status;
 
-     @Column(name = "RATE_DATE")
-     private Date rateDate;
+    @CreationTimestamp
+    @Column(name = "REQ_DATE", nullable = false, updatable = false)
+    private LocalDateTime requestDate;
 
-     @Column(name = "CREATED_AT", updatable = false)
-     private LocalDateTime createdAt;
+    @Column(name = "CREATOR_ID", length = 12, nullable = false)
+    private String creatorId;
 
-     @Column(name = "UPDATED_AT")
-     private LocalDateTime updatedAt;
+    @Column(name = "EXECUTION_DATE")
+    private LocalDateTime executionDate;
 
-     @PrePersist
-     
-     protected void onCreate() {
-         this.createdAt = LocalDateTime.now();
-         this.updatedAt = LocalDateTime.now();
-     }
+    @Lob
+    @Column(name = "EXECUTION_REMARKS")
+    private String executionRemarks;
 
-     @PreUpdate
-     protected void onUpdate() {
-         this.updatedAt = LocalDateTime.now();
-     }
- 
- 
- 
-}
+    @Column(name = "EXECUTOR_ID", length = 12)
+    private String executorId;
 
+    @Column(name = "EXECUTOR_REMARKS", length = 500)
+    private String executorRemarks;
 
-package com.tcs.fincore.CommonMasterService.repository;
+    @Lob
+    @Column(name = "PAYLOAD")
+    private String payload;
 
-import com.tcs.fincore.CommonMasterService.model.CommonRequest;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import org.springframework.stereotype.Repository;
+    @Column(name = "TARGET_ID", length = 4000)
+    private String targetId;
 
-import java.util.List;
-
-@Repository
-public interface CommonRequestRepository extends JpaRepository<CommonRequest, Long>, JpaSpecificationExecutor<CommonRequest> {
-    // Standard CRUD and Specification methods are inherited
-
-    boolean existsByRequestTypeAndStatusIn(String requestType, List<String> statuses);
-}
-
-
-package com.tcs.fincore.CommonMasterService.repository;
-
-import java.awt.List;
-
-import org.springframework.data.repository.CrudRepository;
-
-import com.tcs.fincore.CommonMasterService.model.CurrencyRateChange;
-
-
-public interface CurrencyRateChangeRepo extends CrudRepository<CurrencyRateChange, Long> {
-	
-	
-	
+    @Column(name = "CREATOR_REMARKS", length = 500)
+    private String creatorRemarks;
 }
