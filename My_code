@@ -1,61 +1,24 @@
-package com.tcs.fincore.CommonMasterService.model;
-
-import jakarta.persistence.*;
-import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-import java.time.LocalDateTime;
-
-@Getter
-@Setter
-@Entity
-@AllArgsConstructor
-@NoArgsConstructor
-@Builder
-@Table(name = "COMMON_REQ")
-public class CommonRequest {
-
-    @Id
-    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "common_req_seq")
-    @SequenceGenerator(name = "common_req_seq", sequenceName = "COMMON_REQ_SEQ", allocationSize = 1)
-    @Column(name = "REQ_ID")
-    private Long id;
-
-    @Column(name = "REQ_TYPE", length = 20, nullable = false)
-    private String requestType;
-
-    @Column(name = "CHANGE_TYPE", length = 2, nullable = false)
-    private String changeType;
-
-    @Column(name = "REQ_STATUS", length = 2, nullable = false)
-    private String status;
-
-    @CreationTimestamp
-    @Column(name = "REQ_DATE", nullable = false, updatable = false)
-    private LocalDateTime requestDate;
-
-    @Column(name = "CREATOR_ID", length = 12, nullable = false)
-    private String creatorId;
-
-    @Column(name = "EXECUTION_DATE")
-    private LocalDateTime executionDate;
-
-    @Lob
-    @Column(name = "EXECUTION_REMARKS")
-    private String executionRemarks;
-
-    @Column(name = "EXECUTOR_ID", length = 12)
-    private String executorId;
-
-    @Column(name = "EXECUTOR_REMARKS", length = 500)
-    private String executorRemarks;
-
-    @Lob
-    @Column(name = "PAYLOAD")
-    private String payload;
-
-    @Column(name = "TARGET_ID", length = 4000)
-    private String targetId;
-
-    @Column(name = "CREATOR_REMARKS", length = 500)
-    private String creatorRemarks;
-}
+@Query(value = """
+SELECT
+    cm.CURRENCY_CODE AS currencyCode,
+    cm.CURRENCY_NAME AS currencyName,
+    cm.CURRENCY_RATE AS currencyRate,
+    cm.UPDATED_AT AS updatedAt,
+    CASE
+        WHEN crc.RATE_CHANGE_DATE IS NULL
+             AND p.REQ_STATUS IS NULL THEN 'U'
+        WHEN p.REQ_STATUS = 'P' THEN 'P'
+        ELSE 'A'
+    END AS changeStatus
+FROM CURRENCY_MASTER cm
+LEFT JOIN CURRENCY_RATE_CHANGE crc
+       ON cm.CURRENCY_CODE = crc.CURRENCY_CODE
+      AND crc.RATE_CHANGE_DATE BETWEEN SYSDATE - 7 AND SYSDATE + 7
+LEFT JOIN COMMON_REQ p
+       ON cm.CURRENCY_CODE = p.TARGET_ID
+      AND p.REQ_TYPE = 'CURRENCY_RATE_CHANGE'
+      AND p.REQ_DATE BETWEEN SYSDATE - 7 AND SYSDATE + 7
+      AND p.REQ_STATUS = 'P'
+ORDER BY cm.CURRENCY_CODE
+""", nativeQuery = true)
+List<CurrencyRateSummaryProjection> getCurrencyRateSummary();
