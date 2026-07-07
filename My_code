@@ -1,24 +1,29 @@
-@Query(value = """
-SELECT
-    cm.CURRENCY_CODE AS currencyCode,
-    cm.CURRENCY_NAME AS currencyName,
-    cm.CURRENCY_RATE AS currencyRate,
-    cm.UPDATED_AT AS updatedAt,
-    CASE
-        WHEN crc.RATE_CHANGE_DATE IS NULL
-             AND p.REQ_STATUS IS NULL THEN 'U'
-        WHEN p.REQ_STATUS = 'P' THEN 'P'
-        ELSE 'A'
-    END AS changeStatus
-FROM CURRENCY_MASTER cm
-LEFT JOIN CURRENCY_RATE_CHANGE crc
-       ON cm.CURRENCY_CODE = crc.CURRENCY_CODE
-      AND crc.RATE_CHANGE_DATE BETWEEN SYSDATE - 7 AND SYSDATE + 7
-LEFT JOIN COMMON_REQ p
-       ON cm.CURRENCY_CODE = p.TARGET_ID
-      AND p.REQ_TYPE = 'CURRENCY_RATE_CHANGE'
-      AND p.REQ_DATE BETWEEN SYSDATE - 7 AND SYSDATE + 7
-      AND p.REQ_STATUS = 'P'
-ORDER BY cm.CURRENCY_CODE
-""", nativeQuery = true)
-List<CurrencyRateSummaryProjection> getCurrencyRateSummary();
+@Override
+@Transactional
+public int updateCurrencyUpdatedAt(CurrencyUpdateRequestDTO request) {
+
+    if (request.getCurrencyCodes() == null || request.getCurrencyCodes().isEmpty()) {
+        throw new IllegalArgumentException("Currency code list cannot be empty");
+    }
+
+    // Fetch all currencies from Currency Master
+    List<CurrencyMasterModel> currencies =
+            (List<CurrencyMasterModel>) currencyMasterRepo.findAllById(request.getCurrencyCodes());
+
+    // Save current data into Currency Rate Change table
+    for (CurrencyMasterModel currency : currencies) {
+
+        CurrencyRateChange history = new CurrencyRateChange();
+
+        history.setCurrencyCode(currency.getCurrencyCode());
+        history.setCurrencyRate(currency.getCurrencyRate());
+
+        // No need to set rateChangeDate.
+        // Your @PrePersist will automatically set LocalDateTime.now()
+
+        currencyRateChangeRepo.save(history);
+    }
+
+    // Update UPDATED_AT in Currency Master
+    return currencyMasterRepo.updateCurrencyUpdatedAt(request.getCurrencyCodes());
+}
