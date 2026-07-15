@@ -1,12 +1,1075 @@
-const mappedData = data
-  .map((c) => ({
-    code: c.circleCode,
-    name: c.circleName,
-  }))
-  .filter(
-    (c) =>
-      c.code.toLowerCase().includes(entityInputValue.toLowerCase()) ||
-      c.name.toLowerCase().includes(entityInputValue.toLowerCase())
+//main file
+
+import React, { useEffect, useState, useCallback } from "react";
+import { debounce } from "lodash";
+import useApi from "../../hooks/useApi";
+import useCustomSnackbar from "../../utils/useCustomSnackbar";
+import dayjs from "dayjs";
+// import downloadFile from "../../utils/DownloadUtils";
+import FileDownloadIcon from "@mui/icons-material/FileDownload";
+import { Box, Paper, Typography, Stack } from "@mui/material";
+// import AccountSuspenseIcon from "@mui/icons-material/AccountSuspense";
+import { useSelector } from "react-redux";
+import { getPermissions } from "../../utils/CommonUtilities";
+import ManageSearchOutlinedIcon from "@mui/icons-material/ManageSearchOutlined";
+// import SuspenseColumns from "./components/SuspenseColumns";
+import SuspenseFilters from "./components/SuspenseFilters";
+import SuspenseTable from "./components/SuspenseTable";
+import downloadFile from "../../utils/DownloadUtils";
+import {
+  ButtonBox,
+  StyledBox,
+  StyledButton,
+  StyledDataBox,
+  StyledFormHeader,
+} from "./components/SuspenseStyles";
+
+export default function SuspenseTracker() {
+  const { callApi } = useApi();
+  const showSnackBar = useCustomSnackbar();
+
+  const user = useSelector((state) => state.auth.user);
+  //console.log(user);
+  //console.log(user.branch);
+  const selectedMenu = useSelector((state) => state.menus.selectedMenuItem);
+  //console.log(selectedMenu);
+  const permissions = getPermissions(selectedMenu);
+  //console.log(permissions);
+
+  const [data, setData] = useState(null);
+  const [branches, setBranches] = useState([]);
+
+  // const [cglInput, setCglInput] = useState("");
+  const [cgls] = useState([
+    { id: "1111111111", name: "SUSPENSE ACCOUNT" },
+    { id: "1111111112", name: "SUSPENSE ACCOUNT TECHNICAL" },
+    { id: "1260505001", name: "BALANCING" },
+    { id: "2148505001", name: "SUS" },
+    { id: "1148505004", name: "SYS SUS A/C -ORIG DEBI" },
+    { id: "1148505005", name: "OLRR-SUSP SYS-SUSP" },
+    { id: "1148505006", name: "SYS SUSP-REJECTED TRICKLE FEED" },
+    { id: "1148505007", name: "OLRR-DISHONOUR A/C" },
+    { id: "1148505010", name: "ATM CASH DISB CUST NOT DEBITED" },
+    { id: "1148505012", name: "NEFT SYS SUPENSE ACCOUNT" },
+    { id: "1148505014", name: "RTGS SETTLEMENT A/C" },
+    { id: "1148505020", name: "SYS SUSP BRANCH SPECIFIC DR" },
+    { id: "2148505004", name: "SYS. SUS. CH TO BE ISSUED" },
+    { id: "2148505006", name: "SYS. SUS A/C -ORIG. CREDIT" },
+    { id: "2148505007", name: "SYS. SUS INWARD CLEARING SUSP" },
+    { id: "2148505010", name: "SYS SUSP. TT TO BE ISSUED" },
+    { id: "2148505011", name: "SYS SUSP- INTERNET BANKING" },
+    { id: "2148505014", name: "CMP COLLECTION (BR) SUS" },
+    { id: "2148505016", name: "CUST A/C DR-ATM CASH NOT DISBU" },
+    { id: "2148505018", name: "INWARD COLLECTIONS SUSPENSE A/C" },
+    { id: "2148505019", name: "RTGS REJECTED TXNS A/C" },
+    { id: "2148505021", name: "BATCH POSTING-OLRR" },
+    { id: "2148505022", name: "CMP CENTRAL A/C-MULTI REMITTAN" },
+    { id: "2148505024", name: "RTGS INTERMEDIATE SETTLEMENT A" },
+    { id: "2148505033", name: "CMP CENTRAL A/C-RTGS" },
+    { id: "2148505035", name: "CMP CENTRAL A/C-DRAFTS" },
+    { id: "1260505002", name: "TECH SUSP DIFF PRIOR 25/05" },
+    { id: "1260505003", name: "TECHNICAL SUSP A/C" },
+  ]);
+  // const cgls = cglOption;
+  const [currencies, setCurrencies] = useState([]);
+
+  const [mode, setMode] = useState("datewise");
+  const [start, setStart] = useState(null);
+  const [end, setEnd] = useState(null);
+
+  const [currency, setCurrency] = useState();
+  const [cgl, setCgl] = useState(null);
+  const [branch, setBranch] = useState("");
+
+  const [etlDate, setEtlDate] = useState(null);
+
+  const [loading, setLoading] = useState({
+    branch: false,
+    cgl: false,
+    currency: false,
+    Suspension: false,
+  });
+
+  const [rowCount, setRowCount] = useState(200);
+
+  const [req, setReq] = useState({
+    branch: true,
+    cgl: true,
+  });
+
+  const [filtersExpanded, setFiltersExpanded] = useState(true);
+
+  const [fetchConf, setFetchConf] = useState({
+    page: 0,
+    pageSize: 10,
+    sortByDate: true,
+  });
+
+  const isNumeric = (value) => {
+    if (value) {
+      const regex = /^\d+$/;
+      return regex.test(value);
+    }
+    return false;
+  };
+
+  const fetchSuspension = useCallback(
+    debounce(async (configOverride) => {
+      try {
+        setLoading((prev) => ({ ...prev, Suspension: true }));
+
+        const matched = branch?.match(/^(\d{5})-/);
+        if (!matched) return;
+
+        const effectiveConfig = configOverride || fetchConf;
+
+        const payload = {
+          currency,
+          cgl: cgl?.id,
+          branch: matched ? matched[1] : "",
+          startDate: start ? start.format("DD-MM-YYYY") : "",
+          endDate: end ? end.format("DD-MM-YYYY") : "",
+          page: effectiveConfig.page,
+          size: effectiveConfig.pageSize,
+        };
+
+        if (effectiveConfig.sortByDate) {
+          payload.sortIn = "DESC";
+        }
+        //console.log("payload", payload);
+        const result = await callApi(
+          "/ES/suspense-tracker/enquires",
+          payload,
+          "POST",
+        );
+        // alert("result", result);
+        if (result?.data?.data?.length > 0) {
+          //console.log("result", result);
+          setData(result.data.data);
+          setRowCount(result.data.totalElements);
+        } else {
+          setData([]);
+          setRowCount(0);
+        }
+      } catch (e) {
+        setData([]);
+        setRowCount(0);
+        showSnackBar("No records found");
+      } finally {
+        setLoading((prev) => ({ ...prev, Suspension: false }));
+      }
+    }, 300),
+    [callApi, branch, currency, cgl, start, end, fetchConf],
   );
 
-setEntityOptions(mappedData);
+  const fetchCurrencies = async () => {
+    setLoading((prev) => ({ ...prev, currency: true }));
+    try {
+      const result = await callApi(
+        "/CM/common-master/currency-code-name-only",
+        null,
+        "GET",
+      );
+
+      const sortedData = (result?.data || []).sort((a, b) => {
+        if (a.currencyCode === "INR") return -1;
+        if (b.currencyCode === "INR") return 1;
+
+        return a.currencyName.localeCompare(b.currencyName);
+      });
+
+      setCurrencies(sortedData);
+    } catch {
+      showSnackBar("Currency data not available");
+    } finally {
+      setLoading((prev) => ({ ...prev, currency: false }));
+    }
+  };
+
+  const handleDownloadExcel = async () => {
+    try {
+      setLoading((prev) => ({ ...prev, balance: true }));
+      const payload = {
+        currency: currency,
+        cgl: cgl?.id,
+        branch: branch.split("-")[0],
+        startDate:
+          mode === "datewise"
+            ? start.format("DD-MM-YYYY")
+            : dayjs(start).format("DD-MM-YYYY"),
+        endDate:
+          mode === "datewise"
+            ? end.format("DD-MM-YYYY")
+            : dayjs(end).format("DD-MM-YYYY"),
+      };
+
+      const downloadResponse = await callApi(
+        "/ES/suspense-tracker/export",
+        payload,
+        "POST",
+        "arraybuffer",
+      );
+      if (downloadResponse && downloadResponse?.byteLength > 0) {
+        downloadFile(downloadResponse, "excel", "Balance_Enquiry");
+        return;
+      }
+    } catch (error) {
+      console.error("Something Went Wrong!!", error);
+      showSnackBar("Download Failed");
+    } finally {
+      setLoading((prev) => ({ ...prev, balance: false }));
+    }
+  };
+
+  const fetchSearchData = useCallback(
+    async (type, term) => {
+      try {
+        setLoading((prev) => ({ ...prev, [type]: true }));
+
+        // Permissions logic for Circle/WholeBank
+        let circleValue = "";
+        if (permissions?.wholebank === true) {
+          circleValue = "null";
+        } else if (user?.isCircle === "Y" || permissions?.circle) {
+          circleValue = user?.circleCode;
+        }
+
+        const url =
+          type === "branch"
+            ? `/CM/common-master/branches-code-name-only?q=${encodeURIComponent(
+                term,
+              )}&circleCode=${circleValue || ""}`
+            : `/CM/common-master/cgl-code-description-only?q=${encodeURIComponent(
+                term,
+              )}`;
+
+        const result = await callApi(url, null, "GET");
+
+        if (result?.data?.length > 0) {
+          if (type === "branch") {
+            setBranches(result.data.map((i) => `${i.code}-${i.name}`));
+          } else {
+            setCgls(
+              result.data.map((i) => ({
+                id: i.cglNumber,
+                name: i.description,
+              })),
+            );
+          }
+        } else {
+          showSnackBar("Data not available");
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading((prev) => ({ ...prev, [type]: false }));
+      }
+    },
+    [callApi, permissions, user],
+  );
+
+  const handleSearchChange = (value, reason, type) => {
+    if (reason === "input") {
+      // Fires instantly as soon as the 3rd character is typed
+      if (value?.length >= 3) {
+        fetchSearchData(type, value);
+      }
+    } else if (reason === "clear") {
+      // Optional: Clear the options when the user clears the input
+      if (type === "branch") setBranches([]);
+      if (type === "cgl") setCgls([]);
+    }
+  };
+
+  const handleSubmit = () => {
+    setFiltersExpanded(false);
+    setData(null);
+    fetchSuspension();
+  };
+
+  const resetState = () => {
+    setData(null);
+    setCgl(null);
+    setCgls([]);
+    setBranch(null);
+    setCurrency(null);
+    setCurrencies([]);
+    setStart(null);
+    setEnd(null);
+    setBranches([]);
+    setFetchConf({
+      page: 0,
+      pageSize: 10,
+      sortByDate: true,
+    });
+  };
+
+  useEffect(() => {
+    if (data) {
+      fetchSuspension();
+    }
+  }, [fetchConf]);
+
+  useEffect(() => {
+    const fetchSystemDate = async () => {
+      try {
+        const dateRes = await callApi("/PS/file/fincore-date", {}, "GET");
+        const etlRaw = dateRes?.data?.etlDate;
+
+        // Parse ISO and strip time
+        const etl = etlRaw ? dayjs(etlRaw.split("T")[0]) : dayjs();
+        // const march31 = dayjs("2026-03-31");
+
+        setEtlDate(etl);
+
+        // Set defaults
+        // setStart(march31);
+        // setEnd(etl);
+      } catch (e) {
+        console.error("Date error:", e);
+        setEtlDate(dayjs());
+      }
+    };
+    fetchSystemDate();
+  }, [callApi]);
+
+  return (
+    <>
+      <Box sx={{ p: 1 }}>
+        <Paper
+          elevation={0}
+          sx={{
+            p: 3,
+            mb: 3,
+            bgcolor: "rgba(255, 255, 255, 0.4)",
+            backdropFilter: "blur(4px)",
+            border: "1px solid",
+            borderColor: "divider",
+            borderRadius: 3,
+          }}
+        >
+          <Box
+            sx={{
+              mb: 2,
+              p: 2,
+              borderRadius: 2,
+              bgcolor: "background.paper",
+              boxShadow: 2,
+              borderLeft: "6px solid",
+              borderColor: "primary.main",
+            }}
+          >
+            <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="space-between"
+            >
+              <Stack direction="row" spacing={2} alignItems="center">
+                {/* <AccountSuspensionIcon color="primary" fontSize="large" /> */}
+
+                <Box>
+                  <Typography variant="h6" fontWeight={700} lineHeight={1.2}>
+                    Search
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ mt: 0.5 }}
+                  >
+                    Enter the required details below to retrieve and view
+                    Suspension records.
+                  </Typography>
+                </Box>
+              </Stack>
+
+              {data && (
+                <StyledButton
+                  variant="contained"
+                  size="small"
+                  startIcon={<ManageSearchOutlinedIcon />}
+                  onClick={() => setFiltersExpanded((prev) => !prev)}
+                  sx={{
+                    textTransform: "none",
+                    borderRadius: "8px",
+                    fontWeight: 600,
+                  }}
+                >
+                  Edit Search
+                </StyledButton>
+              )}
+            </Stack>
+          </Box>
+          {data && !filtersExpanded && (
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{
+                mt: 2,
+                mb: 1,
+                flexWrap: "wrap",
+              }}
+            >
+              {[
+                {
+                  label: "BRANCH",
+                  value: branch,
+                },
+                {
+                  label: "CURRENCY",
+                  value: currency,
+                },
+                {
+                  label: "CGL",
+                  value: cgl ? `${cgl.id} - ${cgl.name}` : null,
+                },
+                {
+                  label: "DATE",
+                  value: `${dayjs(start).format("DD MMM")} - ${dayjs(
+                    end,
+                  ).format("DD MMM YYYY")}`,
+                },
+              ]
+                .filter((item) => item.value)
+                .map((item, index) => (
+                  <Box
+                    key={index}
+                    sx={{
+                      px: 1.1,
+                      py: 0.45,
+                      fontSize: "20px",
+                      borderRadius: "10px",
+                      background: "#fcfbff",
+                      border: "1px solid #e3dcff",
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        color: "#7b6ba8",
+                        letterSpacing: "1px",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {item.label}
+                    </Typography>
+
+                    <Typography
+                      sx={{
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        color: "#2d1f54",
+                      }}
+                    >
+                      {item.value}
+                    </Typography>
+                  </Box>
+                ))}
+            </Stack>
+          )}
+
+          {filtersExpanded && (
+            <SuspenseFilters
+              branch={branch}
+              setBranch={setBranch}
+              currency={currency}
+              setCurrency={setCurrency}
+              cgl={cgl}
+              setCgl={setCgl}
+              start={start}
+              setStart={setStart}
+              end={end}
+              setEnd={setEnd}
+              mode={mode}
+              setMode={setMode}
+              currencies={currencies}
+              branches={branches}
+              cgls={cgls}
+              loading={loading}
+              req={req}
+              handleSearchChange={handleSearchChange}
+              fetchCurrencies={fetchCurrencies}
+              handleSubmit={handleSubmit}
+              resetState={resetState}
+              isNumeric={isNumeric}
+              user={user}
+              permissions={permissions}
+              etlDate={etlDate}
+            />
+          )}
+        </Paper>
+
+        {data && (
+          <StyledDataBox>
+            <SuspenseTable
+              data={data}
+              loading={loading.Suspension}
+              rowCount={rowCount}
+              fetchConf={fetchConf}
+              setFetchConf={setFetchConf}
+              handleDownloadExcel={handleDownloadExcel}
+            />
+          </StyledDataBox>
+        )}
+      </Box>
+    </>
+  );
+}
+
+
+/// suspense column
+import { Box } from "@mui/material";
+
+export const SuspenseColumns = [
+  {
+    field: "id",
+    headerName: "Suspended ID",
+    flex: 1,
+    headerAlign: "center",
+    align: "center",
+  },
+  {
+    field: "date",
+    headerName: "Date",
+    flex: 1,
+    headerAlign: "center",
+    align: "center",
+  },
+  {
+    field: "branch",
+    headerName: "Branch",
+    flex: 1,
+    headerAlign: "center",
+    align: "center",
+    sortable: false,
+    filterable: false,
+  },
+  {
+    field: "currency",
+    headerName: "Currency",
+    flex: 1,
+    headerAlign: "center",
+    align: "center",
+    filterable: false,
+    sortable: false,
+  },
+  {
+    field: "cgl",
+    headerName: "CGL",
+    sortable: false,
+    flex: 1,
+    headerAlign: "center",
+    filterable: false,
+    align: "center",
+  },
+  {
+    field: "balance",
+    headerName: "Balance",
+    flex: 1,
+    headerAlign: "right",
+    align: "right",
+    // shows positive values
+    valueFormatter: (value) => {
+      if (value == null) return "0.00";
+      const absoluteValue = Math.abs(Number(value));
+      return new Intl.NumberFormat("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(absoluteValue);
+    },
+  },
+  // {
+  //   field: "balance",
+  //   headerName: "Balance",
+  //   flex: 1,
+  //   headerAlign: "right",
+  //   align: "right",
+  //   renderCell: (params) => {
+  //     const val = Number(params.value);
+  //     const isNegative = val < 0;
+
+  //     return (
+  //       <Box
+  //         sx={{
+  //           display: "flex",
+  //           alignItems: "center",
+  //           justifyContent: "flex-end",
+  //           height: "100%",
+  //           width: "100%",
+  //           fontWeight: 600,
+  //           color: isNegative ? "#c53a3a" : "#2e7d32",
+  //         }}
+  //       >
+  //         {new Intl.NumberFormat("en-IN", {
+  //           minimumFractionDigits: 2,
+  //           maximumFractionDigits: 2,
+  //         }).format(Math.abs(val))}
+  //       </Box>
+  //     );
+  //   },
+  // },
+
+  {
+    field: "type",
+    headerName: "Type",
+    flex: 0.8,
+    headerAlign: "center",
+    align: "center",
+    sortable: false,
+  },
+  {
+    field: "firstErrorDate",
+    headerName: "First Error Date ",
+    flex: 1,
+    headerAlign: "center",
+    align: "center",
+    valueFormatter: (value) =>
+      value ? new Date(value).toLocaleDateString("en-GB") : "",
+  },
+];
+
+
+
+///suspense filter
+
+
+import React, { useState } from "react";
+import {
+  Autocomplete,
+  Box,
+  MenuItem,
+  Radio,
+  RadioGroup,
+  FormControlLabel,
+  Select,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import {
+  StyledFormBox,
+  StyledFormControl,
+  StyledStack,
+  StyledButton,
+  ButtonBox,
+} from "./SuspenseStyles";
+import dayjs from "dayjs";
+import SearchIcon from "@mui/icons-material/Search";
+import RestartAltIcon from "@mui/icons-material/RestartAlt";
+// import { maxLength } from "zod";
+
+export default function SuspenseTracker({
+  branch,
+  setBranch,
+  currency,
+  setCurrency,
+  cgl,
+  setCgl,
+  start,
+  setStart,
+  end,
+  setEnd,
+  currencies,
+  branches,
+  cgls,
+  loading,
+  handleSearchChange,
+  fetchCurrencies,
+  handleSubmit,
+  resetState,
+  isNumeric,
+  req,
+  user,
+  permissions,
+  etlDate,
+}) {
+  const [branchInput, setBranchInput] = useState("");
+  const [cglInput, setCglInput] = useState("");
+  return (
+    <>
+      <StyledStack direction="row">
+        <StyledFormBox>
+          <label>Branch Code or Branch Name*</label>
+          <Autocomplete
+            disabled={
+              !permissions?.wholebank &&
+              (user?.isCircle === "N" || permissions?.branch)
+            }
+            value={branch}
+            forcePopupIcon={false}
+            clearIcon={branchInput ? undefined : null}
+            options={branches || []}
+            inputValue={branchInput}
+            loading={!req.branch && loading.branch}
+            onInputChange={(e, value, reason) => {
+              setBranchInput(value);
+              handleSearchChange(value, reason, "branch");
+            }}
+            noOptionsText={
+              branchInput.length < 3
+                ? "Please enter at least 3 characters"
+                : "No Options"
+            }
+            onChange={(e, value) => setBranch(value)}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                placeholder="eg. 12345 or ABC"
+                slotProps={{
+                  htmlInput: {
+                    ...params.inputProps,
+                    maxLength: isNumeric(params.inputProps.value) ? 5 : 15,
+                  },
+                }}
+              />
+            )}
+          />
+        </StyledFormBox>
+
+        <StyledFormBox>
+          <label>Currency*</label>
+          <Autocomplete
+            options={currencies || []}
+            // Value Mapping (Find the object that matches your string state)
+            value={currencies?.find((c) => c.currencyCode === currency) || null}
+            // show in the text box and list
+            getOptionLabel={(option) =>
+              option ? `${option.currencyCode} - ${option.currencyName}` : ""
+            }
+            // Update state with just the Code
+            onChange={(event, newValue) => {
+              setCurrency(newValue ? newValue.currencyCode : "");
+            }}
+            // Fetch data on click
+            onOpen={fetchCurrencies}
+            // Handle the UI
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                placeholder={!currency ? "Please select Currency" : ""}
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    backgroundColor: "transparent",
+                  },
+                }}
+              />
+            )}
+          />
+        </StyledFormBox>
+
+        <StyledFormBox>
+          <label>CGL*</label>
+          <Autocomplete
+            forcePopupIcon={true}
+            autoHighlight
+            value={cgl}
+            options={cgls}
+            getOptionLabel={(option) => {
+              if (typeof option === "string") return option;
+              return option ? ` ${option.id} - ${option.name}` : "";
+            }}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+            // inputValue={cglInput}
+            clearIcon={cglInput || cgl ? undefined : null}
+            // noOptionsText={
+            //   cglInput.length < 3
+            //     ? "Please enter at least 3 characters"
+            //     : "No Options"
+            // }
+            // loading={!req.cgl && loading.cgl}
+            // onInputChange={(e, value, reason) => {
+            //   setCglInput(value);
+            //   handleSearchChange(value, reason, "cgl");
+            // }}
+            onChange={(event, newValue) => setCgl(newValue || null)}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                placeholder="eg. 9999999999"
+                slotProps={{
+                  htmlInput: {
+                    ...params.inputProps,
+                    maxLength: isNumeric(params.inputProps.value) ? 10 : 30,
+                  },
+                }}
+              />
+            )}
+            loadingText="Searching Cgls..."
+          />
+        </StyledFormBox>
+
+        <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <StyledFormControl>
+            <label>From Date*</label>
+            <DatePicker
+              value={start}
+              onChange={(v) => setStart(v)}
+              minDate={dayjs("2026-03-31")}
+              maxDate={etlDate}
+              format={"DD-MM-YYYY"}
+              slotProps={{
+                textField: {
+                  readOnly: false,
+                  sx: {
+                    flexGrow: 1,
+                    "& .MuiInputBase-input": {
+                      caretColor: "transparent",
+                    },
+                  },
+                },
+              }}
+            />
+          </StyledFormControl>
+          <StyledFormControl>
+            <label>To Date* </label>
+            <DatePicker
+              value={end}
+              onChange={(v) => setEnd(v)}
+              minDate={dayjs("2026-03-31")}
+              maxDate={etlDate}
+              format={"DD-MM-YYYY"}
+              disabled={!start}
+              slotProps={{
+                textField: {
+                  readOnly: false,
+                  sx: {
+                    flexGrow: 1,
+                    "& .MuiInputBase-input": {
+                      caretColor: "transparent",
+                    },
+                  },
+                },
+              }}
+            />
+          </StyledFormControl>
+        </LocalizationProvider>
+      </StyledStack>
+
+      <ButtonBox>
+        <StyledButton
+          variant="contained"
+          startIcon={<RestartAltIcon />}
+          onClick={resetState}
+        >
+          Reset
+        </StyledButton>
+        &nbsp;&nbsp;
+        <StyledButton
+          variant="contained"
+          startIcon={<SearchIcon />}
+          disabled={!(cgl && currency && branch && start && end)}
+          onClick={handleSubmit}
+        >
+          Search
+        </StyledButton>
+      </ButtonBox>
+    </>
+  );
+}
+
+//suspense table
+import React from "react";
+import { DataGrid } from "@mui/x-data-grid";
+import FileDownloadIcon from "@mui/icons-material/FileDownload";
+import { SuspenseColumns } from "./SuspenseColumns";
+import { StyledButton, ButtonBox } from "./SuspenseStyles";
+import LoadingOverlay from "../../../utils/LoadingOverlay";
+import { StyledDataBox } from "./SuspenseStyles";
+import { Button, Typography, Stack, Box, Chip } from "@mui/material";
+
+export default function SuspenseTable({
+  data,
+  loading,
+  rowCount,
+  fetchConf,
+  setFetchConf,
+  handleDownloadExcel,
+}) {
+  return (
+    <>
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        sx={{ mb: 2, px: 1, mt: -2 }}
+      >
+        <Box sx={{ display: "flex", alignItems: "baseline", gap: 1.5 }}>
+          <Typography
+            variant="h6"
+            fontWeight={800}
+            sx={{ color: "#1a1a1a", letterSpacing: "-0.5px" }}
+          >
+            Suspense Ledger
+          </Typography>
+
+          <Typography
+            variant="caption"
+            fontWeight={700}
+            sx={{
+              color: "#58469f",
+              textTransform: "uppercase",
+              bgcolor: "rgba(88, 70, 159, 0.1)",
+              px: 1.2,
+              py: 0.3,
+              borderRadius: 1.5,
+              fontSize: "0.65rem",
+            }}
+          >
+            {rowCount > 0
+              ? `${rowCount.toLocaleString()} Records Found`
+              : "No Records"}
+          </Typography>
+        </Box>
+        <ButtonBox>
+          <StyledButton
+            size="medium"
+            variant="contained"
+            startIcon={<FileDownloadIcon />}
+            onClick={handleDownloadExcel}
+            sx={{
+              padding: "3px 8px",
+              fontSize: "0.9rem",
+              "& .MuiButton-startIcon": {
+                marginRight: "4px",
+                "& .MuiSvgIcon-root": {
+                  fontSize: "0.8rem",
+                },
+              },
+              position: "absolute",
+              top: 20,
+              right: 33,
+            }}
+          >
+            Export
+          </StyledButton>
+        </ButtonBox>
+      </Stack>
+
+      <DataGrid
+        rows={data}
+        columns={SuspenseColumns}
+        loading={loading}
+        rowCount={rowCount}
+        paginationMode="server"
+        pageSizeOptions={[5, 10, 25, 50]}
+        paginationModel={fetchConf}
+        onPaginationModelChange={(model) =>
+          setFetchConf((prev) => ({ ...prev, ...model }))
+        }
+        localeText={{
+          noRowsLabel: "No records available for the selected criteria",
+        }}
+      />
+      <LoadingOverlay loading={loading}></LoadingOverlay>
+    </>
+  );
+}
+
+
+// suspense style
+
+import {
+  styled,
+  Box,
+  Button,
+  Stack,
+  FormControl,
+  Typography,
+} from "@mui/material";
+
+export const OverlayBox = styled(Box)(() => ({
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  justifyContent: "center",
+  alignItems: "center",
+}));
+
+export const StyledBox = styled(Box)(({ theme }) => ({
+  backgroundColor: "rgba(255, 255, 255, 0.15)",
+  backdropFilter: "blur(20px)",
+  padding: "2%",
+  borderRadius: "15px",
+  marginBottom: "2%",
+  border: `0.5px solid ${theme.palette.primary.light}`,
+}));
+
+export const StyledFormBox = styled(Box)(() => ({
+  padding: "10px",
+  flexGrow: 1,
+  minWidth: "18%",
+  alignItems: "end",
+  flexBasis: "200px",
+}));
+
+export const StyledDataBox = styled(Box)(({ theme }) => ({
+  backgroundColor: "rgba(255, 255, 255, 0.15)",
+  backdropFilter: "blur(20px)",
+  padding: "2%",
+  borderRadius: "15px",
+  marginBottom: "2%",
+  height: "50%",
+  zIndex: -1,
+  border: `0.5px solid ${theme.palette.primary.light}`,
+}));
+
+export const StyledFormHeader = styled(Typography)(({ theme }) => ({
+  fontSize: "1.18rem",
+  marginBottom: theme.spacing(3),
+  borderBottom: `2px solid ${theme.palette.divider}`,
+  paddingBottom: theme.spacing(1),
+}));
+
+export const ButtonBox = styled(Box)(() => ({
+  marginTop: "2%",
+  display: "flex",
+  justifyContent: "flex-end",
+  alignItems: "center",
+}));
+
+export const StyledButton = styled(Button)(({ theme, bgColor }) => ({
+  padding: "0.5% 2%",
+  borderRadius: "10px",
+  fontSize: "1rem",
+  background:
+    bgColor === "success"
+      ? `linear-gradient(90deg,${theme.palette.success.main},${theme.palette.success.light})`
+      : "",
+
+  "&:hover": {
+    background:
+      bgColor === "success"
+        ? `linear-gradient(90deg,${theme.palette.success.dark},${theme.palette.success.main})`
+        : "",
+  },
+
+  "&.Mui-disabled": {
+    background:
+      bgColor === "success"
+        ? `linear-gradient(90deg, ${theme.palette.success.main})`
+        : "",
+    color: "#b4b0b0",
+    opacity: 1,
+    cursor: "not-allowed",
+  },
+}));
+
+export const StyledStack = styled(Stack)(() => ({
+  margin: 1,
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "16px",
+}));
+
+export const StyledFormControl = styled(FormControl)(() => ({
+  padding: "10px",
+  flex: "1 1 200px",
+  minWidth: "200px",
+  maxWidth: "250px",
+}));
+
+
+
+
