@@ -1,29 +1,132 @@
-Below is the test case content converted into copy-paste format.
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.0</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
 
-S. No	Test Description	Expected Result
+    <groupId>com.example</groupId>
+    <artifactId>userService</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>jar</packaging>
+    <name>user-service</name>
+    <description>userService</description>
+    <properties>
+        <java.version>21</java.version>
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
 
-1	Verify filter dialog button is available to select the filter	Filter dialog opened
-2	Verify Report dropdown contains YSA, PNL, NWSA options	Screen should load with correct dropdown values
-3	Verify Head code input field is present	Screen should load with Head code input
-4	Verify Scope options: Bank Level, Circle Level, Branch Level	Screen should load with options
-5	Select Scope as Bank Level and verify Circle dropdown is hidden	Screen should load without Circle/Branch selection
-6	Select Scope as Circle Level and verify Circle dropdown appears	Screen should load with Circle dropdown enabled
-7	Select Scope as Branch Level and verify Branch Code input appears	System should fetch and display data based on parameters
-8	Verify date field is available for available date range	Data should display in specified hierarchical levels
-9	Enter all mandatory details and click Fetch Data	Data should display in specified hierarchical levels
-10	Verify Bank Level Enquiry drill-down hierarchy: Geography → Circle → CGL → Product → Branch	Data should display in specified hierarchical levels
-11	Verify Circle Level Enquiry drill-down hierarchy: CGL → Product → Branch	Data should reflect YSA report metrics at Bank Level
-12	Verify Branch Level Enquiry drill-down hierarchy: CGL → Product	Data should reflect PNL report metrics at Circle Level
-13	Select YSA report and fetch data for Bank Level	Data should reflect NWSA report metrics at Branch Level
-14	Select PNL report and fetch data for Circle Level	System should display valid message
-15	Select NWSA report and fetch data for Branch Level	Apply button should be disabled
-16	Enter invalid Head code and attempt to fetch data	Apply button should be disabled
-17	Select Circle Level without choosing a Circle	Clicking Geography should expand to show CGL
-18	Select Branch Level without entering Branch Code	Clicking CGL should expand to show Branch
-19	Verify drill-down navigation from Geography to Branch in Bank Level	Clicking CGL should expand to show Products
-20	Verify drill-down navigation from CGL to Branch in Circle Level	Sum of child levels should match parent level total
-21	Verify drill-down navigation from CGL to Product in Branch Level	System should update data based on new date selection
-22	Verify data consistency across drill-down levels	All the filters are cleared successfully in dialog box
-23	Change Date parameter and re-fetch data	Filters are cleared
-24	Verify reset form button in dialog box	Form is reset successfully
-25	Verify clear filter button after fetching data	Filters are cleared successfully
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.oracle.database.jdbc</groupId>
+            <artifactId>ojdbc11</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.json</groupId>
+            <artifactId>json</artifactId>
+            <version>20240303</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- health metrics -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.data</groupId>
+            <artifactId>spring-data-redis</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fincore</groupId>
+            <artifactId>common-utilities</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+
+        <!--LDAP-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-ldap</artifactId>
+        </dependency>
+
+        <!-- KAFKA -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-messaging</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>7.4</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>${project.artifactId}</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
