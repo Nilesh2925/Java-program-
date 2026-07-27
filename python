@@ -396,3 +396,188 @@ public class RolePermissions {
 
 }
 
+
+package com.tcs.userservice.model;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.Data;
+
+@Entity
+@Data
+@Table(name = "USER_ROLES")
+public class UserRole {
+    
+    @Id
+    @Column(name = "USER_ID")
+    private String userId;
+
+    @Column(name = "ROLE_ID")
+    private int roleId;
+
+}
+package com.tcs.userservice.model;
+
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
+
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+
+@Entity
+@Getter
+@Setter
+@ToString
+@Table(name = "USER_REQUESTS")
+public class UserRequest {
+	@Id
+	@GeneratedValue(strategy = GenerationType.IDENTITY)
+	@Column(name = "REQUEST_ID")
+	private int requestId;
+	
+	@Column(name = "REQUEST_TYPE")
+	private String requestType;
+	
+	@Column(name = "REQUESTOR_USER_ID")
+	private String requestorUserId;
+	
+	@Column(name = "TARGET_USER_ID")
+	private String targetUserId;
+	
+	@Column(name = "REQUEST_PAYLOAD")
+	private String requestPayload;
+	
+	@Column(name = "REQUEST_STATUS")
+	private String requestStatus;
+	
+	@Column(name = "REQUEST_DATE", nullable = false, updatable = false)
+	private LocalDateTime requestDate;
+	
+	@Column(name = "APPROVAL_DATE")
+	private LocalDateTime approvalDate;
+	
+	@Column(name = "APPROVER_USER_ID")
+	private String approverUserId;
+	
+	@Column(name = "REASON_FOR_REJECTION")
+	private String reasonForRejection;
+	
+	@Column(name = "EXECUTION_DATE")
+	private LocalDateTime executionDate;
+	
+	@Column(name = "EXECUTION_DETAILS")
+	private String executionDetails;
+}
+package com.tcs.userservice.model;
+
+import java.sql.Timestamp;
+
+import jakarta.persistence.*;
+import lombok.Data;
+
+@Entity
+@Data
+@Table(name="User_logs")
+
+// Main model for the entire log entry
+public class UserLogs {
+	@Id
+	@GeneratedValue(strategy = GenerationType.IDENTITY)
+	@Column(name="LOG_ID")
+	private Integer logId;
+	
+	@Column(name="ACTION_TYPE")
+	private String actionType;
+	
+	@Column(name="CHANGE_TYPE")
+	private String changeType;
+	
+	@Column(name="ACTION_TIME")
+	private Timestamp actionTime;
+	
+	@Column(name="USER_ID")
+	private String userId;
+
+    @Lob
+	@Column(name="OLD_VALUE")
+	private String oldValue;
+
+    @Lob
+	@Column(name="NEW_VALUE")
+	private String newValue;
+
+
+}
+package com.tcs.userservice.model;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
+
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+
+@Entity
+@Getter
+@Setter
+@Table(name="users")
+public class User {
+
+    @Id
+    @Column(name="USER_ID")
+    private String userId;
+
+    @Column(name="FIRST_NAME")
+    private String firstName;
+
+    @Column(name="MIDDLE_NAME")
+    private String middleName;
+
+    @Column(name="LAST_NAME")
+    private String lastName;
+
+    @Column(name="PHONE_NUMBER")
+    private String phoneNumber;
+
+    @Column(name="EMAIL")
+    private String email;
+
+    @Column(name="PASSWORD_HASH")
+    private String passwordHash;
+
+    @Column(name="ACCOUNT_STATUS")
+    private String accountStatus;
+
+    @Column(name="CREATED_AT")
+    private LocalDateTime createdAt;
+
+    @Column(name="UPDATED_AT")
+    private LocalDateTime updatedAt;
+
+    @Column(name="LAST_LOGIN_AT")
+    private LocalDateTime lastLoginAt;
+
+    @Column(name="IS_DELETED")
+    private char isDeleted;
+
+    @Column(name="DELETED_AT")
+    private LocalDateTime deletedAt;
+
+    @Column(name="TEMP_PASSWORD_SET_AT")
+    private LocalDateTime tempPasswordSetAt;
+
+    @Column(name="USER_WRONG_PASSWORD_COUNT")
+    private int userWrongPasswordCount;
+
+    @Column(name="BRANCH")
+    private int branch;
+}
+
+
