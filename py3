@@ -184,3 +184,100 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(ApiResponse.error("Internal Data Processing Error : SERIALIZATION_FAILURE"), HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }
+
+
+
+//application prpo
+spring.application.name=userService
+spring.datasource.driver-class-name=oracle.jdbc.OracleDriver
+spring.profiles.active=dev
+
+server.port=8087
+
+# LDAP
+spring.ldap.domain=UATAD.SBI
+spring.ldap.urls=ldaps://uatrootdc1.uatad.sbi:3269
+spring.ldap.base=DC=UATAD,DC=SBI
+spring.ldap.username="cn=fincorecbops,dc=UATAD,dc=SBI"
+spring.ldap.password="F1C0re#15"
+
+#security.ldap.truststore-path=${LDAP_TRUSTSTORE_PATH}
+#security.ldap.truststore-password=${LDAP_TRUSTSTORE_PASSWORD}
+security.ldap.truststore-path='file:C:/fincore/secrets/ad-truststore.jks'
+security.ldap.truststore-password='changeit'
+
+# --- Redis Configuration ---
+spring.cache.type=redis
+
+# --- Jackson (JSON) ---
+spring.jackson.date-format=yyyy-MM-dd HH:mm:ss
+spring.jackson.time-zone=Asia/Kolkata
+# spring.jackson.serialization.write-dates-as-timestamps=false
+
+## --- Debezium JSON Deserialization ---
+spring.kafka.consumer.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer
+spring.kafka.consumer.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer
+
+# Disable JSON type mapping features to prevent auto-conversion attempts
+spring.kafka.consumer.properties.spring.json.trusted.packages=*
+spring.kafka.consumer.properties.spring.json.use.type.headers=false
+
+# --- JPA Common ---
+spring.jpa.open-in-view=false
+
+# --- Actuator Base Config ---
+# Enable the endpoints, but control exposure in specific profile files
+management.endpoints.web.base-path=/actuator
+management.endpoint.health.probes.enabled=true
+management.endpoints.web.exposure.include=health, info, prometheus
+management.endpoint.health.show-details=always
+management.metrics.tags.application=${spring.application.name}
+management.info.env.enabled=true
+
+# Add some custom info to the /info endpoint
+info.app.name=UserService
+info.app.description=Service for managing all user and role related operations
+info.app.version=1.0.0
+
+# LOGIN SERVICE KEY USED BY common-entities
+jwt.secret=bWV0aGlvbnlsdGhyZW9ueWx0aHJlb255bGdsdXRhbWlueWxhbGFueWw=
+
+# DB Timeouts: Configuration of connection pooling timeouts ## 30 sec.
+spring.datasource.hikari.connection-timeout=30000
+spring.datasource.hikari.maximum-pool-size=30
+
+# ==============================================================
+# RESILIENCE4J CONFIGURATION (Global Rules)
+# ==============================================================
+
+# --- 1. RETRY STRATEGY ---
+# A. RETRY ON THESE (Transient / "Blips")
+# 1. Spring's wrapper for DB Timeouts, Deadlocks, Connection Drops
+resilience4j.retry.instances.defaultService.retry-exceptions[0]=org.springframework.dao.TransientDataAccessException
+# 2. Connection failure at start of transaction
+resilience4j.retry.instances.defaultService.retry-exceptions[1]=org.springframework.transaction.CannotCreateTransactionException
+# 3. DB Resource Failure (DB Down)
+resilience4j.retry.instances.defaultService.retry-exceptions[2]=org.springframework.dao.DataAccessResourceFailureException
+# 4. Network I/O errors (for Feign/RestCalls)
+resilience4j.retry.instances.defaultService.retry-exceptions[3]=java.io.IOException
+resilience4j.retry.instances.defaultService.retry-exceptions[4]=java.net.ConnectException
+resilience4j.retry.instances.defaultService.retry-exceptions[5]=java.net.SocketTimeoutException
+# B. DO NOT RETRY ON THESE (Logic / Permanent Errors)
+# Even if these happen, we fail immediately so GlobalExceptionHandler can return 400/409
+resilience4j.retry.instances.defaultService.ignore-exceptions[0]=java.lang.IllegalArgumentException
+resilience4j.retry.instances.defaultService.ignore-exceptions[1]=java.lang.NullPointerException
+resilience4j.retry.instances.defaultService.ignore-exceptions[2]=org.springframework.dao.DataIntegrityViolationException
+resilience4j.retry.instances.defaultService.ignore-exceptions[3]=org.springframework.dao.DuplicateKeyException
+resilience4j.retry.instances.defaultService.ignore-exceptions[4]=org.springframework.web.client.HttpClientErrorException
+
+# --- 2. CIRCUIT BREAKER STRATEGY ---
+# If 50% of requests fail, OPEN the circuit (Fail Fast)
+resilience4j.circuitbreaker.instances.defaultService.failure-rate-threshold=50
+# Wait 10 seconds before trying again (Half-Open state)
+resilience4j.circuitbreaker.instances.defaultService.wait-duration-in-open-state=10s
+# Must have at least 5 calls to calculate failure rate
+resilience4j.circuitbreaker.instances.defaultService.minimum-number-of-calls=5
+# When Half-Open, allow 3 test calls to see if backend is up
+resilience4j.circuitbreaker.instances.defaultService.permitted-number-of-calls-in-half-open-state=3
+# Automatically move from Open to Half-Open
+resilience4j.circuitbreaker.instances.defaultService.automatic-transition-from-open-to-half-open-enabled=true
