@@ -1,0 +1,482 @@
+package com.tcs.userservice.repository;
+
+import com.tcs.userservice.model.NotificationTable;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.UUID;
+
+public interface NotificationRepository extends JpaRepository<NotificationTable, UUID> {
+}
+
+
+package com.tcs.userservice.repository;
+
+import com.tcs.userservice.model.Permissions;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.util.List;
+import java.util.Set;
+
+public interface PermissionsRepository extends JpaRepository<Permissions, Integer> {
+
+    List<Permissions> findAll();
+
+    /**
+     * Retrieves a list of mapped request type keys for a given set of menu IDs.
+     */
+    @Query("SELECT p.mappedRequestType FROM Permissions p WHERE p.menuId IN :incomingIds")
+    List<String> findMappedRequestTypeByMenuId(@Param("incomingIds") Set<Integer> incomingIds);
+
+    /**
+     * Fetches both the Target URL and the authorized Role IDs in a single database call.
+     *
+     * @param requestType The mapped request type string (e.g., 'SEGMENT_CODE')
+     * @return A list of arrays where index [0] is MENU_URL (String) and index [1] is ROLE_ID (Number)
+     */
+    @Query(value = """
+            SELECT p.MENU_URL, rp.ROLE_ID
+            FROM PERMISSIONS p
+            JOIN ROLE_PERMISSIONS rp ON p.MENU_ID = rp.PERMISSION_ID
+            JOIN ROLES r ON rp.ROLE_ID = r.ROLE_ID
+            WHERE p.MAPPED_REQUEST_TYPE = :requestType
+            AND (p.MENU_ACTION LIKE '%approve%' OR p.MENU_ACTION LIKE '%reject%')
+            AND r.ROLE_STATUS = 'ACTIVE'
+            """, nativeQuery = true)
+    List<Object[]> findUrlAndRolesByRequestType(@Param("requestType") String requestType);
+
+
+    /**
+     * Joins ROLES -> ROLE_PERMISSIONS -> PERMISSIONS
+     *
+     * @return all permissions assigned specific to role id
+     */
+    @Query(value = """
+                SELECT p.* FROM PERMISSIONS p
+                JOIN ROLE_PERMISSIONS rp ON p.MENU_ID = rp.PERMISSION_ID
+                WHERE rp.ROLE_ID = :roleId
+            """, nativeQuery = true)
+    List<Permissions> findAllByRoleId(@Param("roleId") Long roleId);
+
+    /**
+     * DYNAMIC ELIGIBILITY QUERY
+     */
+    @Query(value = """
+            SELECT p.* FROM PERMISSIONS p
+            WHERE p.IS_RESTRICTED = 'N'
+               OR (p.IS_RESTRICTED = 'Y' AND p.MENU_ID IN (
+                   SELECT rpe.MENU_ID
+                   FROM RESTRICTED_PERMISSION_ELIGIBILITY rpe
+                   WHERE rpe.ROLE_ID = :roleId
+               ))
+            """, nativeQuery = true)
+    List<Permissions> findEligiblePermissions(@Param("roleId") Integer roleId);
+}
+
+
+package com.tcs.userservice.repository;
+
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.CrudRepository;
+import org.springframework.stereotype.Repository;
+import com.tcs.userservice.model.Role;
+
+import java.util.List;
+
+@Repository
+public interface RolePermissionRepository extends CrudRepository<Role, Integer> {
+	// Native query that returns role columns +
+	// permission columns. Aliases and column order
+	// must match mapping below.
+	@Query(value = """
+            SELECT
+                r.role_id,
+                r.role_name,
+                r.description,
+                r.role_status,
+                p.menu_id,
+                p.menu_title,
+                p.menu_icon,
+                p.MENU_DESCRIPTION,
+                rp.PERMISSION_ORDER,
+                p.MENU_SUBMENU
+            FROM
+                roles r
+                LEFT JOIN role_permissions rp ON r.role_id = rp.role_id
+                LEFT JOIN permissions     p ON rp.permission_id = p.menu_id
+            ORDER BY
+                r.role_id,
+            	rp.PERMISSION_ORDER
+            """, nativeQuery = true)
+	List<Object[]> findAllRolesWithPermissionsRaw();
+}
+
+
+package com.tcs.userservice.repository;
+
+import java.util.List;
+
+import com.tcs.userservice.model.Permissions;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import com.tcs.userservice.model.RolePermissionId;
+import com.tcs.userservice.model.RolePermissions;
+
+public interface RolePermissionsRepository extends JpaRepository<RolePermissions, RolePermissionId> {
+
+
+
+	/**
+	 * Function for getting permission based on role id used for modification of
+	 * permissions
+	 * 
+	 * @param : roleId : must be a valid role id
+	 */	@Query(nativeQuery = true, value = """
+			SELECT
+			    p.MENU_ID,
+			    p.MENU_TITLE,
+			    p.MENU_ICON,
+			    p.MENU_SUBMENU,
+			    p.MENU_ACTION,
+			    p.MENU_URL,
+			    p.MENU_COMPONENT_PATH,
+			    p.MENU_ORDER,
+			    p.MENU_DEPENDANT
+			FROM
+			    PERMISSIONS p
+			INNER JOIN
+			    ROLE_PERMISSIONS rp
+			ON
+			    p.MENU_ID = rp.PERMISSION_ID
+			WHERE
+			    rp.ROLE_ID = :roleId
+
+						""")
+	List<Permissions> findAllByRole(@Param("roleId") String roleId);
+
+	List<RolePermissions> findByIdRoleIdAndIdPermissionIdIn(int roleId, List<Integer> permissionIds);
+
+	List<RolePermissions> findByIdRoleId(int roleId);
+
+    @Query(value = "SELECT ROLE_ID FROM ROLE_PERMISSIONS WHERE permission_id = :permissionId", nativeQuery = true)
+    List<Long> findRoleIdsByPermissionId(Long permissionId);
+}
+
+
+package com.tcs.userservice.repository;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import com.tcs.userservice.model.Role;
+
+public interface RoleRepository extends JpaRepository<Role, Integer> {
+
+	Role findRoleByRoleId(int roleId);
+
+	Role findRoleByRoleIdAndRoleName(int roleID, String roleName);
+
+    boolean existsByRoleNameIgnoreCase(String roleName);
+
+}
+
+
+
+package com.tcs.userservice.repository;
+
+import com.tcs.userservice.dto.UserRequestProjection;
+import com.tcs.userservice.model.RoleRequest;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface RoleRequestRepository extends JpaRepository<RoleRequest, Integer> {
+
+    @Query(value = "SELECT count(*) FROM role_requests WHERE TARGET_ROLE_ID=:roleId AND request_status='PENDING'", nativeQuery = true)
+    int countPendingRoleRequests(@Param("roleId") int roleId);
+
+    @Query(value = """
+            SELECT COUNT(*) FROM role_requests 
+            WHERE lower(JSON_VALUE(request_payload, '$.roleName')) = lower(:roleName) 
+            AND request_status = 'PENDING'
+            """, nativeQuery = true)
+    int countPendingRoleRequestsByRoleName(@Param("roleName") String roleName);
+
+
+    @Query(value = """
+            SELECT 
+                request_id AS requestId,
+                request_type AS requestType,
+                requestor_user_id AS requestorUserId,
+                target_role_id AS targetRoleId,
+                request_payload AS requestPayload, 
+                request_status AS requestStatus,
+                request_date AS requestDate,
+                approval_date AS approvalDate,
+                approver_user_id AS approverUserId,
+                reason_for_rejection AS reasonForRejection,
+                execution_date AS executionDate,
+                execution_details AS executionDetails
+            FROM role_requests
+            WHERE requestor_user_id != :requestedByUserId
+            AND request_status = 'PENDING'
+            ORDER BY request_id DESC
+            """, nativeQuery = true)
+    List<UserRequestProjection> findPendingRoleRequests(@Param("requestedByUserId") String requestedByUserId);
+
+    @Query(value = """
+            SELECT 
+                request_id AS requestId,
+                request_type AS requestType,
+                requestor_user_id AS requestorUserId,
+                target_role_id AS targetRoleId,
+                request_payload AS requestPayload,
+                request_status AS requestStatus,
+                request_date AS requestDate,
+                approval_date AS approvalDate,
+                approver_user_id AS approverUserId,
+                reason_for_rejection AS reasonForRejection,
+                execution_date AS executionDate,
+                execution_details AS executionDetails
+            FROM role_requests
+            WHERE requestor_user_id = :requestedByUserId
+            ORDER BY request_id DESC
+            """, nativeQuery = true)
+    List<UserRequestProjection> findMyPendingRoleRequests(@Param("requestedByUserId") String requestedByUserId);
+
+    RoleRequest findRoleRequestByRequestId(int requestId);
+
+    RoleRequest getRoleRequestByRequestId(long requestId);
+
+    @Query(nativeQuery = true, value = "SELECT ROLE_ID_SEQUENCE.NEXTVAL FROM DUAL")
+    int getNewRoleIdOnCreation();
+}
+
+
+package com.tcs.userservice.repository;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import com.tcs.userservice.model.UserLogs;
+
+import java.util.List;
+
+@Repository
+public interface UserLogsRepository extends JpaRepository<UserLogs, Integer>{
+}
+
+
+package com.tcs.userservice.repository;
+
+import com.tcs.userservice.model.User;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.Map;
+
+@Repository
+public interface UserRepository extends JpaRepository<User, String> {
+
+        User findUserByUserId(String userId);
+
+        @Query(value = "select u.user_Id   , u.first_name as firstName,u.last_name,u.email,u.phone_number,u.branch, u.ACCOUNT_STATUS,r.role_id"
+                        +
+                        ",r.role_name " +
+                        "from users  u  join user_roles ur on u.user_id= ur.user_id " +
+                        "join roles r on ur.role_id  = r.role_id where u.user_id = :userId", nativeQuery = true)
+        Map<String, Object> getUserByUserId(@Param("userId") String userId);
+
+        @Query(value = "select u.user_Id as userid , u.first_name,u.last_name,u.email,u.phone_number,u.branch,r.role_id "
+                        +
+                        ",r.role_name " +
+                        "from users  u  join user_roles ur on u.user_id= ur.user_id " +
+                        "join roles r on ur.role_id = r.role_id where u.branch = :branch", nativeQuery = true)
+        List<Map<String, Object>> getUsersByBranch(@Param("branch") int branch);
+
+        @Query(value = "select u.user_Id as userid , u.first_name,u.last_name,u.email,u.phone_number,u.branch,r.role_id "
+                        +
+                        ",r.role_name " +
+                        "from users  u  join user_roles ur on u.user_id= ur.user_id " +
+                        "join roles r on ur.role_id = r.role_id where r.role_name = :role", nativeQuery = true)
+        List<Map<String, Object>> getUsersByRole(@Param("role") String role);
+
+        @Query(value = "select u.user_Id as userid , u.first_name,u.last_name,u.middle_name,u.email,u.phone_number,u.ACCOUNT_STATUS,u.branch,r.role_id ,r.role_name\n"
+                        +
+                        "from users  u  join user_roles ur on u.user_id= ur.user_id join roles r on ur.role_id = r.role_id where  (:userId is NULL or u.user_id=:userId ) and (:role is NULL or  r.role_id = :role)", nativeQuery = true)
+        List<Map<String, Object>> getUsers(@Param("userId") String userId, @Param("role") Integer role);
+
+        boolean existsByUserId(String userId);
+}
+
+
+package com.tcs.userservice.repository;
+
+import com.tcs.userservice.dto.UserRequestProjection;
+import com.tcs.userservice.model.UserRequest;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface UserRequestRepository extends JpaRepository<UserRequest, Integer> {
+
+    @Query(value="SELECT count(*) FROM user_requests WHERE target_user_id=:targetUserId AND request_status='PENDING'", nativeQuery=true)
+    int countUserPendingRequests(@Param("targetUserId") String targetUserId);
+
+    @Query(value = """
+            SELECT 
+                request_id AS requestId,
+                request_type AS requestType,
+                requestor_user_id AS requestorUserId,
+                target_user_id AS targetUserId,
+                request_payload AS requestPayload,
+                request_status AS requestStatus,
+                request_date AS requestDate
+            FROM user_requests 
+            WHERE REQUESTOR_USER_ID != :requestedByUserId 
+            AND request_status='PENDING'
+            """, nativeQuery = true)
+    List<UserRequestProjection> findUserPendingRequests(@Param("requestedByUserId") String requestedByUserId);
+
+    UserRequest findUserRequestsByRequestId(long requestId);
+
+    @Query(value = """
+            
+            SELECT
+                request_id AS requestId,
+                request_type AS requestType,
+                requestor_user_id AS requestorUserId,
+                target_user_id AS targetUserId,
+                request_payload AS requestPayload,
+                request_status AS requestStatus,
+                request_date AS requestDate,
+                APPROVAL_DATE AS approvalDate,
+                APPROVER_USER_ID AS approverUserId,
+                REASON_FOR_REJECTION AS reasonForRejection,
+                EXECUTION_DATE AS executionDate,
+                EXECUTION_DETAILS AS executionDetails
+             FROM user_requests
+             WHERE REQUESTOR_USER_ID = :userId
+             ORDER BY request_id DESC
+            """, nativeQuery = true)
+    List<UserRequestProjection> findUserRequestsByRequestorUserId(@Param("userId") String userId);
+}
+
+
+
+package com.tcs.userservice.repository;
+
+import com.tcs.userservice.model.UserRole;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface UserRoleRepository extends JpaRepository<UserRole, String> {
+    UserRole getUserRolesByUserId(String targetUserId);
+}
+
+
+package com.tcs.userservice.service;
+
+import com.tcs.userservice.model.NotificationTable;
+import com.tcs.userservice.repository.NotificationRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+
+/**
+ * A service to create and save Notification events to the outbox table.
+ * This is designed to be called from within a parent @Transactional method
+ * in RequestServiceImpl to ensure atomic operations.
+ */
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class NotificationWriterService {
+
+    private final NotificationRepository notificationRepository;
+
+    /**
+     * Creates and saves a notification outbox event.
+     * This method joins the existing transaction from the calling service.
+     *
+     * @param userId      The specific user to notify (for 1-to-1). Null if using targetRole.
+     * @param targetRole  The role to notify (for 1-to-many). Null if using userId.
+     * @param message     The human-readable message.
+     * @param linkUrl     The frontend link for the notification.
+     * @param aggregateId The ID of the business object (e.g., the CommonReq ID).
+     * @param eventSource The name of this service.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    // Ensures this is only called from within an existing transaction
+    public void createNotification(String userId, String targetRole, String message, String linkUrl, String aggregateId, String eventSource) {
+
+        if (userId == null && targetRole == null) {
+            log.warn("Skipping notification creation: Both userId and targetRole are null. AggregateID: {}", aggregateId);
+            // In a real scenario, you might want to throw an exception here
+            // if one of them is strictly required, to roll back the parent transaction.
+            return;
+        }
+
+        if (message == null || message.isBlank()) {
+            log.warn("Skipping notification creation: Message is null or blank. AggregateID: {}", aggregateId);
+            // Throwing an exception ensures the parent transaction rolls back.
+            throw new IllegalArgumentException("Notification message cannot be null or blank.");
+        }
+
+        NotificationTable notification = NotificationTable.builder()
+                .userId(userId)  // user id of the receiver
+                .targetRole(targetRole) // role id of the receiver
+                .message(message) // what notification we need to send
+                .linkUrl(linkUrl)
+                .aggregateId(aggregateId)
+                .eventSource(eventSource)
+                .eventTimestamp(LocalDateTime.now(ZoneId.of("Asia/Kolkata")))
+                .build();
+
+        // The EVENT_ID (UUID) and EVENT_TIMESTAMP (CreationTimestamp)
+        // will be set automatically by the NotificationTable entity.
+
+        notificationRepository.save(notification);
+
+        if (userId != null) {
+            log.info("Saved 1-to-1 notification event for user: {} (AggregateID: {})", userId, aggregateId);
+        } else {
+            log.info("Saved 1-to-many notification event for role: {} (AggregateID: {})", targetRole, aggregateId);
+        }
+    }
+}
+
+package com.tcs.userservice.service;
+
+import com.tcs.userservice.model.Permissions;
+import com.tcs.userservice.repository.PermissionsRepository;
+import com.tcs.userservice.repository.RolePermissionsRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
