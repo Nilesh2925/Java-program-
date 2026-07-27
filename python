@@ -279,3 +279,120 @@ public class AuditLog {
     private Timestamp actionTime;
 
 }
+
+
+package com.tcs.userservice.model;
+
+import java.util.List;
+
+import org.springframework.beans.factory.annotation.Qualifier;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Entity
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Table(name="ROLES")
+public class RoleWithPermissions {
+    @Id
+    @Column(name="ROLE_ID")
+    private int roleId;
+
+    @Column(name="ROLE_NAME")
+    private String roleName;
+
+    @Column(name="DESCRIPTION")
+    private String description;
+
+    @Column(name="ROLE_STATUS")
+    private String status;
+
+    @Column(name="PERMISSIONS")
+    @Transient
+    private List<PermissionForRole> permissions;
+}
+package com.tcs.userservice.model;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import org.springframework.cglib.core.Local;
+
+import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+@Entity
+@Data
+@Table(name = "ROLE_REQUESTS")
+public class RoleRequest {
+
+	@Id
+	@GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "role_req_seq_gen")
+	@SequenceGenerator(name = "role_req_seq_gen", sequenceName = "ROLE_REQUEST_ID_SEQUENCE", allocationSize = 1)
+	@Column(name = "REQUEST_ID")
+	private int requestId;
+
+	@Column(name = "REQUEST_TYPE")
+	private String requestType;
+
+	@Column(name = "REQUESTOR_USER_ID")
+	private String requestorUserId;
+
+	@Column(name = "TARGET_ROLE_ID")
+	private int targetRoleId;
+
+	@Column(name = "REQUEST_PAYLOAD")
+	private String requestPayload;
+
+	@Column(name = "REQUEST_STATUS")
+	private String requestStatus;
+
+	@Column(name = "REQUEST_DATE", nullable = false, updatable = false)
+	private LocalDateTime requestDate;
+
+	@Column(name = "APPROVAL_DATE")
+	private LocalDateTime approvalDate;
+
+	@Column(name = "APPROVER_USER_ID")
+	private String approverUserId;
+
+	@Column(name = "REASON_FOR_REJECTION")
+	private String reasonForRejection;
+
+	@Column(name = "EXECUTION_DATE")
+	private LocalDateTime executionDate;
+
+	@Column(name = "EXECUTION_DETAILS")
+	private String executionDetails;
+
+}
+
+package com.tcs.userservice.model;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.Value;
+
+@Entity
+@Data
+@Table(name = "ROLE_PERMISSIONS")
+public class RolePermissions {
+
+	@EmbeddedId
+	private RolePermissionId id;
+
+	@Column(name = "PERMISSION_ORDER")
+	int permissionOrder;
+
+}
+
