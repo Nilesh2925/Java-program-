@@ -607,4 +607,292 @@ public class RoleRequestServiceImpl implements RoleRequestService {
 
         return ResponseEntity.ok(ResponseVO.<Map<String, Object>>builder().statusCode(HttpStatus.OK).message("Fetched " + processedList.size() + " requests").result(result).build());
     }
+/**
+     * Executes Database-dependent business validations (Conflicts, existences, etc.)
+     */
+    private void validateBusinessRules(boolean isCreate, Integer roleId, String roleName) {
+        if (isCreate) {
+            if (roleId != null) {
+                Role existingRole = roleRepository.findRoleByRoleId(roleId);
+                if (existingRole != null) {
+                    throw new IllegalArgumentException("Role ID " + roleId + " already exists.");
+                }
+            }
+            // Check Master Table
+            if (roleRepository.existsByRoleNameIgnoreCase(roleName.trim())) {
+                throw new IllegalArgumentException("Role Name '" + roleName + "' already exists. Please choose a different name.");
+            }
+            // Check Pending Requests
+            if (roleRequestRepository.countPendingRoleRequestsByRoleName(roleName.trim().toLowerCase()) > 0) {
+                throw new IllegalArgumentException("The request for Role Name '" + roleName + "' is already pending approval.");
+            }
+        } else {
+            // Modification Validation
+            if (roleRequestRepository.countPendingRoleRequests(roleId) > 0) {
+                throw new IllegalArgumentException("A pending request already exists for Role ID " + roleId);
+            }
+        }
+    }
+
+    private String formatTimestamp(Timestamp ts) {
+        if (ts == null) return null;
+        // Use SimpleDateFormat to strictly control output string
+        // This produces "2026-01-02T14:14:00.123"
+        return new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS").format(ts);
+    }
+
+}
+
+package com.tcs.userservice.service;
+
+import com.tcs.userservice.dto.PermissionDto;
+import com.tcs.userservice.dto.RoleDto;
+import com.tcs.userservice.model.Role;
+import com.tcs.userservice.repository.RolePermissionRepository;
+import com.tcs.userservice.repository.RoleRepository;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+
+@Slf4j
+@Service
+public class RoleService {
+
+	private final RolePermissionRepository rolePermissionRepository;
+	private final RoleRepository roleRepository;
+
+	public RoleService(RolePermissionRepository rolePermissionRepository, RoleRepository roleRepository) {
+		this.rolePermissionRepository = rolePermissionRepository;
+		this.roleRepository = roleRepository;
+	}
+
+	public List<RoleDto> getAllRolesWithPermissions(boolean permissions) {
+
+		// Case 1: If permissions flag is false, just return basic role details
+		if (!permissions) {
+			return roleRepository.findAll().stream()
+					.map(role -> RoleDto.builder()
+							.roleId(role.getRoleId())
+							.roleName(role.getRoleName())
+							.roleStatus(role.getStatus())
+							.description(role.getDescription()).build())
+					.toList();
+		}
+
+		// Case 2: If permissions flag is true, return roles with permission details
+		List<Object[]> rows = rolePermissionRepository.findAllRolesWithPermissionsRaw();
+		Map<Integer, RoleDto> roleMap = new LinkedHashMap<>();
+
+		for (Object[] row : rows) {
+			Integer roleId = safeNumberToInteger(row[0]);
+			String roleName = safeToString(row[1]);
+			String description = safeToString(row[2]);
+			String roleStatus = safeToString(row[3]);
+
+			RoleDto role = roleMap.computeIfAbsent(
+					roleId, id -> RoleDto.builder()
+					.roleId(id)
+					.roleName(roleName)
+					.description(description)
+					.roleStatus(roleStatus)
+					.permissions(new ArrayList<>()).build());
+
+			// Add permission only if present
+			if (row[4] != null) {
+				Integer menuId = safeNumberToInteger(row[4]);
+				String menuTitle = safeToString(row[5]);
+				String menuIcon = safeToString(row[6]);
+				String menuDescription = safeToString(row[7]);
+				int order = safeNumberToInteger(row[8]);
+                String menuSubmenu = safeToString(row[9]);
+
+                PermissionDto permission = PermissionDto.builder()
+						.id(menuId)
+						.title(menuTitle)
+						.icon(menuIcon)
+						.description(menuDescription)
+                        .order(order)
+                        .menuSubmenu(menuSubmenu)
+						.build();
+
+				role.getPermissions().add(permission);
+			}
+		}
+
+		return new ArrayList<>(roleMap.values());
+	}
+
+	private static Integer safeNumberToInteger(Object o) {
+		if (o == null)
+			return null;
+		if (o instanceof Number)
+			return ((Number) o).intValue();
+		try {
+			return Integer.parseInt(o.toString());
+		} catch (NumberFormatException e) {
+			return null;
+		}
+	}
+
+	private static String safeToString(Object o) {
+		return o == null ? null : o.toString();
+	}
+}
+
+
+package com.tcs.userservice.service;
+
+import com.tcs.userservice.ResponseVO;
+import com.tcs.userservice.dto.UserRequestCreateDto;
+import com.tcs.userservice.dto.UserRequestDto;
+import org.springframework.http.ResponseEntity;
+
+import java.util.Map;
+
+public interface UserRequestService {
+
+        ResponseEntity<ResponseVO<Map<String, Object>>> createNewRequest(UserRequestCreateDto dto, String userId);
+
+        ResponseEntity  getPendingRequests(Map<String,Object> request, String userId);
+
+        ResponseEntity acceptOrRejectUserRequest(UserRequestDto userRequestDto,String ipAddress, String userId);
+
+        ResponseEntity getUserDetails(Map<String,String> params);
+
+        ResponseEntity getMyRequests(Map<String,String> params, String userId);
+
+        ResponseEntity cancelRequest(Map<String, Object> request, String userId);
+
+        ResponseEntity validateUserId(String userId);
+
+
+}
+
+
+package com.tcs.userservice.service;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tcs.userservice.ResponseVO;
+import com.tcs.userservice.dto.*;
+import com.tcs.userservice.exception.ResourceNotFoundException;
+import com.tcs.userservice.model.User;
+import com.tcs.userservice.model.UserRequest;
+import com.tcs.userservice.model.UserRole;
+import com.tcs.userservice.repository.RoleRepository;
+import com.tcs.userservice.repository.UserRepository;
+import com.tcs.userservice.repository.UserRequestRepository;
+import com.tcs.userservice.repository.UserRoleRepository;
+import com.tcs.userservice.utility.ClobUtil;
+import com.tcs.userservice.utility.Constant;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.sql.Timestamp;
+import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class UserRequestServiceImpl implements UserRequestService {
+
+    private static final String EVENT_SOURCE = "USER_SERVICE";
+    private static final String REQUEST_TYPE_KEY = "USER_MANAGEMENT";
+    private static final int RESTRICTED_F1_ROLE_ID = 11;
+    private final UserRequestRepository userRequestRepository;
+    private final AdAuthenticationService adAuthenticationService;
+    private final UserRepository userRepository;
+    private final UserRoleRepository userRoleRepository;
+    private final ObjectMapper objectMapper;
+    private final NotificationWriterService notificationWriterService;
+    private final PermissionConfigService permissionConfigService;
+    private final RoleRepository roleRepository;
+
+    @Override
+    @Transactional
+    public ResponseEntity<ResponseVO<Map<String, Object>>> createNewRequest(UserRequestCreateDto dto, String userId) {
+        String targetUserId = dto.getTargetUserId();
+        String requestType = dto.getRequestType();
+        UserPayloadDto payload = dto.getRequestPayload();
+
+        // 1. Mandatory & Format Validations
+        if (targetUserId == null || targetUserId.trim().isEmpty()) {
+            throw new IllegalArgumentException("User Id is mandatory");
+        }
+
+        if (isInvalidUserId(targetUserId)) {
+            throw new IllegalArgumentException("Invalid User Id format.");
+        }
+//
+//        // 2. AD Server Checks
+//        if (adAuthenticationService.checkIfUserAbsent(targetUserId)) {
+//            throw new IllegalStateException("User ID does not exist in AD Server!"); // Map to 409 or 400
+//        }
+
+        // 3. Conflict & State Checks
+        if (userRequestRepository.countUserPendingRequests(targetUserId) > 0) {
+            throw new IllegalStateException("A pending request already exists for this User ID.");
+        }
+
+        User existingUser = userRepository.findUserByUserId(targetUserId);
+
+        // Case: Create but User already exists
+        if (Constant.CREATE.equalsIgnoreCase(requestType) && existingUser != null) {
+            throw new IllegalStateException("User already exists in the system.");
+        }
+
+        // Case: Action on non-existent user (Modify/Lock/Delete/etc)
+        if (!Constant.CREATE.equalsIgnoreCase(requestType) && existingUser == null) {
+            throw new ResourceNotFoundException("User does not exist.");
+        }
+
+        // Case: Delete validation from old code
+        if (Constant.DELETE.equalsIgnoreCase(requestType) && existingUser != null && "Y".equalsIgnoreCase(String.valueOf(existingUser.getIsDeleted()))) {
+            throw new IllegalStateException("User is already deleted.");
+        }
+
+//        // 4. AD Email Match Check
+//        if (adAuthenticationService.checkIfUserEmailInvalid(targetUserId, payload.getEmail())) {
+//            throw new IllegalStateException("User ID and Email combination mismatch with AD Server!");
+//        }
+
+        // 5. Role Validation
+        int roleId = payload.getRoleId();
+        if (!roleRepository.existsById(roleId)) {
+            throw new ResourceNotFoundException("Role does not exist in the database.");
+        }
+
+        // 6. Advanced Business Logic (F1/BOG Constraints)
+        validateF1BogConstraints(requestType, payload, existingUser);
+
+        // 7. Entity Creation & Persistence
+        UserRequest request = new UserRequest();
+        request.setRequestType(requestType);
+        request.setTargetUserId(targetUserId);
+        request.setRequestorUserId(userId);
+        request.setRequestStatus(Constant.PENDING);
+        request.setRequestDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+        try {
+            request.setRequestPayload(objectMapper.writeValueAsString(payload));
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("Error processing payload");
+        }
+
+        UserRequest saved = userRequestRepository.save(request);
+
+        // 8. Notification Logic
+
 
