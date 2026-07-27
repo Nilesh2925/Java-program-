@@ -1118,5 +1118,104 @@ String notifMsg = String.format("New User Request (id: %s) for user %s (%s) is p
         responseVo.setMessage(HttpStatus.OK.getReasonPhrase());
         return new ResponseEntity<>(responseVo, responseVo.getStatusCode());
     }
+@Override
+    public ResponseEntity<ResponseVO<Map<String, Object>>> getMyRequests(Map<String, String> params, String userId) {
+        List<UserRequestProjection> rawList = userRequestRepository.findUserRequestsByRequestorUserId(userId);
+        for (UserRequestProjection u : rawList) {
+            log.info("raw list : {}", u);
+        }
+        return processProjections(rawList, "myRequests");
+    }
 
+    @Override
+    @Transactional
+    public ResponseEntity cancelRequest(Map<String, Object> request, String userId) {
+
+        int requestId = Integer.parseInt(String.valueOf(request.get("requestId")));
+        String remarks = request.get("reason") != null ? (String) request.get("reason") : "No Remarks";
+        UserRequest userRequest = userRequestRepository.findUserRequestsByRequestId(requestId);
+
+        if (!userRequest.getRequestorUserId().equals(userId)) {
+            log.warn("SECURITY VIOLATION: User {} attempted to cancel request {} owned by {}", userId, requestId, userRequest.getRequestorUserId());
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        // 3. State Check: Must be PENDING
+        if (!userRequest.getRequestStatus().equals(Constant.PENDING)) {
+            log.warn("Attempted to cancel a processed request. ID: {}, Status: {}", requestId, userRequest.getRequestStatus());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+        }
+
+        // update cancel status
+        userRequest.setRequestStatus(Constant.CANCEL);
+        // update creator id as approver for cancel case
+        userRequest.setApproverUserId(userId);
+        userRequest.setApprovalDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+        userRequest.setReasonForRejection("CANCELLED BY USER: " + remarks);
+
+        userRequestRepository.save(userRequest);
+
+        createNotification(userRequest.getRequestorUserId(), null, "/user-create", "User Request (ID: " + requestId + ") has been cancelled.", String.valueOf(requestId));
+
+        return ResponseEntity.ok(ResponseVO.<Map<String, Object>>builder().statusCode(HttpStatus.OK).message("Cancelled").result(Map.of("status", true)).build());
+
+    }
+
+    @Override
+    public ResponseEntity<ResponseVO<Map<String, Object>>> validateUserId(String userId) {
+        if (isInvalidUserId(userId)) {
+            return ResponseEntity.ok(ResponseVO.<Map<String, Object>>builder().statusCode(HttpStatus.OK).message("Invalid User Id format")
+                    .result(Map.of("valid", false, "reason", "'INVALID_USER_ID_FORMAT")).build());
+        }
+        boolean exists = (userRepository.existsByUserId(userId));
+        return ResponseEntity.ok(ResponseVO.<Map<String, Object>>builder().statusCode(HttpStatus.OK).message(exists ? "User already exists"
+                : "User id does not exist").result(Map.of("exists", exists)).build());
+    }
+
+    private ResponseEntity<ResponseVO<Map<String, Object>>> buildError(HttpStatus status, String msg) {
+        return ResponseEntity.status(status).body(ResponseVO.<Map<String, Object>>builder().statusCode(status).message(msg).result(Map.of("status", false, "message", msg)).build());
+    }
+
+    private boolean isInvalidUserId(String userId) {
+        if (userId == null) return true;
+        String id = userId.toLowerCase();
+        // Return TRUE if it DOES NOT match
+        return !id.matches("^(v|tcs)?\\d{7}$");
+    }
+
+    /**
+     * Strict validation for F1/Bog Role (ID 11).
+     * Returns a ResponseEntity with error details if validation fails, otherwise returns null.
+     */
+    private void validateF1BogConstraints(String requestType, UserPayloadDto payload, User existingUser) {
+        Integer payloadRoleId = payload.getRoleId();
+
+        // 1. CREATE REQUEST Constraints
+        if (Constant.CREATE.equalsIgnoreCase(requestType)) {
+            if (payloadRoleId != null && payloadRoleId == RESTRICTED_F1_ROLE_ID) {
+                throw new IllegalArgumentException("Creation of F1/Bog (Role ID " + RESTRICTED_F1_ROLE_ID + ") users is not allowed via this request.");
+            }
+        }
+
+        // 2. MODIFY REQUEST Constraints
+        if (Constant.MODIFY.equalsIgnoreCase(requestType) && existingUser != null) {
+            // Fetch Current Role from DB
+            UserRole currentRoleEntity = userRoleRepository.getUserRolesByUserId(existingUser.getUserId());
+            int currentRoleId = (currentRoleEntity != null) ? currentRoleEntity.getRoleId() : -1;
+
+            // Validate Role Transitions
+            if (payloadRoleId != null) {
+                // Rule: If you are NOT currently an F1, you cannot become an F1
+                if (currentRoleId != RESTRICTED_F1_ROLE_ID && payloadRoleId == RESTRICTED_F1_ROLE_ID) {
+                    throw new IllegalArgumentException("Security Violation: Cannot change user role TO F1/Bog.");
+                }
+            }
+        }
+        // If we reached here, validation passed. No return needed as it's void.
+    }
+
+    private void createNotification(String targetUser, String roles, String url, String msg, String refId) {
+        notificationWriterService.createNotification(targetUser, roles, msg, url, refId, EVENT_SOURCE);
+    }
+}
 
