@@ -1,127 +1,281 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <modelVersion>4.0.0</modelVersion>
-    <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.1.0</version>
-        <relativePath/> <!-- lookup parent from repository -->
-    </parent>
+//responsewraper
+package com.tcs.userservice.advice;
 
-    <groupId>com.example</groupId>
-    <artifactId>userService</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
-    <packaging>jar</packaging>
-    <name>user-service</name>
-    <description>userService</description>
-    <properties>
-        <java.version>21</java.version>
-    </properties>
-    <dependencies>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-devtools</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-webflux</artifactId>
-        </dependency>
+import com.tcs.userservice.dto.ApiResponse;
+import org.springframework.core.MethodParameter;
+import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.http.server.ServerHttpResponse;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
 
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <optional>true</optional>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-jpa</artifactId>
-        </dependency>
+/**
+ * This ControllerAdvice intercepts successful responses from
+ * any @RestController
+ * and wraps them in a standard ApiResponse format.
+ */
+@ControllerAdvice
+public class ApiResponseWrapper implements ResponseBodyAdvice<Object> {
+	
+	static {
+		System.setProperty("spring.classformat.ignore", "true");
+	}
 
-        <dependency>
-            <groupId>com.oracle.database.jdbc</groupId>
-            <artifactId>ojdbc11</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.json</groupId>
-            <artifactId>json</artifactId>
-            <version>20240303</version>
-        </dependency>
+    @Override
+    public boolean supports(MethodParameter returnType, Class<? extends HttpMessageConverter<?>> converterType) {
+        // This advice applies to any method in a class annotated with @RestController
+        // that is not already returning a ResponseEntity (which gives manual control).
+        return AnnotatedElementUtils.hasAnnotation(returnType.getContainingClass(), RestController.class) &&
+                !returnType.getParameterType().equals(ResponseEntity.class);
+    }
 
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-actuator</artifactId>
-        </dependency>
+    @Override
+    public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType selectedContentType,
+            Class<? extends HttpMessageConverter<?>> selectedConverterType,
+            ServerHttpRequest request, ServerHttpResponse response) {
 
-        <!-- health metrics -->
-        <dependency>
-            <groupId>io.micrometer</groupId>
-            <artifactId>micrometer-registry-prometheus</artifactId>
-        </dependency>
+        // If the controller has already manually wrapped the response, do nothing.
+        if (body instanceof ApiResponse<?>) {
+            return body;
+        }
 
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-redis</artifactId>
-        </dependency>
+        // Wrap the successful response body in the standard ApiResponse structure.
+        return ApiResponse.success(body);
+    }
+}
 
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-cache</artifactId>
-        </dependency>
 
-        <dependency>
-            <groupId>com.fincore</groupId>
-            <artifactId>common-utilities</artifactId>
-            <version>0.0.1-SNAPSHOT</version>
-        </dependency>
 
-        <!--LDAP-->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-ldap</artifactId>
-        </dependency>
+//aspect : useractivitylogger 
 
-        <!-- KAFKA -->
-        <dependency>
-            <groupId>org.springframework.kafka</groupId>
-            <artifactId>spring-kafka</artifactId>
-        </dependency>
 
-        <dependency>
-            <groupId>org.springframework.kafka</groupId>
-            <artifactId>spring-kafka-test</artifactId>
-            <scope>test</scope>
-        </dependency>
+package com.tcs.userservice.aspect;
 
-        <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-messaging</artifactId>
-        </dependency>
+import com.tcs.userservice.dto.UserRequestCreateDto;
+import com.tcs.userservice.dto.UserRequestDto;
+import com.tcs.userservice.model.UserLogs;
+import com.tcs.userservice.repository.UserLogsRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.aspectj.lang.JoinPoint;
+import org.aspectj.lang.annotation.AfterReturning;
+import org.aspectj.lang.annotation.Aspect;
+import org.springframework.dao.DataAccessException;
+import org.springframework.stereotype.Component;
 
-        <dependency>
-            <groupId>net.logstash.logback</groupId>
-            <artifactId>logstash-logback-encoder</artifactId>
-            <version>7.4</version>
-        </dependency>
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.Map;
+import org.springframework.http.ResponseEntity;
+import com.tcs.userservice.ResponseVO;
 
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-validation</artifactId>
-        </dependency>
-    </dependencies>
 
-    <build>
-        <finalName>${project.artifactId}</finalName>
-        <plugins>
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-            </plugin>
-        </plugins>
-    </build>
-</project>
+@Aspect
+@Component
+@Slf4j
+@RequiredArgsConstructor
+public class UserActivityLogger {
+
+    private final UserLogsRepository userLogsRepository;
+
+    // Log User Creation
+    @AfterReturning(
+            pointcut = "execution(* com.tcs.userservice.service.UserRequestService.createNewRequest(..)) && args(request, userId)",
+            returning = "result")
+    public void logUserRequest(JoinPoint joinPoint, Object request, String userId, Object result) {
+        if (isSuccess(result)) {
+            String type = "UNKNOWN";
+            String payload = "";
+
+            if (request instanceof UserRequestCreateDto) {
+                UserRequestCreateDto dto = (UserRequestCreateDto) request;
+                type = dto.getRequestType();
+                payload = dto.toString();
+            } else if (request instanceof Map) {
+                type = String.valueOf(((Map) request).get("requestType"));
+                payload = request.toString();
+            }
+            saveLog(userId, "USER_REQUEST", type + " Request Raised", payload);
+        }
+    }
+
+    // Log Role Creation
+    @AfterReturning(
+            pointcut = "execution(* com.tcs.userservice.service.RoleRequestService.createNewRoleRequest(..)) && args(request, userId)",
+            returning = "result")
+    public void logRoleRequest(JoinPoint joinPoint, Object request, String userId, Object result) {
+        if (isSuccess(result)) {
+            String payload = request.toString();
+            saveLog(userId, "ROLE_REQUEST", "Role Request Raised", payload);
+        }
+    }
+
+
+    // =================================================================
+    // 3. Log User Approval/Rejection
+    // =================================================================
+        @AfterReturning(pointcut = "execution(* com.tcs.userservice.service.UserRequestService.acceptOrRejectUserRequest(..)) && args(dto, ip, userId)",
+            returning = "result", argNames = "joinPoint,dto,ip,userId,result")
+    public void logUserApproval(JoinPoint joinPoint, UserRequestDto dto, String ip, String userId, Object result) {
+        if (!isSuccess(result)) return;
+
+        String actionFlag = dto == null ? null : dto.getActionFlag();
+        String requestType = dto == null ? null : dto.getRequestType();
+        String targetUser = dto == null ? null : dto.getRequesterUserId();
+        String actionType = "USER_" + (actionFlag == null ? "" : actionFlag);
+
+        String description;
+        if ("REJECT".equalsIgnoreCase(actionFlag)) {
+            description = "Rejected " + (requestType == null ? "" : requestType) + " request for user";
+        } else {
+            String rt = requestType == null ? "" : requestType;
+            if ("LOCK".equalsIgnoreCase(rt)) description = "Locked User Account";
+            else if ("UNLOCK".equalsIgnoreCase(rt)) description = "Unlocked User Account";
+            else if ("DELETE".equalsIgnoreCase(rt)) description = "Deleted User Account";
+            else if ("CREATE".equalsIgnoreCase(rt)) description = "Approved User Creation";
+            else if ("MODIFY".equalsIgnoreCase(rt)) description = "Approved User Modification";
+            else description = "Processed User Request (" + (requestType == null ? "" : requestType) + ")";
+        }
+
+        // minimal single-line payload string (null-safe)
+        String newVal = "Target: " + (targetUser == null ? "unknown" : targetUser)
+                + " | IP: " + (ip == null ? "" : ip)
+                + (requestType == null ? "" : " | RequestType: " + requestType)
+                + ((dto != null && dto.getOldValue() != null && !dto.getOldValue().isEmpty())
+                ? " | OldValue: " + (dto.getOldValue().length() > 3900 ? dto.getOldValue().substring(0,3900) + "..." : dto.getOldValue())
+                : "");
+
+        saveLog(userId, actionType, description, newVal);
+    }
+
+    // =================================================================
+    // 4. Log Role Approval
+    // =================================================================
+    @AfterReturning(pointcut = "execution(* com.tcs.userservice.service.RoleRequestService.acceptOrRejectRoleRequest(..)) && args(request, userId)",
+            returning = "result")
+    public void logRoleApproval(JoinPoint joinPoint, Map<String, Object> request, String userId, Object result) {
+        if (isSuccess(result)) {
+            String actionFlag = String.valueOf(request.get("actionFlag"));
+            String requestId = String.valueOf(request.get("requestId"));
+            saveLog(userId, "ROLE_" + actionFlag, "Processed Role Request", "Request ID: " + requestId);
+        }
+    }
+
+
+    // =================================================================
+    // 5. Log User Request Cancellation
+    // =================================================================
+    @AfterReturning(pointcut = "execution(* com.tcs.userservice.service.UserRequestService.cancelRequest(..)) && args(request)",
+            returning = "result", argNames = "joinPoint,request,result")
+    public void logUserCancel(JoinPoint joinPoint, Map<String, Object> request, Object result) {
+        if (isSuccess(result)) {
+            String userId = String.valueOf(request.get("userId"));
+            String requestId = String.valueOf(request.get("requestId"));
+            saveLog(userId, "USER_CANCEL", "Cancelled User Request", "Request ID: " + requestId);
+        }
+    }
+
+
+    // =================================================================
+    // 6. Log Role Request Cancellation
+    // =================================================================
+    @AfterReturning(pointcut = "execution(* com.tcs.userservice.service.RoleRequestService.cancelRoleRequest(..)) && args(request, userId)",
+            returning = "result", argNames = "joinPoint,request,userId,result")
+    public void logRoleCancel(JoinPoint joinPoint, Map<String, Object> request, String userId, Object result) {
+        if (isSuccess(result)) {
+            String requestId = String.valueOf(request.get("requestId"));
+            saveLog(userId, "ROLE_CANCEL", "Cancelled Role Request", "Request ID: " + requestId);
+        }
+    }
+
+    // Helper to Save to DB
+    private void saveLog(String userId, String actionType, String changeType, String newValue) {
+        try {
+            UserLogs logEntry = new UserLogs();
+            logEntry.setUserId(userId);
+            logEntry.setActionType(actionType); // Short code (e.g. USER_LOCK)
+            logEntry.setChangeType(changeType); // Human readable (e.g. Locked Account)
+            logEntry.setActionTime(Timestamp.from(Instant.now()));
+            if (newValue != null && newValue.length() > 3900) {
+                newValue = newValue.substring(0, 3900) + "...";
+            }
+            logEntry.setNewValue(newValue);
+            userLogsRepository.save(logEntry);
+            log.info("Auto-Logged: {} -> {}", userId, changeType);
+        } catch (DataAccessException ex) {
+            // Handles SQL exceptions, connection failures, constraint violations, etc.
+            log.error("Database access failed while saving log for user {}: {}", userId, ex.getMessage(), ex);
+        } catch (IllegalArgumentException ex) {
+            log.error("Invalid argument when creating log entry: {}", ex.getMessage(), ex);
+        }
+    }
+
+
+    // Helper Method to Determine Success
+    private boolean isSuccess(Object result) {
+        if (result instanceof ResponseEntity) {
+            ResponseEntity<?> response = (ResponseEntity<?>) result;
+            if (!response.getStatusCode().is2xxSuccessful()) return false;
+            Object body = response.getBody();
+            if (body instanceof ResponseVO) {
+                ResponseVO<?> vo = (ResponseVO<?>) body;
+                Object voResult = vo.getResult();
+                if (voResult instanceof Map) {
+                    Object statusObj = ((Map<?, ?>) voResult).get("status");
+                    if (statusObj instanceof Boolean) return (Boolean) statusObj;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+}
+
+//config - cache warmer 
+package com.tcs.userservice.config;
+
+import com.tcs.userservice.service.PermissionCacheService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.stereotype.Component;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+import java.util.List;
+
+@Component
+@RequiredArgsConstructor
+@Slf4j
+public class CacheWarmer {
+
+    private final PermissionCacheService permissionCacheService;
+    private final JdbcTemplate jdbcTemplate;
+
+    /**
+     * Runs once when the application starts.
+     * Iterates over ALL Role IDs and refreshes their permissions in Redis.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void onStartup() {
+        log.info("Startup: Warming Permission Cache...");
+
+        // Fetch all Role IDs (using JDBC for speed/simplicity)
+        List<Long> roleIds = jdbcTemplate.queryForList("SELECT ROLE_ID FROM ROLES", Long.class);
+
+        for (Long roleId : roleIds) {
+            try {
+                permissionCacheService.refreshRolePermissions(roleId);
+            } catch (Exception e) {
+                log.error("Failed to refresh permissions for Role {}", roleId, e);
+            }
+        }
+        log.info("Cache Warming Complete. Processed {} roles.", roleIds.size());
+    }
+}
