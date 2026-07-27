@@ -1,1 +1,47 @@
-py
+@GetMapping("/my-requests")
+    public ResponseEntity getMyRequests(@RequestHeader("Authorization") String token, @RequestParam Map<String, String> params) {
+        String userId = jwtUtil.getUserIdFromToken(token);
+        log.info("Received request to fetch my requests for user : {}", userId);
+        return userRequestService.getMyRequests(params, userId);
+    }
+
+ @Override
+    public ResponseEntity<ResponseVO<Map<String, Object>>> getPendingRequests(Map<String, Object> params, String userId) {
+        List<UserRequestProjection> rawList = userRequestRepository.findUserPendingRequests(userId);
+        return processProjections(rawList, "pendingRequests");
+    }
+
+    private ResponseEntity<ResponseVO<Map<String, Object>>> processProjections(List<UserRequestProjection> rawList, String key) {
+        List<Map<String, Object>> processed = rawList.stream().map(req -> {
+            Map<String, Object> map = new HashMap<>();
+            map.put("requestId", req.getRequestId());
+            map.put("requestType", req.getRequestType());
+            map.put("targetUserId", req.getTargetUserId());
+            map.put("requestStatus", req.getRequestStatus());
+            map.put("requestDate", formatTimestamp(req.getRequestDate()));
+            map.put("requestPayload", ClobUtil.clobToString(req.getRequestPayload()));
+            log.info("approverId id : {}", req.getApprovalDate());
+            map.put("requestorUserId", req.getRequestorUserId());
+            map.put("approverId", req.getApproverUserId());
+            map.put("approvalDate", formatTimestamp(req.getApprovalDate()));
+            map.put("rejectionReason", req.getReasonForRejection());
+            return map;
+        }).toList();
+
+        return ResponseEntity.ok(ResponseVO.<Map<String, Object>>builder().statusCode(HttpStatus.OK).result(Map.of(key, processed)).build());
+    }
+@Query(value = """
+            SELECT 
+                request_id AS requestId,
+                request_type AS requestType,
+                requestor_user_id AS requestorUserId,
+                target_user_id AS targetUserId,
+                request_payload AS requestPayload,
+                request_status AS requestStatus,
+                request_date AS requestDate
+            FROM user_requests 
+            WHERE REQUESTOR_USER_ID != :requestedByUserId 
+            AND request_status='PENDING'
+            """, nativeQuery = true)
+    List<UserRequestProjection> findUserPendingRequests(@Param("requestedByUserId") String requestedByUserId);
+
