@@ -286,3 +286,314 @@ public class SecurityConfig {
         return http.build();
     }
 }
+
+// controller - role request controller
+package com.tcs.userservice.controller;
+
+import com.fincore.commonutilities.jwt.JwtUtil;
+import com.tcs.userservice.dto.PermissionOrderDto;
+import com.tcs.userservice.dto.RoleRequestCreateDto;
+import com.tcs.userservice.service.RoleRequestService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+/**
+ * REST controller for managing role lifecycle including creation, approval, and permission assignment.
+ * <p>
+ * Handles all role-related operations such as requesting new roles, viewing pending requests,
+ * approving or rejecting requests, and managing role permissions. This controller serves as the
+ * entry point for role management workflows and integrates with JWT-based authentication.
+ *
+ *  @author SHUBHANKAR DAS [Emp ID: V1018405]
+ *  <a href="mailto:shubhankar.das.cbstcs@sbi.co.in">shubhankar.das.cbstcs@sbi.co.in</a>
+ *  @version 1.0.1
+ *  @since 2025-04-01
+ */
+@Slf4j
+@RestController
+@RequestMapping("/api/role")
+@RequiredArgsConstructor
+public class RoleRequestController {
+
+    private final RoleRequestService roleRequestService;
+    private final JwtUtil jwtUtil;
+
+    /**
+     * Fetches all roles based on provided filters.
+     *
+     * @param requestParams Map of filter criteria (permissions: true/false, decides permissions to be fetched or not)
+     * @return ResponseEntity containing list of roles and metadata
+     */
+    @GetMapping("/get-roles")
+    public ResponseEntity getAllRoles(@RequestParam Map<String, Object> requestParams) {
+        log.info("Received request to fetch all roles");
+        return roleRequestService.getAllRoles(requestParams);
+    }
+
+    /**
+     * Submits a new role creation request.
+     *
+     * @param request Validated DTO containing role details
+     * @param token   JWT token for user authentication
+     * @return ResponseEntity with submission result
+     */
+    @PostMapping("/create-role-request")
+    public ResponseEntity createNewRequest(@Valid @RequestBody RoleRequestCreateDto request,
+                                           @RequestHeader("Authorization") String token) {
+        log.info("Received request to create role : {}", request);
+        String userId = jwtUtil.getUserIdFromToken(token);
+        return roleRequestService.createNewRoleRequest(request, userId);
+    }
+
+    /**
+     * Retrieves all pending role creation/modifications requests.
+     *
+     * @param token JWT token for user authentication
+     * @return ResponseEntity containing list of pending requests
+     */
+    @GetMapping("/pending-role-requests")
+    public ResponseEntity getPendingRequests(@RequestHeader("Authorization") String token) {
+        String userId = jwtUtil.getUserIdFromToken(token);
+        log.info("Received request to fetch all role creation/modifications pending requests.");
+        return roleRequestService.getPendingRoleRequests(userId);
+    }
+
+    /**
+     * Approves or rejects a role creation request.
+     *
+     * @param request Map containing action flag and request ID
+     * @param token   JWT token for user authentication
+     * @return ResponseEntity with action result
+     */
+    @PostMapping("/role-request-action")
+    public ResponseEntity acceptRequest(@RequestBody Map<String, Object> request,
+                                        @RequestHeader("Authorization") String token) {
+        String userId = jwtUtil.getUserIdFromToken(token);
+        log.info("Received request to execute role request: {}", (String) request.get("actionFlag"));
+        return roleRequestService.acceptOrRejectRoleRequest(request, userId);
+    }
+
+    /**
+     * Retrieves all role requests initiated by the authenticated user.
+     *
+     * @param token JWT token for user authentication
+     * @return ResponseEntity containing user's role request history
+     */
+    @GetMapping("/my-role-requests")
+    public ResponseEntity getMyRequests(@RequestHeader("Authorization") String token) {
+        String userId = jwtUtil.getUserIdFromToken(token);
+        log.info("Received request to fetch all requests pending for my role");
+        return roleRequestService.getMyRoleRequests(userId);
+    }
+
+    /**
+     * Cancels a submitted role creation request.
+     *
+     * @param request Map containing request ID to cancel
+     * @param token   JWT token for user authentication
+     * @return ResponseEntity with cancellation result
+     */
+    @PostMapping("/cancel-role-request")
+    public ResponseEntity cancelRoleRequest(@RequestBody Map<String, Object> request,
+                                            @RequestHeader("Authorization") String token) {
+        log.info("Received request to cancel role creation request");
+        return roleRequestService.cancelRoleRequest(request, jwtUtil.getUserIdFromToken(token));
+    }
+
+    /**
+     * @param roleId (target role id while modifying one existing role, for new creation of roles it sends nothing)
+     * @return list of permissions allowed for that specific target role
+     */
+    @GetMapping("/get-all-permissions")
+    public ResponseEntity getAllPermissions(@RequestParam(value = "roleId", required = false) Integer roleId) {
+        log.info("Received request to fetch all eligible permissions for roleId: {}", roleId);
+        return roleRequestService.getAllPermissions(roleId);
+    }
+
+    /**
+     * Saves permission re-ordering
+     *
+     * @param payload
+     * @return new permissions list size
+     */
+    @PatchMapping("/save-permission-order")
+    public ResponseEntity savePermissionOrder(@RequestBody PermissionOrderDto payload) {
+        log.info("Received request to save permission order");
+        return roleRequestService.savePermissionOrder(payload);
+    }
+
+    /**
+     * Admin api to sync rbac permissions cache
+     */
+    @PostMapping("/force-sync-rbac")
+    public ResponseEntity forceSyncRbacCache(@RequestHeader("Authorization") String token) {
+        int roleID = jwtUtil.getUserRoleFromToken(token);
+        if (roleID != 10) {
+            log.warn("Unauthorized access attempt by role: {} to force sync all RBAC and Config caches", roleID);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body("Access denied: Insufficient permissions to perform this action.");
+        }
+        log.info("Received Admin request to force sync all RBAC and Config caches.");
+        return roleRequestService.forceSyncRbacCache();
+    }
+}
+
+// user request controller
+package com.tcs.userservice.controller;
+
+import com.fincore.commonutilities.jwt.JwtUtil;
+import com.tcs.userservice.dto.UserRequestCreateDto;
+import com.tcs.userservice.dto.UserRequestDto;
+import com.tcs.userservice.service.UserRequestService;
+import com.tcs.userservice.utility.RequestUtility;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import java.util.Map;
+
+/**
+ * REST controller for managing user lifecycle including creation, approval, and permission assignment.
+ * <p>
+ * Handles all user-related operations such as creating new users, viewing pending user creation requests,
+ * approving or rejecting requests. This controller serves as the entry point for user management workflows.
+ *
+ *  @author SHUBHANKAR DAS [Emp ID: V1018405]
+ *  <a href="mailto:shubhankar.das.cbstcs@sbi.co.in">shubhankar.das.cbstcs@sbi.co.in</a>
+ *  @version 1.0.1
+ *  @since 2025-04-01
+ */
+@Slf4j
+@RestController
+@RequestMapping("/api/user")
+@RequiredArgsConstructor
+public class UserRequestController {
+
+    private final UserRequestService userRequestService;
+    private final JwtUtil jwtUtil;
+
+    @PostMapping("/create-request")
+    public ResponseEntity createNewRequest(@Valid @RequestBody UserRequestCreateDto request,
+                                              @RequestHeader("Authorization") String token) {
+        log.info("Received request to create user : {}", request);
+        String userId = jwtUtil.getUserIdFromToken(token);
+        return userRequestService.createNewRequest(request, userId);
+    }
+
+    @GetMapping("/pending-user-requests")
+    public ResponseEntity getPendingRequests(@RequestParam Map<String, Object> params,
+                                             @RequestHeader("Authorization") String token) {
+        String userId = jwtUtil.getUserIdFromToken(token);
+        log.info("Received request to fetch all user creation pending requests for user id : {}", userId);
+        return userRequestService.getPendingRequests(params, userId);
+    }
+
+    @PostMapping("/accept-request")
+    public ResponseEntity acceptRequest(HttpServletRequest request,
+                                        @RequestBody UserRequestDto userRequest,
+                                        @RequestHeader("Authorization") String token) {
+        String clientIp = RequestUtility.getClientIp(request);
+        String userId = jwtUtil.getUserIdFromToken(token);
+        userRequest.setApproverUserId(userId);
+        log.info("Received request to execute user request : {}", userRequest);
+        return userRequestService.acceptOrRejectUserRequest(userRequest, clientIp, userId);
+    }
+
+    @GetMapping("/user-details")
+    public ResponseEntity getUserDetails(@RequestParam Map<String, String> request) {
+        String userId = request.get("id");
+        String role = request.get("roleId");
+        log.info("Received request to fetch all user details for the user : {} and role {}", userId, role);
+        return userRequestService.getUserDetails(request);
+    }
+
+    @GetMapping("/my-requests")
+    public ResponseEntity getMyRequests(@RequestHeader("Authorization") String token, @RequestParam Map<String, String> params) {
+        String userId = jwtUtil.getUserIdFromToken(token);
+        log.info("Received request to fetch my requests for user : {}", userId);
+        return userRequestService.getMyRequests(params, userId);
+    }
+
+    @PostMapping("/cancel-request")
+    public ResponseEntity cancelRequest(@RequestHeader("Authorization") String token, @RequestBody Map<String, Object> request) {
+        log.info("Received request to cancel request with request id : {}", request.get("requestId"));
+        return userRequestService.cancelRequest(request, jwtUtil.getUserIdFromToken(token));
+    }
+
+    @GetMapping("/validate/userid")
+    public ResponseEntity validateUserId(@RequestParam("userId") String userId){
+        log.info("Received request to validate user Id : {}", userId);
+        return userRequestService.validateUserId(userId);
+    }
+}
+
+
+/// dto - api response dto 
+package com.tcs.userservice.dto;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import lombok.Getter;
+
+import java.time.Instant;
+
+@Getter
+@JsonInclude(JsonInclude.Include.NON_NULL) // Don't include null fields in the JSON response
+public class ApiResponse<T> {
+
+    private final boolean success;
+    private final String message;
+    private final T data;
+    private final Instant timestamp;
+
+    private ApiResponse(boolean success, String message, T data) {
+        this.success = success;
+        this.message = message;
+        this.data = data;
+        this.timestamp = Instant.now();
+    }
+
+    public static <T> ApiResponse<T> success(T data, String message) {
+        return new ApiResponse<>(true, message, data);
+    }
+
+    public static <T> ApiResponse<T> success(T data) {
+        return new ApiResponse<>(true, "Operation completed successfully.", data);
+    }
+
+    public static <T> ApiResponse<T> error(String message) {
+        return new ApiResponse<>(false, message, null);
+    }
+}
+
+//chilemenu
+package com.tcs.userservice.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class ChildMenu {
+    
+	private int id;
+    
+	private String title;
+    
+	private String route;
+    
+	private ScreenDetails screenDetails;
+	
+}
+
+
+
