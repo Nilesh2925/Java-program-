@@ -894,5 +894,229 @@ public class UserRequestServiceImpl implements UserRequestService {
         UserRequest saved = userRequestRepository.save(request);
 
         // 8. Notification Logic
+String notifMsg = String.format("New User Request (id: %s) for user %s (%s) is pending approval.", saved.getRequestId(),
+                saved.getTargetUserId(), saved.getRequestType());
+
+        NotificationConfigDto config = permissionConfigService.getConfig(REQUEST_TYPE_KEY);
+
+        createNotification(saved.getRequestorUserId(), config.getTargetRoles(), config.getTargetUrl(), notifMsg, String.valueOf(saved.getRequestId()));
+
+        // 9. Success Response
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                ResponseVO.<Map<String, Object>>builder()
+                        .statusCode(HttpStatus.CREATED)
+                        .message("Request Created Successfully")
+                        .result(Map.of("userRequest", saved))
+                        .build());
+    }
+
+    @Override
+    public ResponseEntity<ResponseVO<Map<String, Object>>> getPendingRequests(Map<String, Object> params, String userId) {
+        List<UserRequestProjection> rawList = userRequestRepository.findUserPendingRequests(userId);
+        return processProjections(rawList, "pendingRequests");
+    }
+
+    private ResponseEntity<ResponseVO<Map<String, Object>>> processProjections(List<UserRequestProjection> rawList, String key) {
+        List<Map<String, Object>> processed = rawList.stream().map(req -> {
+            Map<String, Object> map = new HashMap<>();
+            map.put("requestId", req.getRequestId());
+            map.put("requestType", req.getRequestType());
+            map.put("targetUserId", req.getTargetUserId());
+            map.put("requestStatus", req.getRequestStatus());
+            map.put("requestDate", formatTimestamp(req.getRequestDate()));
+            map.put("requestPayload", ClobUtil.clobToString(req.getRequestPayload()));
+            log.info("approverId id : {}", req.getApprovalDate());
+            map.put("requestorUserId", req.getRequestorUserId());
+            map.put("approverId", req.getApproverUserId());
+            map.put("approvalDate", formatTimestamp(req.getApprovalDate()));
+            map.put("rejectionReason", req.getReasonForRejection());
+            return map;
+        }).toList();
+
+        return ResponseEntity.ok(ResponseVO.<Map<String, Object>>builder().statusCode(HttpStatus.OK).result(Map.of(key, processed)).build());
+    }
+
+    // Format: "yyyy-MM-dd'T'HH:mm:ss.SSS" (No 'Z' or offset)
+    private String formatTimestamp(Timestamp ts) {
+        if (ts == null) return null;
+        return new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS").format(ts);
+    }
+
+    @Override
+    @Transactional
+    public ResponseEntity<ResponseVO<Map<String, Object>>> acceptOrRejectUserRequest(UserRequestDto dto, String ipAddress, String userId) {
+
+        UserRequest request = userRequestRepository.findUserRequestsByRequestId(dto.getRequestId());
+        request.setApproverUserId(userId);
+        request.setApprovalDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+
+        // set values to dto for logging purpose
+        dto.setRequesterUserId(request.getRequestorUserId());
+        dto.setRequestType(request.getRequestType());
+
+        Map<String, Object> result = new HashMap<>();
+        String action = dto.getActionFlag();
+
+        boolean isApproved = Constant.ACCEPT.equalsIgnoreCase(action) || Constant.APPROVE.equalsIgnoreCase(action);
+
+        if (isApproved) {
+            try {
+                String jsonPayload = ClobUtil.clobToString(request.getRequestPayload());
+                Map<String, Object> payloadMap = objectMapper.readValue(jsonPayload, new TypeReference<>() {
+                });
+
+//                // check in ad only for accept case, if not present in ad then reject the request.
+//                if (adAuthenticationService.checkIfUserAbsent(userId)) {
+//                    throw new IllegalArgumentException("User ID does not exist in AD Server!");
+//                }
+//
+//                if (adAuthenticationService.checkIfUserEmailInvalid(request.getTargetUserId(), (String) payloadMap.get("email"))) {
+//                    throw new IllegalArgumentException("User ID and Email combination does not match with the AD Server data!");
+//                }
+
+                handleAccept(request, payloadMap, result, dto, ipAddress);
+            } catch (JsonProcessingException e) {
+                throw new IllegalArgumentException("Error while processing request payload data.");
+            }
+        } else {
+            request.setRequestStatus(Constant.REJECTED);
+            request.setReasonForRejection(dto.getRemarks() != null ? dto.getRemarks() : "NO REMARKS");
+            request.setExecutionDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            request.setExecutionDetails("SUCCESS");
+            userRequestRepository.save(request);
+            result.put("status", true);
+            result.put("message", "Rejected");
+        }
+
+        boolean success = (boolean) result.get("status");
+        if (success && isApproved) {
+            request.setRequestStatus(Constant.ACCEPTED);
+            request.setExecutionDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            request.setExecutionDetails("SUCCESS");
+            userRequestRepository.save(request);
+        }
+
+        // Notification (To Requestor)
+        // Msg: "Your User Request (ID: 123) for User 1015698 has been ACCEPTED."
+        // Or: "Your User Request (ID: 123) ... has been REJECTED. Reason: ..."
+        String status = isApproved ? "ACCEPTED" : "REJECTED";
+        String notifMsg = String.format("Your Request (ID: %s) for User %s has been %s.", request.getRequestId(), request.getTargetUserId(), status.toLowerCase());
+
+        if (!isApproved && dto.getRemarks() != null && !dto.getRemarks().isEmpty()) {
+            notifMsg += " Reason: " + dto.getRemarks();
+        }
+
+        // Pass requestorUserId to target specifically the maker
+        createNotification(request.getRequestorUserId(), null, "/user-management/create", notifMsg, String.valueOf(request.getRequestId()));
+
+        return ResponseEntity.ok(ResponseVO.<Map<String, Object>>builder().statusCode(HttpStatus.OK).result(result).build());
+    }
+
+    private void handleAccept(UserRequest request, Map<String, Object> payloadMap, Map<String, Object> result, UserRequestDto dto, String ip) {
+        User user = userRepository.findUserByUserId(request.getTargetUserId());
+        String type = request.getRequestType();
+
+        // 2. Validate existence based on Type
+        if (Constant.CREATE.equalsIgnoreCase(type)) {
+            if (user != null) {
+                throw new IllegalStateException("User with ID " + request.getTargetUserId() + " already exists.");
+            }
+            user = new User();
+            user.setCreatedAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            user.setAccountStatus(Constant.ACTIVE);
+            user.setIsDeleted('N');
+            user.setUserWrongPasswordCount(0);
+        } else {
+            if (user == null) {
+                throw new ResourceNotFoundException("User not found with ID: " + request.getTargetUserId());
+            }
+        }
+
+        // 2. Map Fields (Create/Modify)
+        if (Constant.CREATE.equalsIgnoreCase(type) || Constant.MODIFY.equalsIgnoreCase(type)) {
+            user.setUserId(request.getTargetUserId());
+
+            // Map all common fields safely
+            if (payloadMap.containsKey("firstName")) user.setFirstName((String) payloadMap.get("firstName"));
+            if (payloadMap.containsKey("middleName")) user.setMiddleName((String) payloadMap.get("middleName"));
+            if (payloadMap.containsKey("lastName")) user.setLastName((String) payloadMap.get("lastName"));
+            if (payloadMap.containsKey("email")) user.setEmail((String) payloadMap.get("email"));
+
+            // ========== Phone number can be null ===========
+            String phone = (String) payloadMap.get("phoneNumber");
+            user.setPhoneNumber(phone != null ? phone.trim() : "");
+
+            // Branch mapping
+            if (payloadMap.get("branch") != null) {
+                user.setBranch(Integer.parseInt(String.valueOf(payloadMap.get("branch"))));
+            }
+
+            user.setUpdatedAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            userRepository.save(user);
+
+            // Role mapping
+            if (payloadMap.get("roleId") != null) {
+                UserRole ur = userRoleRepository.getUserRolesByUserId(user.getUserId());
+                if (ur == null) ur = new UserRole();
+                ur.setUserId(user.getUserId());
+                ur.setRoleId(Integer.parseInt(String.valueOf(payloadMap.get("roleId"))));
+                userRoleRepository.save(ur);
+            }
+
+//            // Update User Role linkage
+//            if (payloadMap.containsKey("roleId")) {
+//                UserRole ur = userRoleRepository.getUserRolesByUserId(user.getUserId());
+//                if (ur == null) ur = new UserRole();
+//                ur.setUserId(user.getUserId());
+//                ur.setRoleId(Integer.parseInt(String.valueOf(payloadMap.get("roleId"))));
+//                userRoleRepository.save(ur);
+//            }
+
+        } else if (Constant.LOCK.equalsIgnoreCase(type)) {
+            user.setAccountStatus(Constant.LOCKED);
+            user.setUpdatedAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata"))); // Fix for Lock
+            userRepository.save(user);
+        } else if (Constant.UNLOCK.equalsIgnoreCase(type)) {
+            user.setAccountStatus(Constant.ACTIVE);
+            user.setUpdatedAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata"))); // Fix for Unlock
+            userRepository.save(user);
+        } else if (Constant.DELETE.equalsIgnoreCase(type)) {
+            userRepository.deleteById(user.getUserId());
+            log.info("User Id {} Deleted Permanently.", user.getUserId());
+        }
+
+        // 4. Success State (Only reached if no exception thrown)
+        result.put("status", true);
+        result.put("message", "User Updated Successfully");
+    }
+
+    @Override
+    public ResponseEntity getUserDetails(Map<String, String> params) {
+        ResponseVO<Map<String, Object>> responseVo = new ResponseVO<>();
+
+        String userId = params.get("id");
+        Integer role = params.get("roleId") != null ? Integer.parseInt(params.get("roleId")) : null;
+
+        //Integer branch = params.get("branch")!=null?Integer.parseInt(params.get("branch")):null;
+        Map<String, Object> result = new HashMap<>();
+
+        List<Map<String, Object>> users = userRepository.getUsers(userId, role);
+        users = users.stream().filter(u -> {
+            Object roleId = u.get("role_id");
+            return roleId == null || Integer.parseInt(roleId.toString()) != 10;
+        }).toList();
+        if (users.isEmpty()) {
+            result.put("status", false);
+            result.put("message", "Users not found");
+        } else {
+            result.put("status", true);
+            result.put("message", String.format("%d users found ", users.size()));
+            result.put("users", users);
+        }
+        responseVo.setResult(result);
+        responseVo.setStatusCode(HttpStatusCode.valueOf(HttpStatus.OK.value()));
+        responseVo.setMessage(HttpStatus.OK.getReasonPhrase());
+        return new ResponseEntity<>(responseVo, responseVo.getStatusCode());
+    }
 
 
