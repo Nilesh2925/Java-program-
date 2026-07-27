@@ -1,0 +1,281 @@
+package com.tcs.userservice.model;
+
+import java.io.Serializable;
+import java.util.Objects;
+
+import jakarta.persistence.Embeddable;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+
+@Embeddable
+@NoArgsConstructor
+@AllArgsConstructor
+@Data
+public class RolePermissionId implements Serializable {
+	private int roleId;
+
+    private int permissionId;
+
+}
+
+package com.tcs.userservice.model;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Entity
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Table(name = "ROLES")
+public class Role {
+
+	@Id
+	@Column(name = "ROLE_ID")
+	private int roleId;
+
+	@Column(name = "ROLE_NAME")
+	private String roleName;
+
+	@Column(name = "DESCRIPTION")
+	private String description;
+
+	@Column(name = "ROLE_STATUS")
+	private String status;
+}
+
+
+package com.tcs.userservice.model;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@Entity
+@Table(name = "PERMISSIONS")
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class Permissions {
+
+    @Id
+    @Column(name = "MENU_ID")
+    private int menuId;
+
+    @Column(name = "MENU_TITLE")
+    private String menuTitle;
+
+    @Column(name = "MENU_ICON")
+    private String menuIcon;
+
+    @Column(name = "MENU_SUBMENU")
+    private String menuSubmenu;
+
+    @Column(name = "MENU_ACTION")
+    private String menuAction;
+
+    @Column(name = "MENU_URL")
+    private String menuUrl; // Frontend route (e.g: //glif-reports/**)
+
+    @Column(name = "MENU_COMPONENT_PATH")
+    private String menuComponentPath;
+
+    @Column(name = "MENU_DESCRIPTION")
+    private String menuDescription;
+
+    @Column(name = "MENU_DEPENDANT")
+    private Integer menuDependant;
+
+    @Column(name = "MAPPED_REQUEST_TYPE")
+    private String mappedRequestType;
+
+    @Column(name = "API_RESOURCE_PATTERN")
+    private String apiResourcePattern; // Backend route (e.g: //reports/**)
+
+    @Column(name = "IS_RESTRICTED")
+    private String isRestricted;
+}
+
+
+package com.tcs.userservice.model;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@Entity
+@Table(name = "PERMISSIONS")
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class PermissionForRole {
+
+	@Id
+	@Column(name = "MENU_ID")
+	private Integer menuId;
+
+	@Column(name = "MENU_TITLE")
+	private String menuTitle;
+
+	@Column(name = "MENU_ORDER")
+	private String menuOrder;
+}
+
+
+package com.tcs.userservice.model;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp; // Import this
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+
+import java.io.Serializable;
+import java.time.Instant; // This is the correct type
+import java.time.LocalDateTime;
+import java.util.Objects;
+import java.util.UUID;
+
+/**
+ * Represents an event in the outbox system, intended for notification purposes.
+ * UPDATED: Added @CreationTimestamp for automatic timestamping.
+ */
+@Entity
+@Table(name = "NOTIFICATIONS")
+@Builder
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@EntityListeners(AuditingEntityListener.class)
+public class NotificationTable implements Serializable {
+
+    // Unique primary key for the outbox event.
+    // Using UUID strategy is correct for Oracle's SYS_GUID() or RAW(16
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "EVENT_ID", updatable = false, nullable = false)
+    private UUID eventId;
+
+    // The ID of the user who should receive this notification (for 1-to-1).
+    @Column(name = "USER_ID", length = 255)
+    private String userId;
+
+    // The human-readable message to be displayed.
+    @Column(name = "MESSAGE", length = 1024, nullable = false)
+    private String message;
+
+    // The relative URL the user should be taken to when clicking the notification.
+    @Column(name = "LINK_URL", length = 1024)
+    private String linkUrl;
+
+    // The microservice that generated this event.
+    @Column(name = "EVENT_SOURCE", length = 100)
+    private String eventSource;
+
+    // The primary key of the business object (e.g., the CommonReq ID).
+    @Column(name = "AGGREGATE_ID", length = 255)
+    private String aggregateId;
+
+    // The timestamp when the event was created.
+    @Column(name = "EVENT_TIMESTAMP", nullable = false, updatable = false)
+    private LocalDateTime eventTimestamp;
+
+    // For 1-to-Many notifications. If USER_ID is null, this role is used.
+    @Column(name = "TARGET_ROLE", length = 100)
+    private String targetRole;
+
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        NotificationTable that = (NotificationTable) o;
+        return Objects.equals(eventId, that.eventId);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(eventId);
+    }
+
+
+    @Override
+    public String toString() {
+        return "NotificationTable{" +
+                "eventId='" + eventId + '\'' +
+                ", userId='" + userId + '\'' +
+                ", targetRole='" + targetRole + '\'' +
+                ", eventSource='" + eventSource + '\'' +
+                ", aggregateId='" + aggregateId + '\'' +
+                ", eventTimestamp=" + eventTimestamp +
+                '}';
+    }
+}
+
+package com.tcs.userservice.model;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.Data;
+
+import java.sql.Timestamp;
+
+@Entity
+@Table(name = "AUDIT_LOG")
+@Data
+public class AuditLog {
+
+    @Id
+    @Column(name="LOG_ID")
+    private long logId;
+
+    @Column(name="REQUEST_ID")
+    private long requestId;
+
+    @Column(name="USER_ID")
+    private String userId;
+
+    @Column(name="ACTION_TYPE")
+    private String actionType;
+
+    @Column(name="CHANGE_TYPE")
+    private String changeType;
+
+    @Column(name="OLD_VALUE")
+    private String oldValue;
+
+    @Column(name="NEW_VALUE")
+    private String newValue;
+
+    @Column(name="IP_ADDRESS")
+    private String ipAddress;
+
+    @Column(name="ACTION_TIME")
+    private Timestamp actionTime;
+
+}
