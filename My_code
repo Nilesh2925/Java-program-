@@ -1,841 +1,320 @@
-import React, { memo, forwardRef } from "react";
-import { TableRow, TableCell, CircularProgress } from "@mui/material";
-import { formatCurrency } from "../utils/analyticsConstants";
-import ContentCopyIcon from "@mui/icons-material/ContentCopy";
-import { IconButton, Tooltip } from "@mui/material";
+/// menu response
+package com.tcs.userservice.dto;
 
-const ActualTreeTableRow = memo(
-  forwardRef(
-    (
-      {
-        node,
-        isExpanded,
-        isLoading,
-        onToggle,
-        maxVisibleLevel,
-        index,
-        activeMetrics,
-        theme,
-        isFullscreen,
-        showSnackBar,
-        ...props
-      },
-      ref,
-    ) => {
-      const isRoot = node.level === 0;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
-      return (
-        <TableRow
-          ref={ref}
-          hover
-          style={{
-            backgroundColor: isExpanded
-              ? theme.palette.purple?.[100] || "inherit"
-              : "inherit",
-            borderLeft: isExpanded
-              ? `4px solid ${theme.palette.primary.main}`
-              : "4px solid transparent",
-            height: "40px",
-            transition:
-              "background-color 0.2s ease-in-out, border-color 0.2s ease-in-out",
-          }}
-          {...props}
-        >
-          {Array.from({ length: maxVisibleLevel + 1 }).map((_, colIndex) => {
-            if (colIndex === node.level) {
-              return (
-                <TableCell
-                  key={colIndex}
-                  style={{
-                    borderRight: `1px solid ${theme.palette.divider}`,
-                    borderBottom: `1px solid ${theme.palette.divider}`,
-                    //minWidth: "260px",
-                    whiteSpace: "nowrap",
-                    padding: "4px 4px",
-                    verticalAlign: "middle",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      // paddingLeft: `${node.level * 10 + 8}px`,
-                      paddingLeft: 4,
-                      paddingRight: "16px",
-                      width: "100%",
-                      boxSizing: "border-box",
-                    }}
-                  >
-                    {node.hasChildren ? (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onToggle(node);
-                        }}
-                        disabled={isLoading}
-                        style={{
-                          marginRight: "8px",
-                          padding: 0,
-                          width: "20px",
-                          height: "20px",
-                          border: `1px solid ${isExpanded ? theme.palette.primary.main : theme.palette.divider}`,
-                          borderRadius: "50%",
-                          backgroundColor: "transparent",
-                          cursor: isLoading ? "wait" : "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          color: isExpanded
-                            ? theme.palette.primary.main
-                            : "inherit",
-                          fontSize: "14px",
-                          lineHeight: 1,
-                          transition: "all 0.15s ease",
-                        }}
-                        onMouseOver={(e) =>
-                          (e.currentTarget.style.transform = "scale(1.15)")
-                        }
-                        onMouseOut={(e) =>
-                          (e.currentTarget.style.transform = "scale(1)")
-                        }
-                      >
-                        {isLoading ? (
-                          <CircularProgress
-                            size={12}
-                            color={isExpanded ? "primary.dark" : "inherit"}
-                          />
-                        ) : isExpanded ? (
-                          "-"
-                        ) : (
-                          "+"
-                        )}
-                      </button>
-                    ) : (
-                      <div style={{ width: "28px" }} />
-                    )}
-                    <span
-                      style={{
-                        fontWeight: isExpanded ? 700 : isRoot ? 600 : 400,
-                        color: isExpanded
-                          ? theme.palette.primary.main
-                          : "inherit",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        fontSize: "0.875rem",
-                        fontFamily:
-                          theme.typography.fontFamily ||
-                          "Roboto, Helvetica, Arial, sans-serif",
-                      }}
-                    >
-                      {node.name}
-                    </span>
+import java.util.List;
 
-                    {/* Checks if it's fullscreen, expanded, data is loaded, and targets HeadCode (level 1) */}
-                    {
-                      isExpanded &&
-                      !isLoading &&
-                      node.level === 1 &&
-                      node.children && (
-                        <Tooltip title="Copy all GLCODEs" placement="top" arrow>
-                          <IconButton
-                            size="small"
-                            onClick={(e) => {
-                              e.stopPropagation(); // Prevents row toggle when clicking the copy button
-
-                              // 1. Format the parent (Headcode) row
-                              // We use node.name and node.TotalAmount for the parent
-                              const headcodeRow = `${node.name}\t${node.TotalAmount || ""}`;
-
-                              // 2. Format the children (GLCODEs) rows
-                              const childrenRows = node.children
-                                .map(
-                                  (child) =>
-                                    `${child.name}\t${child.TotalAmount || ""}`,
-                                )
-                                .join("\n");
-
-                              // 3. Combine them with a newline (\n) in between
-                              const combinedData = `${headcodeRow}\n${childrenRows}`;
-
-                              console.log("Copied Data:\n", combinedData);
-
-                              // 4. Send the whole block to the clipboard
-                              navigator.clipboard
-                                .writeText(combinedData)
-                                .then(() => {
-                                  showSnackBar(
-                                    "Text copied successfully",
-                                    "success",
-                                  );
-                                })
-                                .catch((err) => {
-                                  console.error("Failed to copy text: ", err);
-                                  showSnackBar("Failed to copy text", "error");
-                                });
-                            }}
-                            sx={{ ml: 2, padding: "2px" }}
-                          >
-                            <ContentCopyIcon
-                              sx={{ fontSize: 16, color: "text.secondary" }}
-                            />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                  </div>
-                </TableCell>
-              );
-            }
-            return (
-              <TableCell
-                key={colIndex}
-                style={{
-                  borderRight: `1px solid ${theme.palette.divider}`,
-                  borderBottom: `1px solid ${theme.palette.divider}`,
-                  whiteSpace: "nowrap",
-                  padding: 0,
-                }}
-              />
-            );
-          })}
-
-          {activeMetrics.map((metric) => {
-            const value = node[metric.logicalName];
-            return (
-              <TableCell
-                key={metric.logicalName}
-                align="right"
-                style={{
-                  borderRight: `1px solid ${theme.palette.divider}`,
-                  borderBottom: `1px solid ${theme.palette.divider}`,
-                  // width: "160px",
-                  // minWidth: "160px",
-                  // maxWidth: "160px",
-                  //padding: "8px 16px",
-                  color:
-                    value < 0
-                      ? theme.palette.error.main
-                      : theme.palette.success.main,
-                  fontWeight: 500,
-                  whiteSpace: "nowrap",
-                  verticalAlign: "middle",
-                  fontSize: "0.875rem",
-                  fontFamily:
-                    theme.typography.fontFamily ||
-                    "Roboto, Helvetica, Arial, sans-serif",
-                }}
-              >
-                {formatCurrency(value)}
-              </TableCell>
-            );
-          })}
-        </TableRow>
-      );
-    },
-  ),
-  (prevProps, nextProps) => {
-    return (
-      prevProps.isExpanded === nextProps.isExpanded &&
-      prevProps.isLoading === nextProps.isLoading &&
-      prevProps.node.id === nextProps.node.id &&
-      prevProps.maxVisibleLevel === nextProps.maxVisibleLevel &&
-      prevProps.index === nextProps.index &&
-      prevProps.theme === nextProps.theme 
-      // prevProps.isFullscreen === nextProps.isFullscreen
-    );
-  },
-);
-
-ActualTreeTableRow.displayName = "ActualTreeTableRow";
-export default ActualTreeTableRow;
-
-
-
-import React, { useState, useEffect, useMemo } from "react";
-import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
-  IconButton,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  TextField,
-  Autocomplete,
-  Box,
-  Typography,
-  CircularProgress,
-  FormHelperText,
-} from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
-import InfoIcon from "@mui/icons-material/Info";
-import QueryStatsIcon from "@mui/icons-material/QueryStats";
-import { fetchHeads } from "../api/analyticsApi";
-
-export default function FilterDialog({
-  open,
-  onClose,
-  onApply,
-  reportsConfig = [],
-  currentFilters,
-  callApi,
-  user,
-  isApplying,
-}) {
-  const [reportCode, setReportCode] = useState("");
-  const [viewCode, setViewCode] = useState(""); // Replaces "scope" state
-  const [head, setHead] = useState(null);
-  const [entityCode, setEntityCode] = useState("");
-  const [reportDate, setReportDate] = useState("");
-
-  const [headInputValue, setHeadInputValue] = useState("");
-  const [headOptions, setHeadOptions] = useState([]);
-  const [isHeadsLoading, setIsHeadsLoading] = useState(false);
-
-  // Sync state when dialog opens
-  useEffect(() => {
-    if (open) {
-      setReportCode(currentFilters?.reportCode || "");
-      setViewCode(currentFilters?.viewCode || "");
-      setHead(currentFilters?.head || null);
-      setEntityCode(currentFilters?.entityCode || "");
-      setReportDate(currentFilters?.reportDate || "");
-      if (currentFilters?.head) setHeadOptions([currentFilters.head]);
-    }
-  }, [open, currentFilters]);
-
-  // Derived available Scopes directly from Config Views
-  const availableViews = useMemo(() => {
-    if (!reportCode) return [];
-    const report = reportsConfig.find((r) => r.reportCode === reportCode);
-    return report?.views || [];
-  }, [reportCode, reportsConfig]);
-
-  // Determine if we need to show the Entity Dropdown based on the selected view
-  const isCircleScope = viewCode.includes("CIRCLE");
-  const isBranchScope = viewCode.includes("BRANCH");
-
-  // Dynamically load Entities from User Profile instead of an API
-  const entityOptions = useMemo(() => {
-    if (!user) return [];
-    if (isCircleScope) return user.circles || []; // Fallback array if undefined
-    if (isBranchScope) return user.branches || [];
-    return [];
-  }, [user, isCircleScope, isBranchScope]);
-
-  // Debounced API call for Head Code Autocomplete
-  useEffect(() => {
-    const delayDebounceFn = setTimeout(async () => {
-      if (headInputValue && headInputValue.length >= 2 && reportCode) {
-        setIsHeadsLoading(true);
-        const data = await fetchHeads(callApi, reportCode, headInputValue);
-        setHeadOptions(data);
-        setIsHeadsLoading(false);
-      } else {
-        setHeadOptions(head ? [head] : []);
-      }
-    }, 500);
-    return () => clearTimeout(delayDebounceFn);
-  }, [headInputValue, reportCode, callApi, head]);
-
-  const handleReset = () => {
-    setReportCode("");
-    setViewCode("");
-    setHead(null);
-    setEntityCode("");
-    setReportDate("");
-    setHeadOptions([]);
-  };
-
-  const handleApply = () => {
-    onApply({
-      reportCode,
-      viewCode,
-      head,
-      entityCode: !isCircleScope && !isBranchScope ? "" : entityCode,
-      reportDate,
-    });
-    //onClose();
-  };
-
-  const isApplyEnabled = useMemo(() => {
-    const baseValid = reportCode && viewCode && head?.headCode && reportDate;
-    if (!baseValid) return false;
-    if (isCircleScope || isBranchScope) return !!entityCode;
-    return true;
-  }, [
-    reportCode,
-    viewCode,
-    head,
-    entityCode,
-    reportDate,
-    isCircleScope,
-    isBranchScope,
-  ]);
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle
-        sx={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 2,
-        }}
-      >
-        <Typography
-          variant="h6"
-          fontWeight="bold"
-          sx={{ display: "flex", alignItems: "center", gap: 2 }}
-        >
-          <QueryStatsIcon /> Drill Down Filters
-        </Typography>
-        <IconButton onClick={onClose} size="small">
-          <CloseIcon />
-        </IconButton>
-      </DialogTitle>
-
-      <DialogContent dividers>
-        <Box display="flex" flexDirection="column" gap={3} py={1}>
-          <FormControl size="small" fullWidth>
-            <InputLabel id="dialog-report-label">Select Report</InputLabel>
-            <Select
-              labelId="dialog-report-label"
-              value={reportCode}
-              label="Select Report"
-              onChange={(e) => {
-                setReportCode(e.target.value);
-                setViewCode("");
-                setEntityCode("");
-                setHead(null);
-                setHeadInputValue("");
-                setHeadOptions([]);
-              }}
-            >
-              {reportsConfig.map((report) => (
-                <MenuItem key={report.reportCode} value={report.reportCode}>
-                  {report.displayName}
-                </MenuItem>
-              ))}
-            </Select>
-            <FormHelperText
-              id="scope-helper-text"
-              sx={{
-                fontStyle: "italic",
-                fontSize: "0.75rem",
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-                lineHeight: 1.5,
-              }}
-            >
-              <InfoIcon sx={{ fontSize: "0.625rem" }} />
-              Please select a report to initiate drill-down analysis.
-            </FormHelperText>
-          </FormControl>
-
-          <Autocomplete
-            size="small"
-            options={headOptions}
-            getOptionLabel={(option) =>
-              option ? `${option.headCode} - ${option.headName}` : ""
-            }
-            value={head}
-            onChange={(event, newValue) => setHead(newValue)}
-            onInputChange={(event, newInputValue) =>
-              setHeadInputValue(newInputValue)
-            }
-            loading={isHeadsLoading}
-            disabled={!reportCode}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Search Head Code"
-                variant="outlined"
-                InputProps={{
-                  ...params.InputProps,
-                  endAdornment: (
-                    <React.Fragment>
-                      {isHeadsLoading ? (
-                        <CircularProgress color="inherit" size={20} />
-                      ) : null}
-                      {params.InputProps.endAdornment}
-                    </React.Fragment>
-                  ),
-                }}
-                helperText={
-                  <span
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "4px",
-                    }}
-                  >
-                    <InfoIcon sx={{ fontSize: "0.625rem" }} />
-                    <em>Type 2+ characters to search.</em>
-                  </span>
-                }
-              />
-            )}
-          />
-
-          <FormControl size="small" fullWidth disabled={!reportCode}>
-            <InputLabel id="dialog-scope-label">Scope</InputLabel>
-            <Select
-              labelId="dialog-scope-label"
-              value={viewCode}
-              label="Scope"
-              onChange={(e) => {
-                setViewCode(e.target.value);
-                setEntityCode("");
-              }}
-            >
-              {availableViews.map((view) => (
-                <MenuItem key={view.viewCode} value={view.viewCode}>
-                  {view.displayName}
-                </MenuItem>
-              ))}
-            </Select>
-            <FormHelperText
-              id="scope-helper-text"
-              sx={{
-                fontStyle: "italic",
-                fontSize: "0.75rem",
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-                lineHeight: 1.5,
-              }}
-            >
-              <InfoIcon sx={{ fontSize: "0.625rem" }} />
-              View scope is determined by your authorized access level.
-            </FormHelperText>
-          </FormControl>
-
-          {(isCircleScope || isBranchScope) && (
-            <FormControl size="small" fullWidth>
-              <InputLabel id="dialog-entity-label">
-                Select {isCircleScope ? "Circle" : "Branch"} *
-              </InputLabel>
-              <Select
-                labelId="dialog-entity-label"
-                value={entityCode}
-                label={`Select ${isCircleScope ? "Circle" : "Branch"} *`}
-                onChange={(e) => setEntityCode(e.target.value)}
-              >
-                {entityOptions.length === 0 ? (
-                  <MenuItem disabled value="">
-                    No entities found in user profile
-                  </MenuItem>
-                ) : (
-                  entityOptions.map((entity) => (
-                    <MenuItem
-                      key={entity.id || entity.code}
-                      value={entity.id || entity.code}
-                    >
-                      {entity.name}
-                    </MenuItem>
-                  ))
-                )}
-              </Select>
-            </FormControl>
-          )}
-
-          <TextField
-            type="date"
-            size="small"
-            fullWidth
-            label="Report Date"
-            InputLabelProps={{ shrink: true }}
-            value={reportDate}
-            onChange={(e) => setReportDate(e.target.value)}
-          />
-        </Box>
-      </DialogContent>
-
-      <DialogActions sx={{ p: 2, px: 3 }}>
-        <Button onClick={handleReset} color="inherit" variant="outlined">
-          Reset
-        </Button>
-        <Button
-          onClick={handleApply}
-          color="primary"
-          variant="contained"
-          disabled={!isApplyEnabled}
-        >
-          Apply
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class MenuResponse {
+    private List<RootMenu> root_menus;
 }
 
+// notification config
+package com.tcs.userservice.dto;
 
-import React from "react";
-import { Box, Typography } from "@mui/material";
-import { useTheme } from "@mui/material/styles";
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
-export default function HierarchyPath({
-  activeHierarchyConfig,
-  maxVisibleLevel,
-  isSetupComplete,
-}) {
-  const theme = useTheme();
-  if (!isSetupComplete) return null;
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class NotificationConfigDto {
 
-  return (
-    <Box display="flex" alignItems="center" gap={0.5}>
-      <Typography
-        variant="body2"
-        color="text.secondary"
-        sx={{ mr: 1, fontWeight: 500 }}
-      >
-        Path:
-      </Typography>
-      {activeHierarchyConfig.hierarchy.map((item, index) => {
-        const isActive = index <= maxVisibleLevel;
-        return (
-          <Box key={index} display="flex" alignItems="center">
-            <Box display="flex" alignItems="center" gap={1}>
-              <Box
-                sx={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: "50%",
-                  bgcolor: isActive ? "primary.main" : "background.paper",
-                  border: "2px solid",
-                  borderColor: isActive ? "primary.main" : "divider",
-                }}
-              />
-              <Typography
-                variant="body2"
-                sx={{
-                  fontWeight: isActive ? 600 : 500,
-                  color: isActive ? "text.primary" : "text.disabled",
-                  textTransform: "capitalize",
-                }}
-              >
-                {item.replace("_", " ")}
-              </Typography>
-            </Box>
-            {index < activeHierarchyConfig.hierarchy.length - 1 && (
-              <Box
-                sx={{
-                  backgroundColor:
-                    index < maxVisibleLevel
-                      ? theme.palette.primary.main
-                      : theme.palette.divider,
-                  width: 24,
-                  height: 2,
-                  mx: 1,
-                  borderRadius: 1,
-                }}
-              />
-            )}
-          </Box>
-        );
-      })}
-    </Box>
-  );
+    private String targetUrl;
+
+    private String targetRoles; // Comma separated string: "51,52,55"
+
 }
 
+//perssimisiondto
+package com.tcs.userservice.dto;
+import lombok.AllArgsConstructor; 
+import lombok.Builder; 
+import lombok.Data; 
+import lombok.NoArgsConstructor;
 
-import { styled, keyframes } from "@mui/material/styles";
-import TuneIcon from "@mui/icons-material/Tune";
-import IconButton from "@mui/material/IconButton";
-import Tooltip from "@mui/material/Tooltip";
-import Box from "@mui/material/Box";
-import Typography from "@mui/material/Typography";
+@Data 
+@NoArgsConstructor 
+@AllArgsConstructor
+@Builder 
+public class PermissionDto { 
+	private Integer id; // MENU_ID 
+	private String title; // MENU_TITLE
+	private String icon; // MENU_ICON
+	private String description; // MENU_ORDER 
+	private int order;
+    private String menuSubmenu; // new addition - v1018405
 
-// 1. Define the Pulse Animation
-const pulse = keyframes`
-  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(25, 118, 210, 0.7); }
-  70% { transform: scale(1.05); box-shadow: 0 0 0 6px rgba(25, 118, 210, 0); }
-  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(25, 118, 210, 0); }
-`;
+}
 
-// 3. Custom Tooltip with Bold Text
-const InstructionalTooltip = ({ children, title }) => (
-  <Tooltip
-    title={
-      <Box sx={{ py: 0.5 }}>
-        <Typography variant="subtitle2" fontWeight="bold" color="primary.main">
-          {title}
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          Select criteria to generate the drill-down report.
-        </Typography>
-      </Box>
+// permissioneventdto
+package com.tcs.userservice.dto;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Data;
+
+@Data
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class PermissionEventDto {
+    @JsonProperty("payload")
+    private Payload payload;
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class Payload {
+        private DataBlock after;
+        private DataBlock before;
+        private String op;
     }
-    arrow
-    placement="bottom-end"
-    componentsProps={{
-      tooltip: {
-        sx: {
-          bgcolor: "background.paper",
-          color: "text.primary",
-          border: "1px solid",
-          borderColor: "divider",
-          boxShadow: 3,
-          maxWidth: 220,
-        },
-      },
-      arrow: {
-        sx: {
-          color: "background.paper",
-          "&::before": { border: "1px solid", borderColor: "divider" },
-        },
-      },
-    }}
-  >
-    {children}
-  </Tooltip>
-);
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class DataBlock {
+        @JsonProperty("MENU_ID")
+        private Long menuId;
+
+    }
+}
+
+//permission list
+package com.tcs.userservice.dto;
+
+import lombok.Data;
+
+@Data
+public class PermissionList {
+
+	public int id;
+
+	public String title;
+
+	public String icon;
+
+	public int order;
+    public String description;
+    public  String menuSubmenu;
+}
+
+//permission order
+package com.tcs.userservice.dto;
+
+import java.util.List;
+
+import lombok.Data;
+
+@Data
+public class PermissionOrderDto {
+	
+	private int selectedRole;
+	
+	private List<PermissionOrderListDto> permissions;
+
+}
+
+//permission order list
+package com.tcs.userservice.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class PermissionOrderListDto {
 
-// 2. Create a Styled IconButton with Pulse
-const PulsingFilterButton = styled(IconButton)(({ theme }) => ({
-  border: `2px solid ${theme.palette.primary.main}`, // Thicker border for prominence
-  backgroundColor: theme.palette.primary.light, // Light background to stand out
-  color: theme.palette.primary.contrastText,
-  marginRight: theme.spacing(1),
-  "&:hover": {
-    border: `2px solid ${theme.palette.primary.dark}`,
-    backgroundColor: theme.palette.primary.main,
-  },
-  // Apply the animation
-  animation: `${pulse} 2s infinite`,
-}));
+	private int id;
+
+	private String title;
+
+	private String icon;
+
+	private String description;
+
+	private int order;
+
+    private String menuSubmenu;
 
 
+}
 
-import React from "react";
-import { Box, Paper, Typography, IconButton, Tooltip } from "@mui/material";
-import AnalyticsIcon from "@mui/icons-material/Analytics";
-import TuneIcon from "@mui/icons-material/Tune";
-import FullscreenIcon from "@mui/icons-material/Fullscreen";
-import FullscreenExitIcon from "@mui/icons-material/FullscreenExit";
+//permissiondto
+package com.tcs.userservice.dto;
 
-export default function ReportAnalysisHeader({
-  activeReport,
-  isFullscreen,
-  toggleFullscreen,
-  onOpenFilter,
-  filtersApplied,
-}) {
-  return (
-    <Paper
-      elevation={0}
-      sx={{
-        p: 3,
-        borderRadius: 2,
-        boxShadow: "0 5px 10px rgba(0,0,0,0.2)",
-        border: 1,
-        borderColor: "divider",
-        display: "flex",
-        justifyContent: "space-between",
-        flexDirection: "row",
-        flexShrink: 0,
-      }}
-    >
-      <Box display="flex" alignItems="center" gap={2}>
-        <Box
-          sx={{
-            backgroundColor: "primary.main",
-            borderRadius: "10px",
-            width: 44,
-            height: 44,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <AnalyticsIcon sx={{ color: "primary.contrastText", fontSize: 24 }} />
-        </Box>
-        <Box sx={{ overflow: "hidden" }}>
-          <Typography
-            variant="h6"
-            sx={{ fontWeight: 700, color: "text.primary" }}
-          >
-            {activeReport?.displayName || "Financial Analytics"}
-          </Typography>
-          <Typography variant="caption" sx={{ color: "text.primary" }}>
-            Dynamic Drill-Down Matrix
-          </Typography>
-        </Box>
-      </Box>
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
-      {/* <Box display="flex" alignItems="center" gap={1}>
-        <Tooltip title="Filter Reports" arrow placement="bottom">
-          <IconButton
-            onClick={onOpenFilter}
-            color="primary"
-            sx={{ border: "1px solid", borderColor: "divider" }}
-          >
-            <TuneIcon />
-          </IconButton>
-        </Tooltip>
-      </Box> */}
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class PermissionsDto {
 
-      <Box
-        display="flex"
-        alignItems="center"
-        gap={1.5}
-        sx={{
-          p: 1,
-          //bgcolor: "action.hover", // Light background to group the elements
-          borderRadius: 1,
-          //border: "1px dashed",
-          borderColor: filtersApplied ? "divider" : "primary.main", // Dashed border highlights importance
-        }}
-      >
-        {/* Button with Badge */}
-        <Tooltip
-          title="Select criteria to generate the report"
-          arrow
-          placement="bottom"
-        >
-          <IconButton
-            onClick={onOpenFilter}
-            color="primary" // Makes the icon blue/prominent
-            size="medium"
-            sx={{
-              border: "1px solid",
-              borderColor: "divider",
-              bgcolor: "background.paper",
-              boxShadow: 1,
-              "&:hover": {
-                bgcolor: "primary.main",
-                color: "primary.contrastText",
-                boxShadow: 2,
-              },
-            }}
-          >
-            <TuneIcon />
-          </IconButton>
-        </Tooltip>
+    private int menuId;
 
-        {/* Instructional Text */}
-        
-        <Box sx={{ display: "flex", flexDirection: "column" }}>
-          <Typography
-            variant="body2"
-            fontWeight="bold"
-            color={filtersApplied ? "text.secondary" : "primary.main"}
-          >
-            {filtersApplied ? "Filters Applied" : "Set Filters to Start"}
-          </Typography>
-          {!filtersApplied && (
-            <Typography variant="caption" color="text.secondary">
-              Required to view report
-            </Typography>
-          )}
-        </Box>
-      </Box>
-    </Paper>
-  );
+    private String menuTitle;
+
+    private String menuIcon;
+
+    private String menuSubmenu;
+
+    private String menuAction;
+
+    private String menuUrl;
+
+    private String menuComponentPath;
+
+    private String menuOrder;
+
+    private int menuDependant;
+}
+
+///role dto
+package com.tcs.userservice.dto;
+
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import java.util.ArrayList;
+import java.util.List;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class RoleDto {
+	private Integer roleId;
+	
+	private String roleName;
+	
+	private String description;
+	
+	private String roleStatus;
+	
+	@Builder.Default
+	private List permissions = new ArrayList<>();
+}
+
+// role payload dto
+package com.tcs.userservice.dto;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.*;
+import lombok.Data;
+
+import java.util.List;
+
+@Data
+public class RolePayloadDto {
+
+    private String roleId;
+
+    @NotBlank(message = "Role Name is required.")
+    @Size(min = 3, max = 20)
+    @Pattern(regexp = "^[a-zA-Z0-9 ,()&/\\-]+$", message = "Invalid Role Name. Only alphabets, numbers, spaces and ,()&/- are allowed).")
+    private String roleName;
+
+    @Size(min = 5, max = 200)
+    @NotBlank(message = "Description is required.")
+    @Pattern(regexp = "^(?!.* {2})[a-zA-Z0-9 ,()&/\\-]+$",
+            message = "Invalid Description. Only single spaces and ,()&/- are allowed.")
+    private String description;
+
+    @NotBlank(message = "Role Status is required.")
+    @Pattern(regexp = "^(ACTIVE|INACTIVE|BLOCKED)$", message = "Role status must be ACTIVE or INACTIVE.")
+    private String roleStatus;
+
+    @NotEmpty(message = "At least one permission must be selected.")
+    @Valid
+    private List<PermissionDto> permissions;
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class PermissionDto {
+        @NotNull(message = "Permission ID is required.")
+        private Integer id;
+
+        @NotBlank(message = "Permission Title is required.")
+        @Pattern(regexp = "^[a-zA-Z0-9 ,()&/\\-]{3,50}$", message = "Invalid Permission Title format.")
+        private String title;
+
+        private Integer order;
+        private String icon;
+        private String description;
+        private String menuSubmenu;
+    }
+}
+
+// rolepermissioneventdto
+package com.tcs.userservice.dto;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Data;
+
+@Data
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class RolePermissionEventDto {
+
+    @JsonProperty("payload")
+    private Payload payload;
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class Payload {
+        private DataBlock after;  // State after change
+        private DataBlock before; // State before change (for deletes)
+        private String op;        // 'c', 'u', 'd'
+    }
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class DataBlock {
+        @JsonProperty("ROLE_ID")
+        private Long roleId;
+
+        @JsonProperty("PERMISSION_ID")
+        private Long permissionId;
+    }
+}
+
+// rolerequestcreate dto
+package com.tcs.userservice.dto;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import lombok.Data;
+import java.util.Map;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import lombok.Data;
+
+@Data
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class RoleRequestCreateDto {
+
+    @NotBlank
+    @Pattern(regexp = "^(CREATE|MODIFY|DELETE|CANCEL|LOCK|UNLOCK)$")
+    private String requestType;
+
+    private Integer targetRoleId;
+
+    // Use the Inner DTO instead of Object for strict validation
+    @Valid
+    @NotNull
+    private RolePayloadDto requestPayload;
 }
