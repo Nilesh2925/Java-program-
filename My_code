@@ -318,3 +318,244 @@ public class RoleRequestCreateDto {
     @NotNull
     private RolePayloadDto requestPayload;
 }
+
+
+// rolerequest payload
+package com.tcs.userservice.dto;
+
+import lombok.Data;
+
+import java.util.List;
+
+@Data
+public class RoleRequestPayload {
+
+
+    public String roleId;
+
+    public String roleName;
+
+    public String description;
+
+    public String roleStatus;
+
+    public List<PermissionList> permissions;
+
+}
+
+//rolemenu
+package com.tcs.userservice.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class RootMenu {
+        private int id;
+        private String title;
+        private String icon;
+        private String route;
+        private boolean hasChildren;
+        private ScreenDetails screenDetails;
+        private String menuDescription;
+        private List<ChildMenu> children;
+}
+//screen details
+
+package com.tcs.userservice.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class ScreenDetails {
+    private String screenId;
+    private String screenTitle;
+    private String componentPath;
+}
+
+//userlog dto
+package com.tcs.userservice.dto;
+
+import java.sql.Timestamp;
+
+import lombok.Data;
+@Data
+public class UserLogsDto {
+	
+	private Integer logId;
+
+	private String actionType;
+
+	private String changeType;
+
+	private Timestamp actionTime;
+
+	private String userId;
+
+	private String oldValue;
+
+	private String newValue;
+}
+
+//userpayload dto
+package com.tcs.userservice.dto;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+import lombok.Data;
+
+@Data
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class UserPayloadDto {
+
+    @NotBlank(message = "User ID is required.")
+    @Pattern(regexp = "^(v|tcs)?\\d{7}$", message = "Invalid User Id format.")
+    private String userId;
+
+    @NotBlank(message = "First Name is mandatory")
+    @Size(min = 3, max = 30)
+    @Pattern(regexp = "^[a-zA-Z. ]+$", message = "First Name: letters, spaces, and dots only.")
+    private String firstName;
+
+    @Size(max = 30)
+    @Pattern(regexp = "^[a-zA-Z. ]*$", message = "Middle Name: letters, spaces, and dots only.")
+    private String middleName;
+
+    @Size(max = 30)
+    @Pattern(regexp = "^[a-zA-Z. ]*$", message = "Last Name: letters, spaces, and dots only.")
+    private String lastName;
+
+    @NotBlank(message = "Email is mandatory")
+    @Pattern(regexp = "^[a-zA-Z0-9._%+-]+@sbi\\.co\\.in$", message = "Email must be a valid @sbi.co.in address")
+    private String email;
+
+    @Pattern(regexp = "^$|[1-9][0-9]{9}$", message = "Mobile Number: 10 digits only, cannot start with 0.")
+    private String phoneNumber;
+
+    @NotNull(message = "Role is mandatory")
+    private Integer roleId;
+
+    private String roleName;
+
+    private Integer branch;
+
+    private String branchName;
+
+    @Pattern(regexp = "^(ACTIVE|INACTIVE|LOCKED|BLOCKED|CANCELLED|REJECTED|ACCEPTED)$")
+    private String accountStatus;
+
+
+}
+//user request create dto
+package com.tcs.userservice.dto;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+import com.fincore.commonutilities.util.MaskingUtil;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import lombok.Data;
+
+@Data
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class UserRequestCreateDto {
+    @NotBlank
+    @Pattern(regexp = "^(CREATE|MODIFY|LOCK|UNLOCK|DELETE|CANCEL)$")
+    private String requestType;
+
+    @NotBlank
+    @Pattern(regexp = "^(v|tcs)?\\d{7}$", message = "Invalid User Id format.")
+    private String targetUserId;
+
+    @Valid
+    @NotNull
+    private UserPayloadDto requestPayload;
+
+    @Override
+    public String toString() {
+        return "UserRequestCreateDto(" +
+                "requestType=" + requestType +
+                ", targetUserId=" + targetUserId +
+                ", requestPayload=" + MaskingUtil.maskJsonString(String.valueOf(requestPayload)) +
+                ")";
+    }
+}
+
+//user requestdto
+package com.tcs.userservice.dto;
+
+import com.fasterxml.jackson.annotation.JsonAlias;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class UserRequestDto {
+
+    private long requestId;
+
+    private String approverUserId;
+
+    private String oldValue;
+
+    @JsonAlias("reason")
+    private String remarks;
+
+    @JsonAlias("action")
+    private String actionFlag;
+
+    private String requestType;
+
+    private String requesterUserId;
+
+}
+//user request projection
+
+package com.tcs.userservice.dto;
+
+import lombok.Data;
+
+import java.sql.Timestamp;
+
+public interface UserRequestProjection {
+
+    // Core fields
+    String getRequestId();
+    String getRequestType();
+    String getRequestorUserId();
+    String getRequestStatus();
+    Timestamp getRequestDate();
+
+    // Role specific
+    String getTargetRoleId();
+
+    // User specific
+    String getTargetUserId();
+
+    // Return Object (Clob) instead of String to prevent conversion crashes
+    Object getRequestPayload();
+
+    // Audit fields
+    Timestamp getApprovalDate();
+    String getApproverUserId();
+    String getReasonForRejection();
+    Timestamp getExecutionDate();
+    String getExecutionDetails();
+}
+
