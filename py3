@@ -299,3 +299,312 @@ public class RoleRequestServiceImpl implements RoleRequestService {
             log.error("JSON Parsing Error", e);
             throw new IllegalArgumentException("Malformed JSON structure in request payload");
         }
+  //---
+        RoleRequest saved = roleRequestRepository.save(roleRequest);
+
+        // 1. Notification (To Approvers)
+        // Msg: "New Role Request (ID: 55) for Role 51 (MODIFY) is pending approval."
+        String notifMsg = String.format("New Role Request (ID: %s) for Role %s (%s) is pending approval.", saved.getRequestId(), saved.getTargetRoleId(), saved.getRequestType());
+
+        NotificationConfigDto config = permissionConfigService.getConfig(REQUEST_TYPE_KEY);
+
+        createNotification(saved.getRequestorUserId(), // creator exclusion
+                config.getTargetRoles(), config.getTargetUrl(), notifMsg, String.valueOf(saved.getRequestId()));
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(ResponseVO.<RoleRequest>builder().statusCode(HttpStatus.CREATED).message("Request Created").result(saved).build());
+    }
+
+    @Override
+    public ResponseEntity<ResponseVO<Map<String, Object>>> getPendingRoleRequests(String userId) {
+        List<UserRequestProjection> rawList = roleRequestRepository.findPendingRoleRequests(userId);
+        return processProjectionList(rawList, "pendingRequests");
+    }
+
+    @Override
+    public ResponseEntity<ResponseVO<Map<String, Object>>> getMyRoleRequests(String userId) {
+        List<UserRequestProjection> rawList = roleRequestRepository.findMyPendingRoleRequests(userId);
+        return processProjectionList(rawList, "myRequests");
+    }
+
+    @Override
+    @Transactional
+    public ResponseEntity<ResponseVO<Map<String, Object>>> acceptOrRejectRoleRequest(Map<String, Object> request, String userId) {
+        String actionFlag = (String) request.get("actionFlag");
+        int requestId = Integer.parseInt(String.valueOf(request.get("requestId")));
+        String remarks = (String) request.getOrDefault("remarks", "No Remarks: Rejected by approver");
+
+        RoleRequest roleRequest = roleRequestRepository.findRoleRequestByRequestId(requestId);
+        roleRequest.setApproverUserId(userId);
+        roleRequest.setApprovalDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+
+        Map<String, Object> result = new HashMap<>();
+        boolean isApproved = Constant.ACCEPT.equalsIgnoreCase(actionFlag);
+
+        performUpdateOperation(result, actionFlag, roleRequest, remarks);
+
+        // Notification (To Requestor)
+        // Msg: "Your Role Request (ID: 55) for Role 51 has been ACCEPTED."
+        String status = isApproved ? "ACCEPTED" : "REJECTED";
+        String notifMsg = String.format("Your Role Request (ID: %s) for Role %s has been %s.", roleRequest.getRequestId(), roleRequest.getTargetRoleId(), status);
+
+        if (!isApproved) {
+            notifMsg += " Reason: " + roleRequest.getReasonForRejection();
+        }
+
+        createNotification(roleRequest.getRequestorUserId(), null, "/role-management", notifMsg, String.valueOf(roleRequest.getRequestId()));
+
+        return ResponseEntity.ok(ResponseVO.<Map<String, Object>>builder().statusCode(HttpStatus.OK).message((String) result.get(Constant.MESSAGE)).result(result).build());
+    }
+
+    @Override
+    @Transactional
+    public ResponseEntity<ResponseVO<Map<String, Object>>> cancelRoleRequest(Map<String, Object> request, String userId) {
+        int requestId = Integer.parseInt(String.valueOf(request.get("requestId")));
+        String remarks = request.get("reason") != null ? (String) request.get("reason") : "No Remarks";
+
+        RoleRequest roleRequest = roleRequestRepository.getRoleRequestByRequestId(requestId);
+        if (roleRequest == null) {
+            throw new ResourceNotFoundException("Request not found with ID: " + requestId);
+        }
+
+        if (!roleRequest.getRequestorUserId().equals(userId)) {
+            throw new AccessDeniedException("You are not authorized to cancel this request.");
+        }
+
+        if (!Constant.PENDING.equals(roleRequest.getRequestStatus())) {
+            log.warn("Attempted to cancel a processed request. ID: {}, Status: {}", requestId, roleRequest.getRequestStatus());
+            throw new IllegalStateException("Only PENDING requests can be cancelled.");
+        }
+
+        // update cancel status
+        roleRequest.setRequestStatus(Constant.CANCEL);
+        // update creator id as approver for cancel case
+        roleRequest.setApproverUserId(userId);
+        roleRequest.setApprovalDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+        roleRequest.setReasonForRejection("CANCELLED BY USER: " + remarks);
+
+        roleRequestRepository.save(roleRequest);
+
+        createNotification(roleRequest.getRequestorUserId(), null, "/role-management", "Role Request (ID: " + requestId + ") has been cancelled.", String.valueOf(requestId));
+
+        return ResponseEntity.ok(ResponseVO.<Map<String, Object>>builder().statusCode(HttpStatus.OK).message("Cancelled").result(Map.of("status", true)).build());
+    }
+
+    @Override
+    public ResponseEntity<ResponseVO<Map<String, Object>>> getAllRoles(Map<String, Object> request) {
+        boolean includePermissions = Boolean.parseBoolean(String.valueOf(request.get("permissions")));
+        List<RoleDto> roles = roleService.getAllRolesWithPermissions(includePermissions);
+
+        // =============== FILTERING (REMOVE F1/BOG. ADMIN FROM THE ROLES LIST)
+        // ==============
+        if (roles != null) {
+            roles = roles.stream().filter(r -> r.getRoleName() != null && HIDDEN_ROLES.stream().noneMatch(hidden -> hidden.equalsIgnoreCase(r.getRoleName()))).collect(Collectors.toList());
+        }
+
+        return ResponseEntity.ok(ResponseVO.<Map<String, Object>>builder().statusCode(HttpStatus.OK).result(Map.of("roles", roles)).build());
+    }
+
+    @Override
+    public ResponseEntity<ResponseVO<List<PermissionDto>>> getAllPermissions(Integer roleId) {
+
+        // Fetch permissions evaluated against the Eligibility Matrix
+        List<Permissions> permissions = permissionsRepository.findEligiblePermissions(roleId);
+
+        List<PermissionDto> dtos = permissions.stream().map(p ->
+                        PermissionDto.builder()
+                                .id(p.getMenuId())
+                                .title(p.getMenuTitle())
+                                .icon(p.getMenuIcon())
+                                .menuSubmenu(p.getMenuSubmenu())
+                                .description(p.getMenuDescription())
+                                .build())
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(ResponseVO.<List<PermissionDto>>builder().statusCode(HttpStatus.OK).result(dtos).build());
+    }
+
+    /**
+     * Saves the display order of permissions for a given role.
+     * <p>
+     * Note: this is a direct write, no notifications triggered from here.
+     */
+    @Override
+    public ResponseEntity<?> savePermissionOrder(PermissionOrderDto payload) {
+        // 1. Logic Check (Business Validation)
+        if (payload.getPermissions() == null || payload.getPermissions().isEmpty()) {
+            throw new IllegalArgumentException("No permissions provided in the request.");
+        }
+
+        // 2. Mapping logic
+        List<RolePermissions> newPermissions = payload.getPermissions().stream().map(p -> {
+            RolePermissions rp = new RolePermissions();
+            RolePermissionId newId = new RolePermissionId(payload.getSelectedRole(), p.getId());
+            rp.setId(newId);
+            rp.setPermissionOrder(p.getOrder());
+            return rp;
+        }).collect(Collectors.toList());
+
+        // 3. Database Operation
+        // Let DataIntegrityViolationException or TransactionSystemException bubble up
+        rolePermissionsRepository.saveAll(newPermissions);
+
+
+        // 4. Clean Success Response
+        return ResponseEntity.ok(ResponseVO.<Map<String, Object>>builder().statusCode(HttpStatus.OK).message("Permissions saved successfully").result(Map.of("savedCount", newPermissions.size())).build());
+    }
+
+    @Override
+    public ResponseEntity<ResponseVO<Map<String, Object>>> forceSyncRbacCache() {
+        int rolesProcessed = rbacCacheSyncService.synchronizeAllCaches();
+
+        return ResponseEntity.ok(ResponseVO.<Map<String, Object>>builder()
+                .statusCode(HttpStatus.OK)
+                .message("RBAC and Config Caches successfully synchronized.")
+                .result(Map.of("rolesProcessed", rolesProcessed))
+                .build());
+    }
+
+    //=========================================== HELPERS =======================================================
+
+    private void performUpdateOperation(Map<String, Object> result, String actionFlag, RoleRequest roleRequest, String remarks) {
+        if (actionFlag.equalsIgnoreCase(Constant.ACCEPT)) {
+            // Read CLOB payload safely
+            String jsonPayload = ClobUtil.clobToString(roleRequest.getRequestPayload());
+            RoleRequestPayload payload;
+            try {
+                payload = objectMapper.readValue(jsonPayload, RoleRequestPayload.class);
+            } catch (JsonProcessingException e) {
+                log.error("Failed to parse RoleRequest payload for ID: {}", roleRequest.getRequestId());
+                throw new IllegalArgumentException("Invalid payload format in request storage.");
+            }
+
+            // 1. Get the Reserved ID from the Request
+            int roleId = roleRequest.getTargetRoleId();
+
+            Role role = roleRepository.findRoleByRoleId(roleId);
+
+            boolean isCreate = Constant.CREATE.equalsIgnoreCase(roleRequest.getRequestType());
+
+            if (isCreate) {
+                if (role != null) {
+                    throw new IllegalArgumentException("Role ID " + roleId + " already exists. Cannot Create.");
+                }
+                role = new Role();
+                role.setRoleId(roleId);
+            } else {
+                if (role == null) {
+                    throw new ResourceNotFoundException("Role ID " + roleId + " not found for Update.");
+                }
+            }
+
+            role.setRoleName(payload.getRoleName());
+            role.setDescription(payload.getDescription());
+            role.setStatus(Constant.ACTIVE);
+
+            roleRepository.save(role);
+            savePermissions(payload, roleId);
+
+            // 1. Evict the notification permissions Cache
+            evictPermissionCache(payload.getPermissions());
+
+            // 2. INSTANT REDIS REFRESH
+            permissionCacheService.refreshRolePermissions((long) roleId);
+
+            roleRequest.setRequestStatus(Constant.ACCEPTED);
+            roleRequest.setExecutionDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            roleRequest.setExecutionDetails("SUCCESS");
+            roleRequestRepository.save(roleRequest);
+
+            result.put(Constant.STATUS, true);
+            result.put(Constant.MESSAGE, isCreate ? "Role Created" : "Role Updated");
+        } else {
+            // REJECT Logic
+            roleRequest.setRequestStatus(Constant.REJECTED);
+            roleRequest.setReasonForRejection(remarks);
+            roleRequest.setExecutionDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            roleRequest.setExecutionDetails("SUCCESS");
+            roleRequestRepository.save(roleRequest);
+
+            result.put(Constant.STATUS, true);
+            result.put(Constant.MESSAGE, "Request Rejected");
+        }
+    }
+
+    private void evictPermissionCache(List<PermissionList> permissions) {
+        if (permissions == null || permissions.isEmpty()) return;
+
+        Set<Integer> ids = permissions.stream().map(PermissionList::getId).collect(Collectors.toSet());
+        List<String> keys = permissionsRepository.findMappedRequestTypeByMenuId(ids);
+
+        Cache cache = cacheManager.getCache("notification_configs");
+        if (cache != null && keys != null) {
+            keys.forEach(cache::evict);
+        }
+    }
+
+
+    private void savePermissions(RoleRequestPayload payload, int roleId) {
+        List<PermissionList> newPerms = payload.getPermissions();
+        if (newPerms == null) return;
+
+        // 1. Fetch the authoritative list of what this role is ACTUALLY allowed to have
+        List<Permissions> eligiblePermissions = permissionsRepository.findEligiblePermissions(roleId);
+        Set<Integer> eligibleMenuIds = eligiblePermissions.stream()
+                .map(Permissions::getMenuId)
+                .collect(Collectors.toSet());
+
+        // 2. Cross-check incoming payload against the allowed list
+        for (PermissionList incomingPerm : newPerms) {
+            if (!eligibleMenuIds.contains(incomingPerm.getId())) {
+                log.error("SECURITY VIOLATION: Attempted to assign restricted/invalid MENU_ID {} to ROLE_ID {}", incomingPerm.getId(), roleId);
+                throw new SecurityException("Payload contains restricted permissions not authorized for this role.");
+            }
+        }
+
+        // 3. If validation passes, proceed with saving
+        List<RolePermissions> current = rolePermissionsRepository.findByIdRoleId(roleId);
+        rolePermissionsRepository.deleteAll(current);
+        rolePermissionsRepository.flush();
+
+        List<RolePermissions> toSave = newPerms.stream().map(p -> {
+            RolePermissions rp = new RolePermissions();
+            rp.setId(new RolePermissionId(roleId, p.getId()));
+            rp.setPermissionOrder(p.getOrder());
+            return rp;
+        }).collect(Collectors.toList());
+
+        rolePermissionsRepository.saveAll(toSave);
+    }
+
+    private void createNotification(String targetUser, String roles, String url, String msg, String refId) {
+        notificationWriterService.createNotification(targetUser, roles, msg, url, refId, EVENT_SOURCE);
+    }
+
+    /**
+     * Common processor to convert CLOB to String
+     */
+    private ResponseEntity<ResponseVO<Map<String, Object>>> processProjectionList(List<UserRequestProjection> rawList, String keyName) {
+        List<Map<String, Object>> processedList = rawList.stream().map(req -> {
+            Map<String, Object> map = new HashMap<>();
+            map.put("requestId", req.getRequestId());
+            map.put("requestType", req.getRequestType());
+            map.put("requestorUserId", req.getRequestorUserId());
+            map.put("targetRoleId", req.getTargetRoleId());
+            map.put("requestStatus", req.getRequestStatus());
+            map.put("requestDate", formatTimestamp(req.getRequestDate()));
+            map.put("requestPayload", ClobUtil.clobToString(req.getRequestPayload()));
+
+            // add approver details
+            map.put("approverId", req.getApproverUserId());
+            map.put("approvalDate", formatTimestamp(req.getApprovalDate()));
+            map.put("rejectionReason", req.getReasonForRejection());
+            return map;
+        }).collect(Collectors.toList());
+
+        Map<String, Object> result = new HashMap<>();
+        result.put(keyName, processedList);
+        result.put("count", processedList.size());
+
+        return ResponseEntity.ok(ResponseVO.<Map<String, Object>>builder().statusCode(HttpStatus.OK).message("Fetched " + processedList.size() + " requests").result(result).build());
+    }
+
