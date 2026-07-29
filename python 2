@@ -1,186 +1,261 @@
-// radis config
+package com.tcs.userservice.service;
 
-package com.tcs.userservice.config;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import org.springframework.cache.CacheManager;
-import org.springframework.cache.annotation.EnableCaching;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.data.redis.cache.RedisCacheConfiguration;
-import org.springframework.data.redis.cache.RedisCacheManager;
-import org.springframework.data.redis.connection.RedisConnectionFactory;
-import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
-import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
-import org.springframework.data.redis.serializer.RedisSerializationContext;
-import org.springframework.data.redis.serializer.StringRedisSerializer;
-
-import java.time.Duration;
-
-@Configuration
-@EnableCaching
-public class RedisConfig {
-
-    @Bean
-    public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
-        // 1. Create a specialized ObjectMapper for Redis
-        ObjectMapper redisObjectMapper = new ObjectMapper();
-        redisObjectMapper.registerModule(new JavaTimeModule());
-        // --- THIS IS THE FIX ---
-        // We explicitly verify and enable "Type Info" so Redis saves the class name.
-        redisObjectMapper.activateDefaultTyping(
-                BasicPolymorphicTypeValidator.builder()
-                        .allowIfBaseType(Object.class)
-                        .build(),
-                ObjectMapper.DefaultTyping.NON_FINAL
-        );
-        // -----------------------
-        GenericJackson2JsonRedisSerializer serializer = new GenericJackson2JsonRedisSerializer(redisObjectMapper);
-        RedisCacheConfiguration cacheConfig = RedisCacheConfiguration.defaultCacheConfig()
-                .entryTtl(Duration.ofHours(24))
-                .disableCachingNullValues()
-                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
-                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(serializer));
-        return RedisCacheManager.builder(connectionFactory)
-                .cacheDefaults(cacheConfig)
-                .build();
-    }
-
-    // Ensure ObjectMapper handles Java 8 Dates (LocalDate, Instant) correctly in Redis
-    @Bean
-    public ObjectMapper objectMapper() {
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.registerModule(new JavaTimeModule());
-        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        return mapper;
-    }
-
-    // This bean configures our RedisTemplate to use the fixed ObjectMapper
-    @Bean
-    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory connectionFactory, ObjectMapper objectMapper) {
-        RedisTemplate<String, Object> template = new RedisTemplate<>();
-        template.setConnectionFactory(connectionFactory);
-
-        Jackson2JsonRedisSerializer<Object> serializer =
-                new Jackson2JsonRedisSerializer<>(objectMapper, Object.class);
-
-        template.setValueSerializer(serializer);
-        template.setKeySerializer(new StringRedisSerializer());
-
-        return template;
-    }
-
-}
-
-
-
-
-
-
-
-
-
-//security config
-package com.tcs.userservice.config;
-
-import com.fincore.commonutilities.config.CommonSecurityConfig;
-import com.fincore.commonutilities.config.RedisConfig;
-import com.fincore.commonutilities.config.ResilienceConfig;
-import com.fincore.commonutilities.jwt.JwtUtil;
-import com.fincore.commonutilities.logging.MdcLoggingFilter;
-import com.fincore.commonutilities.security.ContextRbacFilter;
-import com.fincore.commonutilities.security.DecryptRequestBodyAdvice;
-import com.fincore.commonutilities.util.AesEncryptionUtil;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.web.servlet.FilterRegistrationBean;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Import;
+import com.tcs.userservice.model.Permissions;
+import com.tcs.userservice.repository.PermissionsRepository;
+import com.tcs.userservice.repository.RolePermissionsRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
-import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
 
 /**
- * Common Security Configuration.
- * * Aligned with the "Distributed Gateway" architecture.
- * It uses the ContextRbacFilter from Common Utilities to enforce:
- * 1. Token Validity
- * 2. Single Session (Redis check)
- * 3. RBAC Permissions
- * Enforces Centralised Mdc Logging Filter, RESILIENCE4J Retry and Circuit Breaker
+ * PermissionCacheService :- RBAC CPU ENTRY
+ * <p>
+ * While starting the user service, this Permission Cache Service fetches all available permissions for all the roles
+ * available in DB and map the permissions with roles, urls, contexts [MAPPED_REQUEST_TYPES] and store those in REDIS.
+ * Then every api  pases through common-utilities
+ *
+ * @author Shubhankar [v1018405]
+ * @version 1.0
+ * @since 2025-12-11
  */
-@Configuration
-@EnableWebSecurity
-@Import({
-        RedisConfig.class,
-        JwtUtil.class,
-        CommonSecurityConfig.class,
-        ResilienceConfig.class,
-        AesEncryptionUtil.class,
-        DecryptRequestBodyAdvice.class
-})
-public class SecurityConfig {
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class PermissionCacheService {
 
-    @Autowired
-    private StringRedisTemplate redisTemplate;
+    private final PermissionsRepository permissionRepository;
+    private final StringRedisTemplate redisTemplate;
+    private final RolePermissionsRepository rolePermissionsRepository;
 
-    @Autowired
-    private JwtUtil jwtUtil;
+    /**
+     * Refreshes the Redis cache for a specific Role ID.
+     * Call this on Startup and whenever a Role is updated.
+     */
+    @Transactional(readOnly = true)
+    public void refreshRolePermissions(Long roleId) {
+        List<Permissions> perms = permissionRepository.findAllByRoleId(roleId);
+        String redisKey = "RBAC::PERMISSIONS::" + roleId;
 
-    @Autowired
-    private CommonSecurityConfig commonSecurityConfig;
+        // 1. Delete main permissions key
+        redisTemplate.delete(redisKey);
 
-    // --- 1. Define Filters as Beans (Explicitly) ---
+        // 2. Find and delete all stale OPS keys for this role
+        Set<String> staleOpsKeys = redisTemplate.keys("RBAC::OPS::" + roleId + "::*");
+        if (staleOpsKeys != null && !staleOpsKeys.isEmpty()) {
+            redisTemplate.delete(staleOpsKeys);
+            log.debug("Deleted {} stale OPS keys for Role {}", staleOpsKeys.size(), roleId);
+        }
 
-    @Bean
-    public MdcLoggingFilter mdcLoggingFilter() {
-        return new MdcLoggingFilter(jwtUtil);
+        Set<String> redisValues = new HashSet<>();
+
+        // =================================================================
+        // 1. GLOBAL / DEFAULT PERMISSIONS
+        // These are granted to ALL logged-in users, regardless of DB rows.
+        // =================================================================
+        // Notification Service (Stream + History + Unread Count)
+        redisValues.add("GET:/api/notifications/**|*");
+        redisValues.add("POST:/api/notifications/**|*"); // For "Mark as Read"
+
+        // Dashboard Common Widgets
+        redisValues.add("GET:/api/dashboard/**|*");
+        // Help Common Widgets
+        redisValues.add("POST:/api/help/**|*");
+        redisValues.add("GET:/api/help/**|*");
+
+        //Downloads screen
+        redisValues.add("POST:/api/my-downloads/**|*");
+        redisValues.add("GET:/api/my-downloads/**|*");
+
+        // force-permissions sync api
+        redisValues.add("POST:/api/role/force-sync-rbac|*");
+
+        for (Permissions p : perms) {
+            String apiPattern = p.getApiResourcePattern(); // e.g. "/api/user/**" or "/api/cgl*"
+            String actionRaw = p.getMenuAction();
+            String action = (actionRaw != null) ? actionRaw.toLowerCase() : "";
+            String context = p.getMappedRequestType(); // e.g. "CGL_CODE" or "USER_MANAGEMENT"
+
+            String contextSuffix = (context == null || context.trim().isEmpty()) ? "*" : context;
+
+            // ==========================================================================================
+            // LOGIC BLOCK A: MAKER-CHECKER & GENERIC REQUESTS (CommonRequestService)
+            // ==========================================================================================
+            if (!contextSuffix.equals("*")) {
+
+                // DRY RUN: Role 51 (CGL Maker). Action="create|modify". Context="CGL_CODE".
+                // Controller: RequestController. Endpoint: POST /create-request, POST /update-request.
+                // VERDICT: GRANTED.
+                if (containsAny(action, "create", "modify", "delete", "cancel")) {
+                    redisValues.add("POST:/api/create-request|" + contextSuffix);
+                    redisValues.add("POST:/api/update-request|" + contextSuffix);
+                    redisValues.add("PATCH:/api/update-request|" + contextSuffix);
+                    redisValues.add("POST:/api/cancel-request|" + contextSuffix);
+                    redisValues.add("PATCH:/api/cancel-request|" + contextSuffix);
+                    // Endpoint: /my-requests (MyRequestFilterDto)
+                    redisValues.add("POST:/api/my-requests|" + contextSuffix);
+                }
+
+                // DRY RUN: Role 52 (CGL Blocker). Action="block". Context="CGL_CODE".
+                // Controller: RequestController. Endpoint: POST /create-request (Blocking is a request).
+                // VERDICT: GRANTED.
+                if (containsAny(action, "block", "unblock")) {
+                    redisValues.add("POST:/api/create-request|" + contextSuffix);
+                    redisValues.add("POST:/api/update-request|" + contextSuffix);
+                    redisValues.add("PATCH:/api/update-request|" + contextSuffix);
+                    redisValues.add("POST:/api/my-requests|" + contextSuffix);
+                }
+
+                // DRY RUN: Role 55 (CGL Checker). Action="approve". Context="CGL_CODE".
+                // Controller: RequestController. Endpoint: PATCH /update-request (ProcessRequestDto).
+                // VERDICT: GRANTED.
+                if (containsAny(action, "approve", "reject")) {
+                    redisValues.add("PATCH:/api/update-request|" + contextSuffix);
+                    redisValues.add("POST:/api/pending-requests|" + contextSuffix);
+                }
+
+                // store different actions for specific context to differentiate
+                String opsKey = "RBAC::OPS::" + roleId + "::" + contextSuffix;
+                Set<String> allowedOps = new HashSet<>();
+
+                // Map DB Action Strings -> Enum ChangeTypes
+                if (action.contains("create")) allowedOps.add("ADD");
+                if (action.contains("modify")) allowedOps.add("UPDATE");
+                if (action.contains("delete")) allowedOps.add("DELETE");
+
+                // GRANULAR PERMISSIONS
+                if (action.contains("block")) allowedOps.add("BLOCK");
+                if (action.contains("unblock")) allowedOps.add("UNBLOCK");
+
+                if (!allowedOps.isEmpty()) {
+                    // Store allowed operations in Redis
+                    // Example Key: RBAC::OPS::52::CGL_CODE -> ["BLOCK", "UNBLOCK"]
+                    redisTemplate.opsForSet().add(opsKey, allowedOps.toArray(new String[0]));
+                    log.info("Cached OPS for Role {} Context {}: {}", roleId, contextSuffix, allowedOps);
+                }
+            }
+
+            // ==========================================================================================
+            // LOGIC BLOCK B: RESOURCE ENDPOINTS (User, Role, Reports, Masters, Notifications)
+            // ==========================================================================================
+            if (apiPattern != null && !apiPattern.isEmpty()) {
+
+                // Handle comma-separated patterns (e.g., Circle needs /circle-codes AND /zone-codes)
+                String[] patterns = apiPattern.split(",");
+
+                for (String effectiveUrl : patterns) {
+                    effectiveUrl = effectiveUrl.trim();
+
+                    // --- READ ACCESS ---
+                    // DRY RUN: Role 51 (Maker). Needs to see CGL list to edit.
+                    // Controller: CommonMasterController. Endpoint: GET /cgls.
+                    // VERDICT: GRANTED (Implicitly via 'create'/'modify' check).
+                    //
+                    // DRY RUN: Dashboard (All Users). Action="view". Pattern="/notifications/**".
+                    // Controller: NotificationController. Endpoint: GET /notifications.
+                    // VERDICT: GRANTED.
+                    if (containsAny(action, "view", "read", "create", "modify", "block", "unblock")) {
+                        // Grant access with Specific Context (if header sent)
+                        redisValues.add("GET:" + effectiveUrl + "|" + contextSuffix);
+                        // DRY RUN: Transactions/Balance. These use POST to search/view.
+                        redisValues.add("POST:" + effectiveUrl + "|" + contextSuffix);
+
+                        // Grant access with Wildcard Context (if header NOT sent - Standard behavior)
+                        redisValues.add("GET:" + effectiveUrl + "|*");
+                        redisValues.add("POST:" + effectiveUrl + "|*");
+                    }
+
+                    // --- WRITE ACCESS (Create) ---
+                    // DRY RUN: User Mgmt (ID 12). Action="create". Pattern="/user/**|USER-MANAGEMENT OR /user/**|* work both cases".
+                    // Controller: UserRequestController. Endpoint: POST /user/create-request.
+                    // VERDICT: GRANTED.
+                    String writeContext = "*"; // Standard APIs rarely send context headers
+
+                    if (action.contains("create")) {
+                        redisValues.add("POST:" + effectiveUrl + "|" + contextSuffix);
+                        redisValues.add("POST:" + effectiveUrl + "|" + writeContext);
+                    }
+
+                    // --- WRITE ACCESS (Modify/Approve) ---
+                    // DRY RUN: Role Mgmt (ID 22). Action="modify". Pattern="/role/**".
+                    // Controller: RoleRequestController. Endpoint: PATCH /save-permission-order.
+                    // VERDICT: GRANTED.
+                    if (action.contains("modify") || action.contains("approve")) {
+                        redisValues.add("PUT:" + effectiveUrl + "|" + contextSuffix);
+                        redisValues.add("PUT:" + effectiveUrl + "|" + writeContext);
+
+                        redisValues.add("PATCH:" + effectiveUrl + "|" + contextSuffix);
+                        redisValues.add("PATCH:" + effectiveUrl + "|" + writeContext);
+
+                        // Some update APIs use POST (e.g. /user/accept-request)
+                        redisValues.add("POST:" + effectiveUrl + "|" + contextSuffix);
+                        redisValues.add("POST:" + effectiveUrl + "|" + writeContext);
+                    }
+
+                    // --- WRITE ACCESS (Delete/Cancel) ---
+                    // DRY RUN: User Mgmt. Action="cancel". Pattern="/user/**".
+                    // Controller: UserRequestController. Endpoint: POST /user/cancel-request.
+                    // VERDICT: GRANTED.
+                    if (action.contains("delete") || action.contains("cancel")) {
+                        redisValues.add("DELETE:" + effectiveUrl + "|" + contextSuffix);
+                        redisValues.add("DELETE:" + effectiveUrl + "|" + writeContext);
+                        redisValues.add("POST:" + effectiveUrl + "|" + contextSuffix);
+                        redisValues.add("POST:" + effectiveUrl + "|" + writeContext);
+                    }
+
+                    // --- WRITE ACCESS (Download/Upload) ---
+                    // DRY RUN: Reports (ID 26). Action="download". Pattern="/reports/**".
+                    // Controller: ReportController. Endpoint: POST /reports/download.
+                    // VERDICT: GRANTED.
+                    // DRY RUN: Journal Upload (ID 36). Action="Bulk Upload". Pattern="/journal-bulk-upload/**".
+                    // VERDICT: GRANTED.
+                    if (action.contains("download") || action.contains("upload")) {
+                        redisValues.add("GET:" + effectiveUrl + "|" + contextSuffix);
+                        redisValues.add("POST:" + effectiveUrl + "|" + contextSuffix);
+                        redisValues.add("POST:" + effectiveUrl + "|" + writeContext);
+
+                        redisValues.add("GET:" + effectiveUrl + "|" + writeContext);
+                        redisValues.add("POST:" + effectiveUrl + "|" + writeContext);
+                        redisValues.add("POST:" + effectiveUrl + "|" + writeContext);
+                    }
+                }
+            }
+        }
+
+        if (!redisValues.isEmpty()) {
+            redisTemplate.opsForSet().add(redisKey, redisValues.toArray(new String[0]));
+        }
+        log.info("Cached {} permissions for Role {}", redisValues.size(), roleId);
     }
 
-    @Bean
-    public ContextRbacFilter contextRbacFilter() {
-        return new ContextRbacFilter(redisTemplate, jwtUtil);
+    /**
+     * Called when a PERMISSION definition changes (e.g. URL update).
+     * Finds all roles using this permission and refreshes them.
+     */
+    @Transactional(readOnly = true)
+    public void refreshRolesByPermissionId(Long permissionId) {
+        // Query DB: Find all Role IDs associated with this Permission ID
+        // You'll need to add this query to your Repository
+        List<Long> affectedRoleIds = rolePermissionsRepository.findRoleIdsByPermissionId(permissionId);
+
+        log.info("Permission {} changed. Refreshing {} affected roles.", permissionId, affectedRoleIds.size());
+
+        for (Long roleId : affectedRoleIds) {
+            refreshRolePermissions(roleId);
+        }
     }
 
-    // --- 2. Prevent Global Registration ---
-    // This stops "The Filter class ... does not have a registered order" error
-
-    @Bean
-    public FilterRegistrationBean<MdcLoggingFilter> mdcFilterRegistration(MdcLoggingFilter filter) {
-        FilterRegistrationBean<MdcLoggingFilter> registration = new FilterRegistrationBean<>(filter);
-        registration.setEnabled(false); // Disable global chain
-        return registration;
-    }
-
-    @Bean
-    public FilterRegistrationBean<ContextRbacFilter> rbacFilterRegistration(ContextRbacFilter filter) {
-        FilterRegistrationBean<ContextRbacFilter> registration = new FilterRegistrationBean<>(filter);
-        registration.setEnabled(false); // Disable global chain
-        return registration;
-    }
-
-    @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        http
-                .csrf(AbstractHttpConfigurer::disable)
-                .cors(cors -> cors.configurationSource(commonSecurityConfig.corsConfigurationSource()))
-                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(authz -> authz
-                        .requestMatchers("/actuator/**", "/api/auth/**", "/error", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
-                        .anyRequest().authenticated()
-                )
-                // Add Filters using the BEAN references (methods above)
-                .addFilterBefore(mdcLoggingFilter(), UsernamePasswordAuthenticationFilter.class)
-                .addFilterAfter(contextRbacFilter(), MdcLoggingFilter.class);
-
-        return http.build();
+    private boolean containsAny(String input, String... keywords) {
+        if (input == null) return false;
+        for (String keyword : keywords) {
+            if (input.contains(keyword)) return true;
+        }
+        return false;
     }
 }
