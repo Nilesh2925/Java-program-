@@ -1,69 +1,554 @@
-@Bean
-public ObjectMapper objectMapper() {
-
-    ObjectMapper mapper = new ObjectMapper();
-    mapper.registerModule(new JavaTimeModule());
-    mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-
-    return mapper;
-}
-
-@Bean
-public CacheManager cacheManager(RedisConnectionFactory connectionFactory,
-                                 ObjectMapper objectMapper) {
-
-    GenericJackson2JsonRedisSerializer serializer =
-            new GenericJackson2JsonRedisSerializer(objectMapper);
-
-    RedisCacheConfiguration cacheConfig =
-            RedisCacheConfiguration.defaultCacheConfig()
-                    .entryTtl(Duration.ofHours(24))
-                    .disableCachingNullValues()
-                    .serializeKeysWith(
-                            RedisSerializationContext.SerializationPair
-                                    .fromSerializer(new StringRedisSerializer()))
-                    .serializeValuesWith(
-                            RedisSerializationContext.SerializationPair
-                                    .fromSerializer(serializer));
-
-    return RedisCacheManager.builder(connectionFactory)
-            .cacheDefaults(cacheConfig)
-            .build();
-}
-
-
-@Bean
-public RedisTemplate<String, Object> redisTemplate(
-        RedisConnectionFactory connectionFactory,
-        ObjectMapper objectMapper) {
-
-    RedisTemplate<String, Object> template = new RedisTemplate<>();
-
-    template.setConnectionFactory(connectionFactory);
-
-    Jackson2JsonRedisSerializer<Object> serializer =
-            new Jackson2JsonRedisSerializer<>(objectMapper, Object.class);
-
-    template.setKeySerializer(new StringRedisSerializer());
-    template.setHashKeySerializer(new StringRedisSerializer());
-
-    template.setValueSerializer(serializer);
-    template.setHashValueSerializer(serializer);
-
-    template.afterPropertiesSet();
-
-    return template;
-}
-
-
-.headers(headers -> headers
-        .contentSecurityPolicy(csp -> csp.policyDirectives(
-                "default-src 'self'; " +
-                "script-src 'self'; " +
-                "style-src 'self'; " +
-                "img-src 'self' data:; " +
-                "object-src 'none'; " +
-                "frame-ancestors 'none'; " +
-                "base-uri 'self';"
-        ))
-)
+Access Control: Database (17 issues)
+Abstract
+Without proper access control, executing a SQL statement that contains a user-controlled primary key can allow an
+attacker to view unauthorized records.
+Explanation
+Database access control errors occur when: 1. Data enters a program from an untrusted source. 2. The data is used to
+specify the value of a primary key in a SQL query. Example 1: The following code uses a parameterized statement,
+which escapes metacharacters and prevents SQL injection vulnerabilities, to construct and execute a SQL query that
+searches for an invoice matching the specified identifier [1]. The identifier is selected from a list of all invoices
+associated with the current authenticated user.
+...
+id = Integer.decode(request.getParameter("invoiceID"));
+String query = "SELECT * FROM invoices WHERE id = ?";
+PreparedStatement stmt = conn.prepareStatement(query);
+stmt.setInt(1, id);
+ResultSet results = stmt.execute();
+...
+The problem is that the developer has failed to consider all of the possible values of id. Although the interface
+generates a list of invoice identifiers that belong to the current user, an attacker might bypass this interface to request
+any desired invoice. Because the code in this example does not check to ensure that the user has permission to access
+the requested invoice, it will display any invoice, even if it does not belong to the current user. Some think that in the
+mobile world, classic web application vulnerabilities, such as database access control errors, do not make sense -- why
+would the user attack themself? However, keep in mind that the essence of mobile platforms is applications that are
+downloaded from various sources and run alongside each other on the same device. The likelihood of running a piece
+of malware next to a banking application is high, which necessitates expanding the attack surface of mobile
+applications to include inter-process communication. Example 2: The following code adapts Example 1 to the
+Android platform.
+...
+ String id = this.getIntent().getExtras().getString("invoiceID");
+ String query = "SELECT * FROM invoices WHERE id = ?";
+ SQLiteDatabase db = this.openOrCreateDatabase("DB", MODE_PRIVATE,
+null);
+ Cursor c = db.rawQuery(query, new Object[]{id});
+...
+A number of modern web frameworks provide mechanisms to perform user input validation (including Struts and
+Spring MVC). To highlight the unvalidated sources of input, Fortify Secure Coding Rulepacks dynamically reprioritize the issues Fortify Static Code Analyzer reports by lowering their probability of exploit and providing
+pointers to the supporting evidence whenever the framework validation mechanism is in use. We refer to this feature
+as Context-Sensitive Ranking. To further assist the Fortify user with the auditing process, the Fortify Software
+Security Research group makes available the Data Validation project template that groups the issues into folders
+based on the validation mechanism applied to their source of input.
+Recommendation
+Rather than relying on the presentation layer to restrict values submitted by the user, access control should be handled
+by the application and database layers. Under no circumstances should a user be allowed to retrieve or modify a row
+in the database without the appropriate permissions. Every query that accesses the database should enforce this policy,
+which can often be accomplished by simply including the current authenticated username as part of the query.
+Jul 28, 2026, 11:40 AM
+© Copyright [2008-2026] Micro Focus or one of its affiliates.
+7
+Example 3: The following code implements the same functionality as Example 1 but imposes an additional
+constraint to verify that the invoice belongs to the currently authenticated user.
+...
+userName = ctx.getAuthenticatedUserName();
+id = Integer.decode(request.getParameter("invoiceID"));
+String query =
+ "SELECT * FROM invoices WHERE id = ? AND user = ?";
+PreparedStatement stmt = conn.prepareStatement(query);
+stmt.setInt(1, id);
+stmt.setString(2, userName);
+ResultSet results = stmt.execute();
+...
+And here is an Android equivalent:
+...
+ PasswordAuthentication pa = authenticator.getPasswordAuthentication();
+ String userName = pa.getUserName();
+ String id = this.getIntent().getExtras().getString("invoiceID");
+ String query = "SELECT * FROM invoices WHERE id = ? AND user = ?";
+ SQLiteDatabase db = this.openOrCreateDatabase("DB", MODE_PRIVATE,
+null);
+ Cursor c = db.rawQuery(query, new Object[]{id, userName});
+...
+Issue Summary
+Engine Breakdown
+SCA WebInspect SecurityScope Total
+Access Control: Database 17 0 0 17
+Total 17 0 0 17
+Access Control: Database High
+Package: com.tcs.userservice.service
+src/main/java/com/tcs/userservice/service/PermissionCacheService.java, line 47 (Access
+Control: Database) High
+Issue Details
+Kingdom: Security Features
+Scan Engine: SCA (Data Flow)
+Jul 28, 2026, 11:40 AM
+© Copyright [2008-2026] Micro Focus or one of its affiliates.
+8
+Access Control: Database High
+Package: com.tcs.userservice.service
+src/main/java/com/tcs/userservice/service/PermissionCacheService.java, line 47 (Access
+Control: Database) High
+Source Details
+Source: handleRolePermissionChange(0)
+From: com.tcs.userservice.service.RbacEventListener.handleRolePermissionChange
+File: src/main/java/com/tcs/userservice/service/RbacEventListener.java:28
+25 * Table: ROLE_PERMISSIONS
+26 */
+27 @KafkaListener(topics = "fincore.FINCORE.ROLE_PERMISSIONS", groupId = "rbac-cache-group")
+28 public void handleRolePermissionChange(@Payload(required = false) String message) {
+29 // 1. Handle Tombstone Record (Cleanup message from Debezium)
+30 if (message == null) {
+31 log.debug("Ignored Tombstone record for ROLE_PERMISSIONS");
+Sink Details
+Sink: org.springframework.data.redis.core.RedisTemplate.delete()
+Enclosing Method: refreshRolePermissions()
+File: src/main/java/com/tcs/userservice/service/PermissionCacheService.java:47
+Taint Flags: NETWORK, NUMBER, PRIMARY_KEY
+44 String redisKey = "RBAC::PERMISSIONS::" + roleId;
+45
+46 // 1. Delete main permissions key
+47 redisTemplate.delete(redisKey);
+48
+49 // 2. Find and delete all stale OPS keys for this role
+50 Set<String> staleOpsKeys = redisTemplate.keys("RBAC::OPS::" + roleId + "::*");
+src/main/java/com/tcs/userservice/service/PermissionCacheService.java, line 232 (Access
+Control: Database) High
+Issue Details
+Kingdom: Security Features
+Scan Engine: SCA (Data Flow)
+Source Details
+Source: handleRolePermissionChange(0)
+From: com.tcs.userservice.service.RbacEventListener.handleRolePermissionChange
+File: src/main/java/com/tcs/userservice/service/RbacEventListener.java:28
+25 * Table: ROLE_PERMISSIONS
+26 */
+27 @KafkaListener(topics = "fincore.FINCORE.ROLE_PERMISSIONS", groupId = "rbac-cache-group")
+28 public void handleRolePermissionChange(@Payload(required = false) String message) {
+29 // 1. Handle Tombstone Record (Cleanup message from Debezium)
+Jul 28, 2026, 11:40 AM
+© Copyright [2008-2026] Micro Focus or one of its affiliates.
+9
+Access Control: Database High
+Package: com.tcs.userservice.service
+src/main/java/com/tcs/userservice/service/PermissionCacheService.java, line 232 (Access
+Control: Database) High
+30 if (message == null) {
+31 log.debug("Ignored Tombstone record for ROLE_PERMISSIONS");
+Sink Details
+Sink: org.springframework.data.redis.core.SetOperations.add()
+Enclosing Method: refreshRolePermissions()
+File: src/main/java/com/tcs/userservice/service/PermissionCacheService.java:232
+Taint Flags: NETWORK, NUMBER, PRIMARY_KEY
+229 }
+230
+231 if (!redisValues.isEmpty()) {
+232 redisTemplate.opsForSet().add(redisKey, redisValues.toArray(new String[0]));
+233 }
+234 log.info("Cached {} permissions for Role {}", redisValues.size(), roleId);
+235 }
+src/main/java/com/tcs/userservice/service/PermissionCacheService.java, line 43 (Access
+Control: Database) High
+Issue Details
+Kingdom: Security Features
+Scan Engine: SCA (Data Flow)
+Source Details
+Source: handleRolePermissionChange(0)
+From: com.tcs.userservice.service.RbacEventListener.handleRolePermissionChange
+File: src/main/java/com/tcs/userservice/service/RbacEventListener.java:28
+25 * Table: ROLE_PERMISSIONS
+26 */
+27 @KafkaListener(topics = "fincore.FINCORE.ROLE_PERMISSIONS", groupId = "rbac-cache-group")
+28 public void handleRolePermissionChange(@Payload(required = false) String message) {
+29 // 1. Handle Tombstone Record (Cleanup message from Debezium)
+30 if (message == null) {
+31 log.debug("Ignored Tombstone record for ROLE_PERMISSIONS");
+Sink Details
+Sink: com.tcs.userservice.repository.PermissionsRepository.findAllByRoleId()
+Enclosing Method: refreshRolePermissions()
+File: src/main/java/com/tcs/userservice/service/PermissionCacheService.java:43
+Taint Flags: NETWORK, NUMBER, PRIMARY_KEY
+40 */
+Jul 28, 2026, 11:40 AM
+© Copyright [2008-2026] Micro Focus or one of its affiliates.
+10
+Access Control: Database High
+Package: com.tcs.userservice.service
+src/main/java/com/tcs/userservice/service/PermissionCacheService.java, line 43 (Access
+Control: Database) High
+41 @Transactional(readOnly = true)
+42 public void refreshRolePermissions(Long roleId) {
+43 List<Permissions> perms = permissionRepository.findAllByRoleId(roleId);
+44 String redisKey = "RBAC::PERMISSIONS::" + roleId;
+45
+46 // 1. Delete main permissions key
+src/main/java/com/tcs/userservice/service/PermissionCacheService.java, line 245 (Access
+Control: Database) High
+Issue Details
+Kingdom: Security Features
+Scan Engine: SCA (Data Flow)
+Source Details
+Source: handlePermissionDefinitionChange(0)
+From: com.tcs.userservice.service.RbacEventListener.handlePermissionDefinitionChang
+e
+File: src/main/java/com/tcs/userservice/service/RbacEventListener.java:65
+62 * Table: PERMISSIONS
+63 */
+64 @KafkaListener(topics = "fincore.FINCORE.PERMISSIONS", groupId = "rbac-cache-group")
+65 public void handlePermissionDefinitionChange(@Payload(required = false) String message) {
+66 // 1. Handle Tombstone Record
+67 if (message == null) {
+68 log.debug("Ignored Tombstone record for PERMISSIONS");
+Sink Details
+Sink: com.tcs.userservice.repository.RolePermissionsRepository.findRoleIdsByPermissionId()
+Enclosing Method: refreshRolesByPermissionId()
+File: src/main/java/com/tcs/userservice/service/PermissionCacheService.java:245
+Taint Flags: NETWORK, NUMBER, PRIMARY_KEY
+242 public void refreshRolesByPermissionId(Long permissionId) {
+243 // Query DB: Find all Role IDs associated with this Permission ID
+244 // You'll need to add this query to your Repository
+245 List<Long> affectedRoleIds = rolePermissionsRepository.findRoleIdsByPermissionId(permissionId);
+246
+247 log.info("Permission {} changed. Refreshing {} affected roles.", permissionId, affectedRoleIds.size());
+248
+Jul 28, 2026, 11:40 AM
+© Copyright [2008-2026] Micro Focus or one of its affiliates.
+11
+Access Control: Database High
+Package: com.tcs.userservice.service
+src/main/java/com/tcs/userservice/service/PermissionCacheService.java, line 139 (Access
+Control: Database) High
+Issue Details
+Kingdom: Security Features
+Scan Engine: SCA (Data Flow)
+Source Details
+Source: handleRolePermissionChange(0)
+From: com.tcs.userservice.service.RbacEventListener.handleRolePermissionChange
+File: src/main/java/com/tcs/userservice/service/RbacEventListener.java:28
+25 * Table: ROLE_PERMISSIONS
+26 */
+27 @KafkaListener(topics = "fincore.FINCORE.ROLE_PERMISSIONS", groupId = "rbac-cache-group")
+28 public void handleRolePermissionChange(@Payload(required = false) String message) {
+29 // 1. Handle Tombstone Record (Cleanup message from Debezium)
+30 if (message == null) {
+31 log.debug("Ignored Tombstone record for ROLE_PERMISSIONS");
+Sink Details
+Sink: org.springframework.data.redis.core.SetOperations.add()
+Enclosing Method: refreshRolePermissions()
+File: src/main/java/com/tcs/userservice/service/PermissionCacheService.java:139
+Taint Flags: NETWORK, NUMBER, PRIMARY_KEY
+136 if (!allowedOps.isEmpty()) {
+137 // Store allowed operations in Redis
+138 // Example Key: RBAC::OPS::52::CGL_CODE -> ["BLOCK", "UNBLOCK"]
+139 redisTemplate.opsForSet().add(opsKey, allowedOps.toArray(new String[0]));
+140 log.info("Cached OPS for Role {} Context {}: {}", roleId, contextSuffix, allowedOps);
+141 }
+142 }
+URL: null
+src/main/java/com/tcs/userservice/service/UserRequestServiceImpl.java, line 390 (Access
+Control: Database) High
+Issue Details
+Kingdom: Security Features
+Scan Engine: SCA (Data Flow)
+Source Details
+Source: cancelRequest(1)
+From: com.tcs.userservice.controller.UserRequestController.cancelRequest
+File: src/main/java/com/tcs/userservice/controller/UserRequestController.java:79
+Jul 28, 2026, 11:40 AM
+© Copyright [2008-2026] Micro Focus or one of its affiliates.
+12
+Access Control: Database High
+URL: null
+src/main/java/com/tcs/userservice/service/UserRequestServiceImpl.java, line 390 (Access
+Control: Database) High
+URL: null
+76 }
+77
+78 @PostMapping("/cancel-request")
+79 public ResponseEntity cancelRequest(@RequestHeader("Authorization") String token, @RequestBody
+Map<String, Object> request) {
+80 log.info("Received request to cancel request with request id : {}", request.get("requestId"));
+81 return userRequestService.cancelRequest(request, jwtUtil.getUserIdFromToken(token));
+82 }
+Sink Details
+Sink: com.tcs.userservice.repository.UserRequestRepository.findUserRequestsByRequestId()
+Enclosing Method: cancelRequest()
+File: src/main/java/com/tcs/userservice/service/UserRequestServiceImpl.java:390
+Taint Flags: NUMBER, PRIMARY_KEY, WEB
+387
+388 int requestId = Integer.parseInt(String.valueOf(request.get("requestId")));
+389 String remarks = request.get("reason") != null ? (String) request.get("reason") : "No Remarks";
+390 UserRequest userRequest = userRequestRepository.findUserRequestsByRequestId(requestId);
+391
+392 if (!userRequest.getRequestorUserId().equals(userId)) {
+393 log.warn("SECURITY VIOLATION: User {} attempted to cancel request {} owned by {}", userId, requestId,
+src/main/java/com/tcs/userservice/service/RoleRequestServiceImpl.java, line 123 (Access
+Control: Database) High
+Issue Details
+Kingdom: Security Features
+Scan Engine: SCA (Data Flow)
+Source Details
+Source: acceptRequest(0)
+From: com.tcs.userservice.controller.RoleRequestController.acceptRequest
+File: src/main/java/com/tcs/userservice/controller/RoleRequestController.java:85
+URL: null
+82 * @return ResponseEntity with action result
+83 */
+84 @PostMapping("/role-request-action")
+85 public ResponseEntity acceptRequest(@RequestBody Map<String, Object> request,
+86 @RequestHeader("Authorization") String token) {
+87 String userId = jwtUtil.getUserIdFromToken(token);
+Jul 28, 2026, 11:40 AM
+© Copyright [2008-2026] Micro Focus or one of its affiliates.
+13
+Access Control: Database High
+URL: null
+src/main/java/com/tcs/userservice/service/RoleRequestServiceImpl.java, line 123 (Access
+Control: Database) High
+88 log.info("Received request to execute role request: {}", (String) request.get("actionFlag"));
+Sink Details
+Sink: com.tcs.userservice.repository.RoleRequestRepository.findRoleRequestByRequestId()
+Enclosing Method: acceptOrRejectRoleRequest()
+File: src/main/java/com/tcs/userservice/service/RoleRequestServiceImpl.java:123
+Taint Flags: NUMBER, PRIMARY_KEY, WEB
+120 int requestId = Integer.parseInt(String.valueOf(request.get("requestId")));
+121 String remarks = (String) request.getOrDefault("remarks", "No Remarks: Rejected by approver");
+122
+123 RoleRequest roleRequest = roleRequestRepository.findRoleRequestByRequestId(requestId);
+124 roleRequest.setApproverUserId(userId);
+125 roleRequest.setApprovalDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+126
+src/main/java/com/tcs/userservice/service/UserRequestServiceImpl.java, line 188 (Access
+Control: Database) High
+Issue Details
+Kingdom: Security Features
+Scan Engine: SCA (Data Flow)
+Source Details
+Source: acceptRequest(1)
+From: com.tcs.userservice.controller.UserRequestController.acceptRequest
+File: src/main/java/com/tcs/userservice/controller/UserRequestController.java:54
+URL: null
+51
+52 @PostMapping("/accept-request")
+53 public ResponseEntity acceptRequest(HttpServletRequest request,
+54 @RequestBody UserRequestDto userRequest,
+55 @RequestHeader("Authorization") String token) {
+56 String clientIp = RequestUtility.getClientIp(request);
+57 String userId = jwtUtil.getUserIdFromToken(token);
+Sink Details
+Sink: com.tcs.userservice.repository.UserRequestRepository.findUserRequestsByRequestId()
+Enclosing Method: acceptOrRejectUserRequest()
+File: src/main/java/com/tcs/userservice/service/UserRequestServiceImpl.java:188
+Taint Flags: NUMBER, PRIMARY_KEY, WEB
+185 public ResponseEntity<ResponseVO<Map<String, Object>>> acceptOrRejectUserRequest(UserRequestDto dto,
+Jul 28, 2026, 11:40 AM
+© Copyright [2008-2026] Micro Focus or one of its affiliates.
+14
+Access Control: Database High
+URL: null
+src/main/java/com/tcs/userservice/service/UserRequestServiceImpl.java, line 188 (Access
+Control: Database) High
+186 String ipAddress, String userId) {
+187
+188 UserRequest request = userRequestRepository.findUserRequestsByRequestId(dto.getRequestId());
+189 request.setApproverUserId(userId);
+190 request.setApprovalDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+191
+src/main/java/com/tcs/userservice/service/UserRequestServiceImpl.java, line 356 (Access
+Control: Database) High
+Issue Details
+Kingdom: Security Features
+Scan Engine: SCA (Data Flow)
+Source Details
+Source: getUserDetails(0)
+From: com.tcs.userservice.controller.UserRequestController.getUserDetails
+File: src/main/java/com/tcs/userservice/controller/UserRequestController.java:64
+URL: null
+61 }
+62
+63 @GetMapping("/user-details")
+64 public ResponseEntity getUserDetails(@RequestParam Map<String, String> request) {
+65 String userId = request.get("id");
+66 String role = request.get("roleId");
+67 log.info("Received request to fetch all user details for the user : {} and role {}", userId, role);
+Sink Details
+Sink: com.tcs.userservice.repository.UserRepository.getUsers()
+Enclosing Method: getUserDetails()
+File: src/main/java/com/tcs/userservice/service/UserRequestServiceImpl.java:356
+Taint Flags: PRIMARY_KEY, WEB, XSS
+353 // params.get("branch")!=null?Integer.parseInt(params.get("branch")):null;
+354 Map<String, Object> result = new HashMap<>();
+355
+356 List<Map<String, Object>> users = userRepository.getUsers(userId, role);
+357 users = users.stream().filter(u -> {
+358 Object roleId = u.get("role_id");
+359 return roleId == null || Integer.parseInt(roleId.toString()) != 10;
+Jul 28, 2026, 11:40 AM
+© Copyright [2008-2026] Micro Focus or one of its affiliates.
+15
+Access Control: Database High
+URL: null
+src/main/java/com/tcs/userservice/service/RoleRequestServiceImpl.java, line 156 (Access
+Control: Database) High
+Issue Details
+Kingdom: Security Features
+Scan Engine: SCA (Data Flow)
+Source Details
+Source: cancelRoleRequest(0)
+From: com.tcs.userservice.controller.RoleRequestController.cancelRoleRequest
+File: src/main/java/com/tcs/userservice/controller/RoleRequestController.java:113
+URL: null
+110 * @return ResponseEntity with cancellation result
+111 */
+112 @PostMapping("/cancel-role-request")
+113 public ResponseEntity cancelRoleRequest(@RequestBody Map<String, Object> request,
+114 @RequestHeader("Authorization") String token) {
+115 log.info("Received request to cancel role creation request");
+116 return roleRequestService.cancelRoleRequest(request, jwtUtil.getUserIdFromToken(token));
+Sink Details
+Sink: com.tcs.userservice.repository.RoleRequestRepository.getRoleRequestByRequestId()
+Enclosing Method: cancelRoleRequest()
+File: src/main/java/com/tcs/userservice/service/RoleRequestServiceImpl.java:156
+Taint Flags: NUMBER, PRIMARY_KEY, WEB
+153 int requestId = Integer.parseInt(String.valueOf(request.get("requestId")));
+154 String remarks = request.get("reason") != null ? (String) request.get("reason") : "No Remarks";
+155
+156 RoleRequest roleRequest = roleRequestRepository.getRoleRequestByRequestId(requestId);
+157 if (roleRequest == null) {
+158 throw new ResourceNotFoundException("Request not found with ID: " + requestId);
+159 }
+src/main/java/com/tcs/userservice/service/RoleRequestServiceImpl.java, line 422 (Access
+Control: Database) High
+Issue Details
+Kingdom: Security Features
+Scan Engine: SCA (Data Flow)
+Source Details
+Source: createNewRequest(0)
+From: com.tcs.userservice.controller.RoleRequestController.createNewRequest
+File: src/main/java/com/tcs/userservice/controller/RoleRequestController.java:57
+URL: null
+Jul 28, 2026, 11:40 AM
+© Copyright [2008-2026] Micro Focus or one of its affiliates.
+16
+Access Control: Database High
+URL: null
+src/main/java/com/tcs/userservice/service/RoleRequestServiceImpl.java, line 422 (Access
+Control: Database) High
+54 * @return ResponseEntity with submission result
+55 */
+56 @PostMapping("/create-role-request")
+57 public ResponseEntity createNewRequest(@Valid @RequestBody RoleRequestCreateDto request,
+58 @RequestHeader("Authorization") String token) {
+59 log.info("Received request to create role : {}", request);
+60 String userId = jwtUtil.getUserIdFromToken(token);
+Sink Details
+Sink: com.tcs.userservice.repository.RoleRepository.findRoleByRoleId()
+Enclosing Method: validateBusinessRules()
+File: src/main/java/com/tcs/userservice/service/RoleRequestServiceImpl.java:422
+Taint Flags: NUMBER, PRIMARY_KEY, WEB
+419 private void validateBusinessRules(boolean isCreate, Integer roleId, String roleName) {
+420 if (isCreate) {
+421 if (roleId != null) {
+422 Role existingRole = roleRepository.findRoleByRoleId(roleId);
+423 if (existingRole != null) {
+424 throw new IllegalArgumentException("Role ID " + roleId + " already exists.");
+425 }
+src/main/java/com/tcs/userservice/service/RoleRequestServiceImpl.java, line 439 (Access
+Control: Database) High
+Issue Details
+Kingdom: Security Features
+Scan Engine: SCA (Data Flow)
+Source Details
+Source: createNewRequest(0)
+From: com.tcs.userservice.controller.RoleRequestController.createNewRequest
+File: src/main/java/com/tcs/userservice/controller/RoleRequestController.java:57
+URL: null
+54 * @return ResponseEntity with submission result
+55 */
+56 @PostMapping("/create-role-request")
+57 public ResponseEntity createNewRequest(@Valid @RequestBody RoleRequestCreateDto request,
+58 @RequestHeader("Authorization") String token) {
+59 log.info("Received request to create role : {}", request);
+60 String userId = jwtUtil.getUserIdFromToken(token);
+Jul 28, 2026, 11:40 AM
+© Copyright [2008-2026] Micro Focus or one of its affiliates.
+17
+Access Control: Database High
+URL: null
+src/main/java/com/tcs/userservice/service/RoleRequestServiceImpl.java, line 439 (Access
+Control: Database) High
+Sink Details
+Sink: com.tcs.userservice.repository.RoleRequestRepository.countPendingRoleRequests()
+Enclosing Method: validateBusinessRules()
+File: src/main/java/com/tcs/userservice/service/RoleRequestServiceImpl.java:439
+Taint Flags: NUMBER, PRIMARY_KEY, WEB
+436 }
+437 } else {
+438 // Modification Validation
+439 if (roleRequestRepository.countPendingRoleRequests(roleId) > 0) {
+440 throw new IllegalArgumentException("A pending request already exists for Role ID " + roleId);
+441 }
+442 }
+src/main/java/com/tcs/userservice/service/UserRequestServiceImpl.java, line 76 (Access
+Control: Database) High
+Issue Details
+Kingdom: Security Features
+Scan Engine: SCA (Data Flow)
+Source Details
+Source: createNewRequest(0)
+From: com.tcs.userservice.controller.UserRequestController.createNewRequest
+File: src/main/java/com/tcs/userservice/controller/UserRequestController.java:37
+URL: null
+34 private final JwtUtil jwtUtil;
+35
+36 @PostMapping("/create-request")
+37 public ResponseEntity createNewRequest(@Valid @RequestBody UserRequestCreateDto request,
+38 @RequestHeader("Authorization") String token) {
+39 log.info("Received request to create user : {}", request);
+40 String userId = jwtUtil.getUserIdFromToken(token);
+Sink Details
+Sink: com.tcs.userservice.repository.UserRequestRepository.countUserPendingRequests()
+Enclosing Method: createNewRequest()
+File: src/main/java/com/tcs/userservice/service/UserRequestServiceImpl.java:76
+Taint Flags: PRIMARY_KEY, WEB, XSS
+73 // }
+74
+75 // 3. Conflict & State Checks
+76 if (userRequestRepository.countUserPendingRequests(targetUserId) > 0) {
+Jul 28, 2026, 11:40 AM
+© Copyright [2008-2026] Micro Focus or one of its affiliates.
+18
+Access Control: Database High
+URL: null
+src/main/java/com/tcs/userservice/service/UserRequestServiceImpl.java, line 76 (Access
+Control: Database) High
+77 throw new IllegalStateException("A pending request already exists for this User ID.");
+78 }
+79
+src/main/java/com/tcs/userservice/service/UserRequestServiceImpl.java, line 80 (Access
+Control: Database) High
+Issue Details
+Kingdom: Security Features
+Scan Engine: SCA (Data Flow)
+Source Details
+Source: createNewRequest(0)
+From: com.tcs.userservice.controller.UserRequestController.createNewRequest
+File: src/main/java/com/tcs/userservice/controller/UserRequestController.java:37
+URL: null
+34 private final JwtUtil jwtUtil;
+35
+36 @PostMapping("/create-request")
+37 public ResponseEntity createNewRequest(@Valid @RequestBody UserRequestCreateDto request,
+38 @RequestHeader("Authorization") String token) {
+39 log.info("Received request to create user : {}", request);
+40 String userId = jwtUtil.getUserIdFromToken(token);
+Sink Details
+Sink: com.tcs.userservice.repository.UserRepository.findUserByUserId()
+Enclosing Method: createNewRequest()
+File: src/main/java/com/tcs/userservice/service/UserRequestServiceImpl.java:80
+Taint Flags: PRIMARY_KEY, WEB, XSS
+77 throw new IllegalStateException("A pending request already exists for this User ID.");
+78 }
+79
+80 User existingUser = userRepository.findUserByUserId(targetUserId);
+81
+82 // Case: Create but User already exists
+83 if (Constant.CREATE.equalsIgnoreCase(requestType) && existingUser != null) {
