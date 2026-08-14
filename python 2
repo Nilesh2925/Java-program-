@@ -20,11 +20,52 @@
     private boolean isInvalidUserId(String userId) {
         if (userId == null)
             return true;
-        String id = userId.toLowerCase();
+        // String id = userId.toLowerCase();
+        String id = userId;
         // Return TRUE if it DOES NOT match
-        return !id.matches("^(v|tcs)?\\d{7}$");
+
+        return !id.matches(("(?i)^(vtcs|tcs|v)?\\d{7}$"));
     }
 
 
-const USERID_REGEX = /^(?:\d{7}|v\d{7}|tcs\d{7}|vtcs\d{7})$/i;
 
+package com.tcs.userservice.dto;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+import com.fincore.commonutilities.util.MaskingUtil;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import lombok.Data;
+
+@Data
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class UserRequestCreateDto {
+    @NotBlank
+    @Pattern(regexp = "^(CREATE|MODIFY|LOCK|UNLOCK|DELETE|CANCEL)$")
+    private String requestType;
+    @NotBlank
+    // @Pattern(regexp = "^(v|tcs)?\\d{7}$", message = "Invalid User Id format.")
+    @Pattern(
+            // Matches: 7 digits OR v+7 digits OR tcs+7 digits OR vtcs+7 digits
+            // Flags make it case-insensitive (V, Vtcs, TCS, etc.)
+            regexp = "^(vtcs|v|tcs)?\\d{7}$", message = "Invalid User Id format.", flags = {
+                    Pattern.Flag.CASE_INSENSITIVE })
+    private String targetUserId;
+
+    @Valid
+    @NotNull
+    private UserPayloadDto requestPayload;
+
+    @Override
+    public String toString() {
+        return "UserRequestCreateDto(" +
+                "requestType=" + requestType +
+                ", targetUserId=" + targetUserId +
+                ", requestPayload=" +
+                MaskingUtil.maskJsonString(String.valueOf(requestPayload)) +
+                ")";
+    }
+}
