@@ -1,831 +1,352 @@
-import {
-  Box,
-  Card,
-  CardActionArea,
-  Grid,
-  Typography,
-  useTheme,
-} from "@mui/material";
-import QuizIcon from "@mui/icons-material/Quiz";
-import MenuBookIcon from "@mui/icons-material/MenuBook";
+package com.fincore.commonutilities.security;
 
-export default function HelpSupportHome({ setFaqOpen, setUserGuideOpen }) {
-  const theme = useTheme();
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fincore.commonutilities.annotation.EncryptedResponse;
+import com.fincore.commonutilities.jwt.JwtUtil;
+import com.fincore.commonutilities.util.AesEncryptionUtil;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.MethodParameter;
+import org.springframework.core.io.Resource;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.converter.StringHttpMessageConverter;
+import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.http.server.ServerHttpResponse;
+import org.springframework.http.server.ServletServerHttpRequest;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
 
-  const menuItems = [
-    {
-      title: "FAQs",
-      subtitle: "Find quick answers to common questions",
-      icon: <QuizIcon />,
-      action: setFaqOpen,
-    },
-    {
-      title: "User Guides",
-      subtitle: "Detailed documentation for all modules",
-      icon: <MenuBookIcon />,
-      action: setUserGuideOpen,
-    },
-  ];
+import java.security.GeneralSecurityException;
+import java.util.Map;
 
-  return (
-    <Box width="100%">
-      <Grid container spacing={4} justifyContent="center" alignItems="stretch">
-        {menuItems.map((item, index) => (
-          <Grid
-            item
-            xs={12}
-            sm={6}
-            md={5}
-            lg={4}
-            key={index}
-            sx={{ display: "flex" }}
-          >
-            <Card
-              elevation={0}
-              sx={{
-                flex: 1,
-                display: "flex",
-                flexDirection: "column",
-                borderRadius: 5,
-                border: `1px solid ${theme.palette.divider}`,
-                background: theme.palette.background.paper,
-                transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-                "&:hover": {
-                  transform: "translateY(-8px)",
-                  boxShadow: "0 12px 24px rgba(0,0,0,0.1)",
-                  borderColor: theme.palette.primary.main,
-                  "& .icon-box": {
-                    backgroundColor: theme.palette.primary.main,
-                    transform: "scale(1.1)",
-                  },
-                  "& .icon-box svg": {
-                    color: "#ffffff !important",
-                  },
-                },
-              }}
-            >
-              <CardActionArea
-                onClick={item.action}
-                sx={{
-                  height: "100%",
-                  p: 3,
-                }}
-              >
-                <Box
-                  display="flex"
-                  flexDirection="column"
-                  alignItems="center"
-                  textAlign="center"
-                >
-                  <Box
-                    className="icon-box"
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: 80,
-                      height: 80,
-                      borderRadius: "20px",
-                      backgroundColor: theme.palette.action.hover,
-                      color: theme.palette.primary.main, // Initial color
-                      mb: 3,
-                      transition: "all 0.3s ease",
-                      "& svg": { fontSize: 40, transition: "0.3s" },
-                    }}
-                  >
-                    {item.icon}
-                  </Box>
+/**
+ * Global Interceptor that encrypts outgoing responses for methods
+ * annotated with @EncryptedResponse.
+ *
+ *  @author SHUBHANKAR DAS [Emp ID: V1018405]
+ *  <a href="mailto:shubhankar.das.cbstcs@sbi.co.in">shubhankar.das.cbstcs@sbi.co.in</a>
+ *  @version 1.0.0
+ *  @since 2026-05-01
+ */
+@Slf4j
+@ControllerAdvice
+@RequiredArgsConstructor
+public class EncryptResponseBodyAdvice implements ResponseBodyAdvice<Object> {
 
-                  <Typography
-                    variant="h5"
-                    fontWeight="800"
-                    gutterBottom
-                    sx={{ color: theme.palette.text.primary }}
-                  >
-                    {item.title}
-                  </Typography>
+    private final AesEncryptionUtil aesEncryptionUtil;
+    private final StringRedisTemplate redisTemplate;
+    private final JwtUtil jwtUtil;
+    private final ObjectMapper objectMapper;
 
-                  <Typography
-                    variant="body2"
-                    sx={{ color: theme.palette.text.secondary, px: 2 }}
-                  >
-                    {item.subtitle}
-                  </Typography>
-                </Box>
-              </CardActionArea>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
-    </Box>
-  );
-}
+    private static final String AES_KEY_PREFIX = "AES:USR:";
 
-
-
-
-import React, { useState } from "react";
-import {
-  Paper,
-  Typography,
-  Box,
-  useTheme,
-  Fade,
-  Stack,
-  Divider,
-} from "@mui/material";
-import SupportAgentIcon from "@mui/icons-material/SupportAgent";
-import HelpSupportHome from "./components/HelpSupportHome";
-import Faqs from "./components/Faqs";
-import UserGuides from "./components/UserGuides";
-import AiAssistant from "./components/AiAssistant";
-
-const Help = () => {
-  const theme = useTheme();
-  const [activeTab, setActiveTab] = useState("home");
-
-  const renderContent = () => {
-    switch (activeTab) {
-      case "faq":
-        return <Faqs setFaqOpen={() => setActiveTab("home")} />;
-      case "guide":
-        return <UserGuides setUserGuideOpen={() => setActiveTab("home")} />;
-      case "ai":
-        return <AiAssistant setAiOpen={() => setActiveTab("home")} />;
-      default:
-        return (
-          <Fade in timeout={500}>
-            <Box
-              sx={{
-                p: { xs: 2, md: 3 },
-                width: "100%",
-                display: "flex",
-                justifyContent: "center",
-              }}
-            >
-              <Paper
-                elevation={0}
-                sx={{
-                  p: { xs: 3, md: 5 },
-                  width: "100%",
-                  maxWidth: "1200px",
-                  borderRadius: 4,
-                  background: `linear-gradient(145deg, ${theme.palette.background.paper} 0%, ${theme.palette.action.hover} 100%)`,
-                  border: `1px solid ${theme.palette.divider}`,
-                }}
-              >
-                {/* Header Section - Center Aligned */}
-                <Stack
-                  direction="column" // Changed to column for vertical stacking
-                  alignItems="center" // Centers items horizontally
-                  spacing={1.5}
-                  sx={{ mb: 4 }}
-                >
-                  <SupportAgentIcon
-                    sx={{
-                      // Increased icon size: 55px on mobile, 75px on desktop
-                      fontSize: { xs: 55, md: 75 },
-                      color: theme.palette.primary.main,
-                      mb: 1,
-                    }}
-                  />
-                  <Box>
-                    <Typography
-                      variant="h4"
-                      align="center"
-                      sx={{
-                        fontWeight: 800,
-                        fontSize: { xs: "1.6rem", md: "2.5rem" }, // Slightly larger text to match icon
-                        color: theme.palette.text.primary,
-                        letterSpacing: -0.5,
-                      }}
-                    >
-                      Help & Support
-                    </Typography>
-                    <Typography
-                      variant="body1" // Changed to body1 for better readability
-                      align="center"
-                      color="text.secondary"
-                      sx={{ maxWidth: "450px", mx: "auto" }} // Keeps the text from getting too wide
-                    >
-                      Knowledge base and system assistance
-                    </Typography>
-                  </Box>
-                </Stack>
-
-                <Divider sx={{ mb: 4 }} />
-
-                <Box sx={{ width: "100%" }}>
-                  <HelpSupportHome
-                    setFaqOpen={() => setActiveTab("faq")}
-                    setUserGuideOpen={() => setActiveTab("guide")}
-                    setAiOpen={() => setActiveTab("ai")}
-                  />
-                </Box>
-              </Paper>
-            </Box>
-          </Fade>
-        );
+    @Override
+    public boolean supports(MethodParameter returnType, Class<? extends HttpMessageConverter<?>> converterType) {
+        return returnType.hasMethodAnnotation(EncryptedResponse.class) ||
+                returnType.getDeclaringClass().isAnnotationPresent(EncryptedResponse.class);
     }
-  };
 
-  return <Box sx={{ width: "100%" }}>{renderContent()}</Box>;
-};
+    @Override
+    public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType selectedContentType,
+                                  Class<? extends HttpMessageConverter<?>> selectedConverterType,
+                                  ServerHttpRequest request, ServerHttpResponse response) {
 
-export default Help;
+        // EDGE CASE 1: Skip Nulls, File Downloads, and Spring Standard Error Responses
+        if (body == null || body instanceof Resource || body instanceof byte[] || body instanceof ProblemDetail) {
+            return body;
+        }
 
+        // EDGE CASE 2: Custom Error Wrappers (Don't encrypt 400/500 API responses)
+        if (body.getClass().getSimpleName().toLowerCase().contains("error")) {
+            return body;
+        }
 
+        try {
+            // 1. Serialize payload to JSON (handle raw Strings cleanly)
+            var plainTextPayload = body instanceof String ? (String) body : objectMapper.writeValueAsString(body);
 
-import React, { useEffect, useMemo, useState } from "react";
-import {
-  Box,
-  Typography,
-  List,
-  ListItemButton,
-  ListItemText,
-  Stack,
-  Divider,
-  Chip,
-  IconButton,
-  Paper,
-  Fade,
-  useTheme,
-} from "@mui/material";
-import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import MenuBookIcon from "@mui/icons-material/MenuBook";
-import { useSelector } from "react-redux";
-import { GUIDE_DATA } from "../data/guideData";
-import CustomChip from "../../../utils/CustomChip";
+            // 2. Validate Token & Extract User
+            var servletRequest = ((ServletServerHttpRequest) request).getServletRequest();
+            var token = servletRequest.getHeader(HttpHeaders.AUTHORIZATION);
+            if (token == null || !token.toLowerCase().startsWith("bearer ")) {
+                throw new AccessDeniedException("No valid Auth token found for encrypted response.");
+            }
 
-export default function UserGuides({ setUserGuideOpen }) {
-  const theme = useTheme();
-  const [selectedModule, setSelectedModule] = useState(null);
-  const permittedMenus = useSelector((s) => s.menus.menus);
+            var userId = jwtUtil.getUserIdFromToken(token.substring(7));
 
-  // 1. Flatten IDs
-  const allAvailableIds = useMemo(() => {
-    const ids = new Set();
-    permittedMenus.forEach((menu) => {
-      ids.add(menu.id);
-      if (menu.children) menu.children.forEach((child) => ids.add(child.id));
-    });
-    return Array.from(ids);
-  }, [permittedMenus]);
+            // 3. Fetch AES Session Key
+            var base64AesKey = redisTemplate.opsForValue().get(AES_KEY_PREFIX + userId);
 
-  // 2. Filter Guides
-  const modules = useMemo(() => {
-    return GUIDE_DATA.filter((guide) =>
-      allAvailableIds.includes(Number(guide.permissionId)),
-    );
-  }, [allAvailableIds]);
+            // EDGE CASE 3: The Data Leak Trap. NEVER return plaintext if marked for encryption.
+            if (base64AesKey == null) {
+                log.error("Encryption failed: AES Key missing for user {}", userId);
+                throw new IllegalStateException("Encryption Session expired. Cannot securely transmit data.");
+            }
 
-  // 3. Set Default Selection
-  useEffect(() => {
-    if (modules.length > 0 && !selectedModule) {
-      setSelectedModule(modules[0]);
+            // 4. Perform AES-256-GCM Encryption
+            var encryptedString = aesEncryptionUtil.encrypt(plainTextPayload, base64AesKey);
+
+            // 5. Add Header so Frontend knows to decrypt
+            response.getHeaders().add("X-Encrypted-Response", "true");
+
+            // 6. Wrap in JSON Map structure
+            var wrappedResponse = Map.of("encryptedResponse", encryptedString);
+
+            // EDGE CASE 4: The StringHttpMessageConverter Trap
+            // If the controller returns a String, Spring will crash trying to map a Map.
+            // We must manually serialize our wrapper map back into a String.
+            if (selectedConverterType.equals(StringHttpMessageConverter.class)) {
+                return objectMapper.writeValueAsString(wrappedResponse);
+            }
+
+            return wrappedResponse;
+
+        } catch (GeneralSecurityException e) {
+            log.error("Cryptographic failure during response encryption: {}", e.getMessage());
+            // Hard fail - Do not leak plaintext
+            throw new SecurityException("Failed to secure sensitive response.", e);
+        } catch (JsonProcessingException e) {
+            log.error("JSON serialization failure during response encryption: {}", e.getMessage());
+            throw new IllegalStateException("Failed to serialize response payload.", e);
+        }
     }
-  }, [modules, selectedModule]);
-
-  return (
-    <Box
-      sx={{
-        display: "flex",
-        flexDirection: { xs: "column", md: "row" },
-        gap: 3,
-        p: { xs: 1, md: 3 },
-        height: "75vh",
-      }}
-    >
-      {/* 🔹 LEFT PANEL: Module Navigation */}
-      <Paper
-        elevation={0}
-        sx={{
-          width: { xs: "100%", md: 300 },
-          border: `1px solid ${theme.palette.divider}`,
-          display: "flex",
-          flexDirection: "column",
-          // overflow: "hidden",
-        }}
-      >
-        <Box p={2}>
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <IconButton onClick={setUserGuideOpen} size="small">
-              <ArrowBackIcon fontSize="small" />
-            </IconButton>
-            <Typography variant="subtitle1" fontWeight={700}>
-              System Guides
-            </Typography>
-          </Stack>
-        </Box>
-        <Divider />
-        <List sx={{ overflowY: "auto", p: 1 }}>
-          {modules.map((item) => (
-            <ListItemButton
-              key={item.permissionId}
-              selected={selectedModule?.permissionId === item.permissionId}
-              onClick={() => setSelectedModule(item)}
-              sx={{
-                borderRadius: 2,
-                mb: 0.5,
-                "&.Mui-selected": {
-                  bgcolor: `${theme.palette.primary.main}10`,
-                  color: "primary.main",
-                  "&:hover": { bgcolor: `${theme.palette.primary.main}20` },
-                },
-              }}
-            >
-              <ListItemText
-                primary={item.module}
-                primaryTypographyProps={{ variant: "body2", fontWeight: 600 }}
-              />
-            </ListItemButton>
-          ))}
-        </List>
-      </Paper>
-
-      {/* 🔹 RIGHT PANEL: Content Display */}
-      <Paper
-        elevation={0}
-        sx={{
-          flex: 1,
-          border: `1px solid ${theme.palette.divider}`,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          bgcolor: "background.default",
-        }}
-      >
-        {selectedModule ? (
-          <Fade in={true} timeout={400}>
-            <Box
-              sx={{ display: "flex", flexDirection: "column", height: "100%" }}
-            >
-              {/* Header */}
-              <Box
-                p={3}
-                bgcolor="background.paper"
-                borderBottom={`1px solid ${theme.palette.divider}`}
-              >
-                <Stack
-                  direction="row"
-                  justifyContent="space-between"
-                  alignItems="center"
-                >
-                  <Typography
-                    variant="h5"
-                    fontWeight={800}
-                    color="primary.main"
-                  >
-                    {selectedModule.module}
-                  </Typography>
-                  <CustomChip
-                    label={`${selectedModule.steps.length} Steps`}
-                    size="small"
-                    variant="outlined"
-                    icon={<MenuBookIcon sx={{ fontSize: "14px !important" }} />}
-                  />
-                </Stack>
-              </Box>
-
-              {/* Steps List */}
-              <Box
-                sx={{
-                  p: 3,
-                  overflowY: "auto",
-                  bgcolor: theme.palette.action.hover + "40",
-                }}
-              >
-                <Stack spacing={2}>
-                  {selectedModule.steps.map((step, index) => (
-                    <Paper
-                      key={index}
-                      elevation={0}
-                      sx={{
-                        p: 2.5,
-                        borderRadius: 3,
-                        border: `1px solid ${theme.palette.divider}`,
-                        transition: "0.2s",
-                        "&:hover": {
-                          boxShadow: theme.shadows[2],
-                          borderColor: "primary.light",
-                        },
-                      }}
-                    >
-                      <Stack
-                        direction="row"
-                        spacing={2}
-                        alignItems="flex-start"
-                      >
-                        <Box
-                          sx={{
-                            width: 32,
-                            height: 32,
-                            borderRadius: "50%",
-                            bgcolor: "primary.main",
-                            color: "white",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            flexShrink: 0,
-                            fontSize: "0.75rem",
-                            fontWeight: "bold",
-                            mt: 0.2,
-                          }}
-                        >
-                          {index + 1}
-                        </Box>
-                        <Typography
-                          variant="body1"
-                          sx={{
-                            color: "text.primary",
-                            pt: 0.4,
-                            lineHeight: 1.6,
-                          }}
-                        >
-                          {step}
-                        </Typography>
-                      </Stack>
-                    </Paper>
-                  ))}
-                </Stack>
-              </Box>
-            </Box>
-          </Fade>
-        ) : (
-          <Box
-            display="flex"
-            alignItems="center"
-            justifyContent="center"
-            height="100%"
-          >
-            <Typography color="text.secondary">
-              Select a module to view instructions
-            </Typography>
-          </Box>
-        )}
-      </Paper>
-    </Box>
-  );
 }
 
 
-import React, { useState, useMemo } from "react";
-import {
-  Box,
-  Typography,
-  Paper,
-  IconButton,
-  Stack,
-  TextField,
-  InputAdornment,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  Divider,
-} from "@mui/material";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import SearchIcon from "@mui/icons-material/Search";
-import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
-import { useSelector } from "react-redux";
-import { FAQ_DATA } from "../data/guideData";
 
-export default function Faqs({ setFaqOpen }) {
-  const [searchQuery, setSearchQuery] = useState("");
-  const permittedMenus = useSelector((s) => s.menus.menus);
+package com.fincore.commonutilities.security;
 
-  const allAvailableIds = useMemo(() => {
-    const ids = new Set();
-    permittedMenus.forEach((menu) => {
-      ids.add(menu.id);
-      if (menu.children) menu.children.forEach((child) => ids.add(child.id));
-    });
-    return Array.from(ids);
-  }, [permittedMenus]);
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fincore.commonutilities.annotation.EncryptedResponse;
+import com.fincore.commonutilities.jwt.JwtUtil;
+import com.fincore.commonutilities.util.AesEncryptionUtil;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.MethodParameter;
+import org.springframework.core.io.Resource;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.converter.StringHttpMessageConverter;
+import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.http.server.ServerHttpResponse;
+import org.springframework.http.server.ServletServerHttpRequest;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
 
-  const filteredFaqs = useMemo(() => {
-    return FAQ_DATA.filter((faq) => {
-      const isAllowed = allAvailableIds.includes(Number(faq.permissionId));
-      const matchesSearch =
-        faq.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        faq.answer.toLowerCase().includes(searchQuery.toLowerCase());
-      return isAllowed && matchesSearch;
-    });
-  }, [allAvailableIds, searchQuery]);
+import java.security.GeneralSecurityException;
+import java.util.Map;
 
-  return (
-    <Box
-      sx={{
-        width: "100%",
-        height: "75vh",
-        display: "flex",
-        flexDirection: "column",
-        p: { xs: 1, md: 2 },
-        boxSizing: "border-box",
-      }}
-    >
-      {/* 🔹 HEADER & SEARCH (Full Width) */}
-      <Paper
-        elevation={0}
-        sx={{
-          p: 2,
-          mb: 2,
-          borderRadius: 3,
-          border: "1px solid",
-          borderColor: "divider",
-        }}
-      >
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          justifyContent="space-between"
-          alignItems={{ xs: "flex-start", sm: "center" }}
-          spacing={2}
-        >
-          <Stack direction="row" alignItems="center" spacing={2}>
-            <IconButton
-              onClick={setFaqOpen}
-              sx={{ bgcolor: "action.hover", borderRadius: 2 }}
-            >
-              <ArrowBackIcon />
-            </IconButton>
-            <Box>
-              <Typography variant="h5" fontWeight={800} letterSpacing={-0.5}>
-                Common Questions
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Everything you need to know about Fincore modules.
-              </Typography>
-            </Box>
-          </Stack>
+/**
+ * Global Interceptor that encrypts outgoing responses for methods
+ * annotated with @EncryptedResponse.
+ *
+ *  @author SHUBHANKAR DAS [Emp ID: V1018405]
+ *  <a href="mailto:shubhankar.das.cbstcs@sbi.co.in">shubhankar.das.cbstcs@sbi.co.in</a>
+ *  @version 1.0.0
+ *  @since 2026-05-01
+ */
+@Slf4j
+@ControllerAdvice
+@RequiredArgsConstructor
+public class EncryptResponseBodyAdvice implements ResponseBodyAdvice<Object> {
 
-          <TextField
-            placeholder="Search FAQs..."
-            size="small"
-            fullWidth={false}
-            sx={{
-              width: { xs: "100%", sm: 400 },
-              "& .MuiOutlinedInput-root": { borderRadius: 3 },
-            }}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon color="primary" />
-                </InputAdornment>
-              ),
-            }}
-          />
-        </Stack>
-      </Paper>
+    private final AesEncryptionUtil aesEncryptionUtil;
+    private final StringRedisTemplate redisTemplate;
+    private final JwtUtil jwtUtil;
+    private final ObjectMapper objectMapper;
 
-      {/* 🔹 FAQ SCROLLABLE AREA (Utilizes whole remaining height) */}
-      <Box
-        sx={{
-          flexGrow: 1,
-          overflowY: "auto",
-          pr: 1, // Space for scrollbar
-          "&::-webkit-scrollbar": { width: "6px" },
-          "&::-webkit-scrollbar-thumb": {
-            // backgroundColor: "#ccc",
-            borderRadius: "10px",
-          },
-        }}
-      >
-        {filteredFaqs.length > 0 ? (
-          filteredFaqs.map((faq) => (
-            <Accordion
-              key={faq.id}
-              elevation={0}
-              disableGutters
-              sx={{
-                mb: 1,
-                borderRadius: "12px !important",
-                border: "1px solid",
-                borderColor: "divider",
-                "&:before": { display: "none" },
-                "&.Mui-expanded": {
-                  borderColor: "primary.main",
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
-                },
-              }}
-            >
-              <AccordionSummary
-                expandIcon={<ExpandMoreIcon color="primary" />}
-                sx={{
-                  px: 3,
-                  py: 1,
-                  "&.Mui-expanded": { bgcolor: "action.hover" },
-                }}
-              >
-                <Stack direction="row" spacing={2} alignItems="center">
-                  <HelpOutlineIcon color="primary" sx={{ fontSize: 20 }} />
-                  <Typography fontWeight={600} variant="subtitle1">
-                    {faq.question}
-                  </Typography>
-                </Stack>
-              </AccordionSummary>
-              <AccordionDetails sx={{ px: 3, pb: 3, pt: 0 }}>
-                <Divider sx={{ mb: 2, borderStyle: "dashed" }} />
-                <Typography
-                  variant="body1"
-                  color="text.secondary"
-                  sx={{ lineHeight: 1.8, fontSize: "0.95rem" }}
-                >
-                  {faq.answer}
-                </Typography>
-              </AccordionDetails>
-            </Accordion>
-          ))
-        ) : (
-          <Box
-            display="flex"
-            flexDirection="column"
-            alignItems="center"
-            justifyContent="center"
-            sx={{ height: "60%", opacity: 0.6 }}
-          >
-            <Typography variant="h6">
-              No results found for "{searchQuery}"
-            </Typography>
-            <Typography variant="body2">
-              Try different keywords or browse all topics.
-            </Typography>
-          </Box>
-        )}
-      </Box>
-    </Box>
-  );
+    private static final String AES_KEY_PREFIX = "AES:USR:";
+
+    @Override
+    public boolean supports(MethodParameter returnType, Class<? extends HttpMessageConverter<?>> converterType) {
+        return returnType.hasMethodAnnotation(EncryptedResponse.class) ||
+                returnType.getDeclaringClass().isAnnotationPresent(EncryptedResponse.class);
+    }
+
+    @Override
+    public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType selectedContentType,
+                                  Class<? extends HttpMessageConverter<?>> selectedConverterType,
+                                  ServerHttpRequest request, ServerHttpResponse response) {
+
+        // EDGE CASE 1: Skip Nulls, File Downloads, and Spring Standard Error Responses
+        if (body == null || body instanceof Resource || body instanceof byte[] || body instanceof ProblemDetail) {
+            return body;
+        }
+
+        // EDGE CASE 2: Custom Error Wrappers (Don't encrypt 400/500 API responses)
+        if (body.getClass().getSimpleName().toLowerCase().contains("error")) {
+            return body;
+        }
+
+        try {
+            // 1. Serialize payload to JSON (handle raw Strings cleanly)
+            var plainTextPayload = body instanceof String ? (String) body : objectMapper.writeValueAsString(body);
+
+            // 2. Validate Token & Extract User
+            var servletRequest = ((ServletServerHttpRequest) request).getServletRequest();
+            var token = servletRequest.getHeader(HttpHeaders.AUTHORIZATION);
+            if (token == null || !token.toLowerCase().startsWith("bearer ")) {
+                throw new AccessDeniedException("No valid Auth token found for encrypted response.");
+            }
+
+            var userId = jwtUtil.getUserIdFromToken(token.substring(7));
+
+            // 3. Fetch AES Session Key
+            var base64AesKey = redisTemplate.opsForValue().get(AES_KEY_PREFIX + userId);
+
+            // EDGE CASE 3: The Data Leak Trap. NEVER return plaintext if marked for encryption.
+            if (base64AesKey == null) {
+                log.error("Encryption failed: AES Key missing for user {}", userId);
+                throw new IllegalStateException("Encryption Session expired. Cannot securely transmit data.");
+            }
+
+            // 4. Perform AES-256-GCM Encryption
+            var encryptedString = aesEncryptionUtil.encrypt(plainTextPayload, base64AesKey);
+
+            // 5. Add Header so Frontend knows to decrypt
+            response.getHeaders().add("X-Encrypted-Response", "true");
+
+            // 6. Wrap in JSON Map structure
+            var wrappedResponse = Map.of("encryptedResponse", encryptedString);
+
+            // EDGE CASE 4: The StringHttpMessageConverter Trap
+            // If the controller returns a String, Spring will crash trying to map a Map.
+            // We must manually serialize our wrapper map back into a String.
+            if (selectedConverterType.equals(StringHttpMessageConverter.class)) {
+                return objectMapper.writeValueAsString(wrappedResponse);
+            }
+
+            return wrappedResponse;
+
+        } catch (GeneralSecurityException e) {
+            log.error("Cryptographic failure during response encryption: {}", e.getMessage());
+            // Hard fail - Do not leak plaintext
+            throw new SecurityException("Failed to secure sensitive response.", e);
+        } catch (JsonProcessingException e) {
+            log.error("JSON serialization failure during response encryption: {}", e.getMessage());
+            throw new IllegalStateException("Failed to serialize response payload.", e);
+        }
+    }
 }
 
 
-import {
-  Box,
-  Card,
-  CardContent,
-  Typography,
-  IconButton,
-  TextField,
-  Stack,
-  Chip,
-  Divider,
-  Paper,
-} from "@mui/material";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import SendIcon from "@mui/icons-material/Send";
-import SmartToyIcon from "@mui/icons-material/SmartToy";
-import PersonIcon from "@mui/icons-material/Person";
-import { useState } from "react";
 
-export default function AiAssistant({ setAiOpen }) {
-  const [input, setInput] = useState("");
-  const [messages, setMessages] = useState([
-    {
-      type: "bot",
-      text: "Hi 👋 I’m your FinCore Assistant. Ask me anything about the application.",
-    },
-  ]);
+package com.fincore.commonutilities.security;
 
-  /* 🔹 Dummy Question Bank (Replace with BE later) */
-  const questionBank = [
-    {
-      keywords: ["cgl", "ledger"],
-      question: "How do I create a new CGL?",
-    },
-    {
-      keywords: ["cgl", "approve"],
-      question: "How can I approve a CGL request?",
-    },
-    {
-      keywords: ["circle"],
-      question: "How do I manage circles in the system?",
-    },
-    {
-      keywords: ["branch"],
-      question: "How can I view branch details?",
-    },
-    {
-      keywords: ["user", "role"],
-      question: "How do I assign roles to users?",
-    },
-    {
-      keywords: ["report"],
-      question: "Where can I download reports?",
-    },
-  ];
+import com.fincore.commonutilities.jwt.JwtUtil;
+import com.fincore.commonutilities.util.AesEncryptionUtil;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.MethodParameter;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpInputMessage;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.servlet.mvc.method.annotation.RequestBodyAdviceAdapter;
 
-  /* 🔹 Keyword-based suggestion logic */
-  const suggestions = input
-    ? questionBank.filter((q) =>
-        q.keywords.some((k) => input.toLowerCase().includes(k.toLowerCase())),
-      )
-    : [];
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 
-  const handleSend = (text) => {
-    if (!text.trim()) return;
+/**
+ * Global Interceptor that decrypts incoming @RequestBody payloads
+ * before they reach the Controller DTO mapping.
+ *
+ *  @author SHUBHANKAR DAS [Emp ID: V1018405]
+ *  <a href="mailto:shubhankar.das.cbstcs@sbi.co.in">shubhankar.das.cbstcs@sbi.co.in</a>
+ *  @version 1.0.0
+ *  @since 2026-05-01
+ */
+@Slf4j
+@ControllerAdvice
+@RequiredArgsConstructor
+public class DecryptRequestBodyAdvice extends RequestBodyAdviceAdapter {
 
-    setMessages((prev) => [ 
-      ...prev,
-      { type: "user", text },
-      {
-        type: "bot",
-        text: "Thanks for your question. This answer will come from backend once API is integrated.",
-      },
-    ]);
+    private final AesEncryptionUtil aesEncryptionUtil;
+    private final StringRedisTemplate redisTemplate;
+    private final JwtUtil jwtUtil;
 
-    setInput("");
-  };
+    private static final String ENCRYPTION_HEADER = "X-Encrypted-Payload";
+    private static final String AES_KEY_PREFIX = "AES:USR:";
 
-  return (
-    <Box p={3}>
-      {/* 🔹 HEADER */}
-      <Stack direction="row" alignItems="center" spacing={1} mb={2}>
-        <IconButton
-          onClick={setAiOpen}
-          sx={{ "&:hover": { backgroundColor: "grey.200" } }}
-        >
-          <ArrowBackIcon />
-        </IconButton>
-        <Typography variant="h6" fontWeight={600}>
-          FinCore Assistant
-        </Typography>
-      </Stack>
+    @Override
+    public boolean supports(MethodParameter methodParameter, Type targetType, Class<? extends HttpMessageConverter<?>> converterType) {
+        return true;
+    }
 
-      <Card
-        sx={{
-          height: "75vh",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        {/* 🔹 CHAT AREA */}
-        <CardContent sx={{ flex: 1, overflowY: "auto" }}>
-          <Stack spacing={2}>
-            {messages.map((msg, index) => (
-              <Stack
-                key={index}
-                direction="row"
-                spacing={1}
-                justifyContent={msg.type === "user" ? "flex-end" : "flex-start"}
-              >
-                {msg.type === "bot" && <SmartToyIcon color="primary" />}
-                <Paper
-                  sx={{
-                    p: 1.5,
-                    maxWidth: "70%",
-                    backgroundColor:
-                      msg.type === "user" ? "primary.main" : "grey.100",
-                    color: msg.type === "user" ? "#fff" : "#000",
-                  }}
-                >
-                  <Typography variant="body2">{msg.text}</Typography>
-                </Paper>
-                {msg.type === "user" && <PersonIcon />}
-              </Stack>
-            ))}
-          </Stack>
-        </CardContent>
+    @Override
+    public HttpInputMessage beforeBodyRead(HttpInputMessage inputMessage, MethodParameter parameter,
+                                           Type targetType, Class<? extends HttpMessageConverter<?>> converterType) throws IOException {
 
-        <Divider />
+        var headers = inputMessage.getHeaders();
+        boolean isEncrypted = "true".equalsIgnoreCase(headers.getFirst(ENCRYPTION_HEADER));
 
-        {/* 🔹 SUGGESTIONS */}
-        {suggestions.length > 0 && (
-          <Box px={2} py={1}>
-            <Typography variant="caption" color="text.secondary">
-              Suggested questions
-            </Typography>
-            <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
-              {suggestions.map((s, i) => (
-                <Chip
-                  key={i}
-                  label={s.question}
-                  onClick={() => handleSend(s.question)}
-                  variant="outlined"
-                  sx={{ mb: 1 }}
-                />
-              ))}
-            </Stack>
-          </Box>
-        )}
+        if (!isEncrypted) {
+            return inputMessage;
+        }
 
-        {/* 🔹 INPUT */}
-        <Box p={2}>
-          <Stack direction="row" spacing={1}>
-            <TextField
-              fullWidth
-              size="small"
-              placeholder="Type your question here..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSend(input)}
-            />
-            <IconButton color="primary" onClick={() => handleSend(input)}>
-              <SendIcon />
-            </IconButton>
-          </Stack>
-        </Box>
-      </Card>
-    </Box>
-  );
+        // 1. Read body safely
+        var encryptedBody = new String(inputMessage.getBody().readAllBytes(), StandardCharsets.UTF_8).trim();
+
+        // Safely strip double quotes if the frontend stringified the payload (Axios edge-case)
+        if (encryptedBody.startsWith("\"") && encryptedBody.endsWith("\"")) {
+            encryptedBody = encryptedBody.substring(1, encryptedBody.length() - 1);
+        }
+
+        // 2. Validate Token & Extract User
+        var token = headers.getFirst(HttpHeaders.AUTHORIZATION);
+        if (token == null || !token.toLowerCase().startsWith("bearer ")) {
+            throw new AccessDeniedException("Missing or invalid Authorization header for encrypted payload.");
+        }
+        var userId = jwtUtil.getUserIdFromToken(token.substring(7));
+
+        // 3. Fetch Session Key
+        var base64AesKey = redisTemplate.opsForValue().get(AES_KEY_PREFIX + userId);
+        if (base64AesKey == null) {
+            log.warn("Encryption Session Key missing in Redis for User: {}", userId);
+            throw new AccessDeniedException("Encryption Session expired. Please refresh the page.");
+        }
+
+        // 4. Decrypt with precise exception handling
+        try {
+            var decryptedJson = aesEncryptionUtil.decrypt(encryptedBody, base64AesKey);
+            var decryptedBytes = decryptedJson.getBytes(StandardCharsets.UTF_8);
+
+            return new HttpInputMessage() {
+                @Override
+                public InputStream getBody() {
+                    return new ByteArrayInputStream(decryptedBytes);
+                }
+
+                @Override
+                public HttpHeaders getHeaders() {
+                    return headers;
+                }
+            };
+
+        } catch (IllegalArgumentException | GeneralSecurityException e) {
+            log.error("Payload decryption failed for User {}: {}", userId, e.getMessage());
+
+            // Throwing this ensures Spring MVC translates it into a 400 BAD REQUEST,
+            // rather than crashing the thread with a 500 INTERNAL SERVER ERROR.
+            throw new HttpMessageNotReadableException("Malformed encrypted payload or decryption failed.", e, inputMessage);
+        }
+    }
 }
