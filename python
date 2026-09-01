@@ -1,278 +1,74 @@
-package com.tcs.userservice.repository;
+package com.tcs.userservice.model;
 
-import com.tcs.userservice.model.NotificationTable;
-import org.springframework.data.jpa.repository.JpaRepository;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
 
-import java.util.UUID;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 
-public interface NotificationRepository extends JpaRepository<NotificationTable, UUID> {
-}
+@Entity
+@Getter
+@Setter
+@Table(name="users")
+public class User {
 
+    @Id
+    @Column(name="USER_ID")
+    private String userId;
 
-package com.tcs.userservice.repository;
+    @Column(name="FIRST_NAME")
+    private String firstName;
 
-import com.tcs.userservice.model.Permissions;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
+    @Column(name="MIDDLE_NAME")
+    private String middleName;
 
-import java.util.List;
-import java.util.Set;
+    @Column(name="LAST_NAME")
+    private String lastName;
 
-public interface PermissionsRepository extends JpaRepository<Permissions, Integer> {
+    @Column(name="PHONE_NUMBER")
+    private String phoneNumber;
 
-    List<Permissions> findAll();
+    @Column(name="EMAIL")
+    private String email;
 
-    /**
-     * Retrieves a list of mapped request type keys for a given set of menu IDs.
-     */
-    @Query("SELECT p.mappedRequestType FROM Permissions p WHERE p.menuId IN :incomingIds")
-    List<String> findMappedRequestTypeByMenuId(@Param("incomingIds") Set<Integer> incomingIds);
+    @Column(name="PASSWORD_HASH")
+    private String passwordHash;
 
-    /**
-     * Fetches both the Target URL and the authorized Role IDs in a single database call.
-     *
-     * @param requestType The mapped request type string (e.g., 'SEGMENT_CODE')
-     * @return A list of arrays where index [0] is MENU_URL (String) and index [1] is ROLE_ID (Number)
-     */
-    @Query(value = """
-            SELECT p.MENU_URL, rp.ROLE_ID
-            FROM PERMISSIONS p
-            JOIN ROLE_PERMISSIONS rp ON p.MENU_ID = rp.PERMISSION_ID
-            JOIN ROLES r ON rp.ROLE_ID = r.ROLE_ID
-            WHERE p.MAPPED_REQUEST_TYPE = :requestType
-            AND (p.MENU_ACTION LIKE '%approve%' OR p.MENU_ACTION LIKE '%reject%')
-            AND r.ROLE_STATUS = 'ACTIVE'
-            """, nativeQuery = true)
-    List<Object[]> findUrlAndRolesByRequestType(@Param("requestType") String requestType);
+    @Column(name="ACCOUNT_STATUS")
+    private String accountStatus;
 
+    @Column(name="CREATED_AT")
+    private LocalDateTime createdAt;
 
-    /**
-     * Joins ROLES -> ROLE_PERMISSIONS -> PERMISSIONS
-     *
-     * @return all permissions assigned specific to role id
-     */
-    @Query(value = """
-                SELECT p.* FROM PERMISSIONS p
-                JOIN ROLE_PERMISSIONS rp ON p.MENU_ID = rp.PERMISSION_ID
-                WHERE rp.ROLE_ID = :roleId
-            """, nativeQuery = true)
-    List<Permissions> findAllByRoleId(@Param("roleId") Long roleId);
+    @Column(name="UPDATED_AT")
+    private LocalDateTime updatedAt;
 
-    /**
-     * DYNAMIC ELIGIBILITY QUERY
-     */
-    @Query(value = """
-            SELECT p.* FROM PERMISSIONS p
-            WHERE p.IS_RESTRICTED = 'N'
-               OR (p.IS_RESTRICTED = 'Y' AND p.MENU_ID IN (
-                   SELECT rpe.MENU_ID
-                   FROM RESTRICTED_PERMISSION_ELIGIBILITY rpe
-                   WHERE rpe.ROLE_ID = :roleId
-               ))
-            """, nativeQuery = true)
-    List<Permissions> findEligiblePermissions(@Param("roleId") Integer roleId);
-}
+    @Column(name="LAST_LOGIN_AT")
+    private LocalDateTime lastLoginAt;
 
+    @Column(name="IS_DELETED")
+    private char isDeleted;
 
-package com.tcs.userservice.repository;
+    @Column(name="DELETED_AT")
+    private LocalDateTime deletedAt;
 
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.CrudRepository;
-import org.springframework.stereotype.Repository;
-import com.tcs.userservice.model.Role;
+    @Column(name="TEMP_PASSWORD_SET_AT")
+    private LocalDateTime tempPasswordSetAt;
 
-import java.util.List;
+    @Column(name="USER_WRONG_PASSWORD_COUNT")
+    private int userWrongPasswordCount;
 
-@Repository
-public interface RolePermissionRepository extends CrudRepository<Role, Integer> {
-	// Native query that returns role columns +
-	// permission columns. Aliases and column order
-	// must match mapping below.
-	@Query(value = """
-            SELECT
-                r.role_id,
-                r.role_name,
-                r.description,
-                r.role_status,
-                p.menu_id,
-                p.menu_title,
-                p.menu_icon,
-                p.MENU_DESCRIPTION,
-                rp.PERMISSION_ORDER,
-                p.MENU_SUBMENU
-            FROM
-                roles r
-                LEFT JOIN role_permissions rp ON r.role_id = rp.role_id
-                LEFT JOIN permissions     p ON rp.permission_id = p.menu_id
-            ORDER BY
-                r.role_id,
-            	rp.PERMISSION_ORDER
-            """, nativeQuery = true)
-	List<Object[]> findAllRolesWithPermissionsRaw();
-}
-
-
-package com.tcs.userservice.repository;
-
-import java.util.List;
-
-import com.tcs.userservice.model.Permissions;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-
-import com.tcs.userservice.model.RolePermissionId;
-import com.tcs.userservice.model.RolePermissions;
-
-public interface RolePermissionsRepository extends JpaRepository<RolePermissions, RolePermissionId> {
-
-
-
-	/**
-	 * Function for getting permission based on role id used for modification of
-	 * permissions
-	 * 
-	 * @param : roleId : must be a valid role id
-	 */	@Query(nativeQuery = true, value = """
-			SELECT
-			    p.MENU_ID,
-			    p.MENU_TITLE,
-			    p.MENU_ICON,
-			    p.MENU_SUBMENU,
-			    p.MENU_ACTION,
-			    p.MENU_URL,
-			    p.MENU_COMPONENT_PATH,
-			    p.MENU_ORDER,
-			    p.MENU_DEPENDANT
-			FROM
-			    PERMISSIONS p
-			INNER JOIN
-			    ROLE_PERMISSIONS rp
-			ON
-			    p.MENU_ID = rp.PERMISSION_ID
-			WHERE
-			    rp.ROLE_ID = :roleId
-
-						""")
-	List<Permissions> findAllByRole(@Param("roleId") String roleId);
-
-	List<RolePermissions> findByIdRoleIdAndIdPermissionIdIn(int roleId, List<Integer> permissionIds);
-
-	List<RolePermissions> findByIdRoleId(int roleId);
-
-    @Query(value = "SELECT ROLE_ID FROM ROLE_PERMISSIONS WHERE permission_id = :permissionId", nativeQuery = true)
-    List<Long> findRoleIdsByPermissionId(Long permissionId);
-}
-
-
-package com.tcs.userservice.repository;
-
-import org.springframework.data.jpa.repository.JpaRepository;
-
-import com.tcs.userservice.model.Role;
-
-public interface RoleRepository extends JpaRepository<Role, Integer> {
-
-	Role findRoleByRoleId(int roleId);
-
-	Role findRoleByRoleIdAndRoleName(int roleID, String roleName);
-
-    boolean existsByRoleNameIgnoreCase(String roleName);
-
+    @Column(name="BRANCH")
+    private int branch;
 }
 
 
 
-package com.tcs.userservice.repository;
-
-import com.tcs.userservice.dto.UserRequestProjection;
-import com.tcs.userservice.model.RoleRequest;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
-
-import java.util.List;
-
-@Repository
-public interface RoleRequestRepository extends JpaRepository<RoleRequest, Integer> {
-
-    @Query(value = "SELECT count(*) FROM role_requests WHERE TARGET_ROLE_ID=:roleId AND request_status='PENDING'", nativeQuery = true)
-    int countPendingRoleRequests(@Param("roleId") int roleId);
-
-    @Query(value = """
-            SELECT COUNT(*) FROM role_requests 
-            WHERE lower(JSON_VALUE(request_payload, '$.roleName')) = lower(:roleName) 
-            AND request_status = 'PENDING'
-            """, nativeQuery = true)
-    int countPendingRoleRequestsByRoleName(@Param("roleName") String roleName);
-
-
-    @Query(value = """
-            SELECT 
-                request_id AS requestId,
-                request_type AS requestType,
-                requestor_user_id AS requestorUserId,
-                target_role_id AS targetRoleId,
-                request_payload AS requestPayload, 
-                request_status AS requestStatus,
-                request_date AS requestDate,
-                approval_date AS approvalDate,
-                approver_user_id AS approverUserId,
-                reason_for_rejection AS reasonForRejection,
-                execution_date AS executionDate,
-                execution_details AS executionDetails
-            FROM role_requests
-            WHERE requestor_user_id != :requestedByUserId
-            AND request_status = 'PENDING'
-            ORDER BY request_id DESC
-            """, nativeQuery = true)
-    List<UserRequestProjection> findPendingRoleRequests(@Param("requestedByUserId") String requestedByUserId);
-
-    @Query(value = """
-            SELECT 
-                request_id AS requestId,
-                request_type AS requestType,
-                requestor_user_id AS requestorUserId,
-                target_role_id AS targetRoleId,
-                request_payload AS requestPayload,
-                request_status AS requestStatus,
-                request_date AS requestDate,
-                approval_date AS approvalDate,
-                approver_user_id AS approverUserId,
-                reason_for_rejection AS reasonForRejection,
-                execution_date AS executionDate,
-                execution_details AS executionDetails
-            FROM role_requests
-            WHERE requestor_user_id = :requestedByUserId
-            ORDER BY request_id DESC
-            """, nativeQuery = true)
-    List<UserRequestProjection> findMyPendingRoleRequests(@Param("requestedByUserId") String requestedByUserId);
-
-    RoleRequest findRoleRequestByRequestId(int requestId);
-
-    RoleRequest getRoleRequestByRequestId(long requestId);
-
-    @Query(nativeQuery = true, value = "SELECT ROLE_ID_SEQUENCE.NEXTVAL FROM DUAL")
-    int getNewRoleIdOnCreation();
-}
-
-
-package com.tcs.userservice.repository;
-
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
-
-import com.tcs.userservice.model.UserLogs;
-
-import java.util.List;
-
-@Repository
-public interface UserLogsRepository extends JpaRepository<UserLogs, Integer>{
-}
-
-
+//user repositort
 package com.tcs.userservice.repository;
 
 import com.tcs.userservice.model.User;
@@ -316,74 +112,250 @@ public interface UserRepository extends JpaRepository<User, String> {
         List<Map<String, Object>> getUsers(@Param("userId") String userId, @Param("role") Integer role);
 
         boolean existsByUserId(String userId);
-}
 
+        // New :: case in-sensitive check for existing user Id
+        boolean existsByUserIdIgnoreCase(String userId);
 
-package com.tcs.userservice.repository;
-
-import com.tcs.userservice.dto.UserRequestProjection;
-import com.tcs.userservice.model.UserRequest;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
-
-import java.util.List;
-
-@Repository
-public interface UserRequestRepository extends JpaRepository<UserRequest, Integer> {
-
-    @Query(value="SELECT count(*) FROM user_requests WHERE target_user_id=:targetUserId AND request_status='PENDING'", nativeQuery=true)
-    int countUserPendingRequests(@Param("targetUserId") String targetUserId);
-
-    @Query(value = """
-            SELECT 
-                request_id AS requestId,
-                request_type AS requestType,
-                requestor_user_id AS requestorUserId,
-                target_user_id AS targetUserId,
-                request_payload AS requestPayload,
-                request_status AS requestStatus,
-                request_date AS requestDate
-            FROM user_requests 
-            WHERE REQUESTOR_USER_ID != :requestedByUserId 
-            AND request_status='PENDING'
-            """, nativeQuery = true)
-    List<UserRequestProjection> findUserPendingRequests(@Param("requestedByUserId") String requestedByUserId);
-
-    UserRequest findUserRequestsByRequestId(long requestId);
-
-    @Query(value = """
-            
-            SELECT
-                request_id AS requestId,
-                request_type AS requestType,
-                requestor_user_id AS requestorUserId,
-                target_user_id AS targetUserId,
-                request_payload AS requestPayload,
-                request_status AS requestStatus,
-                request_date AS requestDate,
-                APPROVAL_DATE AS approvalDate,
-                APPROVER_USER_ID AS approverUserId,
-                REASON_FOR_REJECTION AS reasonForRejection,
-                EXECUTION_DATE AS executionDate,
-                EXECUTION_DETAILS AS executionDetails
-             FROM user_requests
-             WHERE REQUESTOR_USER_ID = :userId
-             ORDER BY request_id DESC
-            """, nativeQuery = true)
-    List<UserRequestProjection> findUserRequestsByRequestorUserId(@Param("userId") String userId);
 }
 
 
 
-package com.tcs.userservice.repository;
 
-import com.tcs.userservice.model.UserRole;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
+///AesEncryptionUtil
+package com.fincore.commonutilities.util;
 
-@Repository
-public interface UserRoleRepository extends JpaRepository<UserRole, String> {
-    UserRole getUserRolesByUserId(String targetUserId);
+import org.springframework.stereotype.Component;
+
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import java.security.GeneralSecurityException;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.util.Base64;
+
+/**
+ * Standard utility for AES-256-GCM Payload Encryption.
+ * Shared across all Fincore microservices.
+ *
+ *  @author SHUBHANKAR DAS [Emp ID: V1018405]
+ *  <a href="mailto:shubhankar.das.cbstcs@sbi.co.in">shubhankar.das.cbstcs@sbi.co.in</a>
+ *  @version 1.0.0
+ *  @since 2026-05-01
+ */
+@Component
+public class AesEncryptionUtil {
+
+    private static final String ALGORITHM = "AES/GCM/NoPadding";
+    private static final int TAG_LENGTH_BIT = 128; // 16 bytes authentication tag
+    private static final int KEY_SIZE = 256;
+
+    /**
+     * Generates a cryptographically secure 256-bit AES Key.
+     * To be called by the Login/Auth Service upon successful authentication.
+     */
+    public String generateBase64SessionKey() {
+        try {
+            var keyGen = KeyGenerator.getInstance("AES");
+            var secureRandom = new SecureRandom();
+            keyGen.init(KEY_SIZE, secureRandom);
+            var secretKey = keyGen.generateKey();
+            return Base64.getEncoder().encodeToString(secretKey.getEncoded());
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("AES Algorithm not found in JVM", e);
+        }
+    }
+
+    /**
+     * Decrypts an AES-256-GCM encrypted payload.
+     * Expects frontend to send format: "Base64(IV):Base64(Ciphertext)"
+     * Throws precise exceptions so the caller can handle them gracefully.
+     */
+    public String decrypt(String encryptedPayload, String base64SecretKey)
+            throws GeneralSecurityException, IllegalArgumentException {
+
+        String[] parts = encryptedPayload.split(":");
+        if (parts.length != 2) {
+            throw new IllegalArgumentException("Invalid encrypted payload format. Expected IV:Ciphertext");
+        }
+
+        byte[] iv = Base64.getDecoder().decode(parts[0]);
+        byte[] cipherText = Base64.getDecoder().decode(parts[1]);
+        byte[] decodedKey = Base64.getDecoder().decode(base64SecretKey);
+
+        var secretKey = new SecretKeySpec(decodedKey, 0, decodedKey.length, "AES");
+        var gcmParameterSpec = new GCMParameterSpec(TAG_LENGTH_BIT, iv);
+
+        var cipher = Cipher.getInstance(ALGORITHM);
+        cipher.init(Cipher.DECRYPT_MODE, secretKey, gcmParameterSpec);
+
+        byte[] decryptedText = cipher.doFinal(cipherText);
+        return new String(decryptedText, StandardCharsets.UTF_8);
+    }
+
+
+    /**
+     * Encrypts a plaintext JSON string using AES-256-GCM.
+     * Returns format: "Base64(IV):Base64(Ciphertext)"
+     */
+    public String encrypt(String plainTextJson, String base64SecretKey) throws GeneralSecurityException {
+
+        byte[] decodedKey = Base64.getDecoder().decode(base64SecretKey);
+        var secretKey = new SecretKeySpec(decodedKey, 0, decodedKey.length, "AES");
+
+        // Generate a random 12-byte IV for this specific response
+        byte[] iv = new byte[12];
+        new SecureRandom().nextBytes(iv);
+        var gcmParameterSpec = new GCMParameterSpec(TAG_LENGTH_BIT, iv);
+
+        var cipher = Cipher.getInstance(ALGORITHM);
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey, gcmParameterSpec);
+
+        byte[] cipherText = cipher.doFinal(plainTextJson.getBytes(StandardCharsets.UTF_8));
+
+        return Base64.getEncoder().encodeToString(iv) + ":" + Base64.getEncoder().encodeToString(cipherText);
+    }
 }
+
+
+//pom
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.0</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+
+    <groupId>com.example</groupId>
+    <artifactId>userService</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>jar</packaging>
+    <name>user-service</name>
+    <description>userService</description>
+    <properties>
+        <java.version>21</java.version>
+        <tomcat.version>11.0.24</tomcat.version>
+        <netty.version>4.2.16.Final</netty.version>
+
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.oracle.database.jdbc</groupId>
+            <artifactId>ojdbc11</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.json</groupId>
+            <artifactId>json</artifactId>
+            <version>20240303</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- health metrics -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.data</groupId>
+            <artifactId>spring-data-redis</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fincore</groupId>
+            <artifactId>common-utilities</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
+        <!--LDAP-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-ldap</artifactId>
+        </dependency>
+
+        <!-- KAFKA -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-messaging</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>7.4</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>${project.artifactId}</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+
+
+
