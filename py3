@@ -1,283 +1,366 @@
-package com.tcs.userservice.exception;
+package com.fincore.commonutilities.util;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.tcs.userservice.dto.ApiResponse;
-import jakarta.validation.ConstraintViolationException;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.redis.RedisConnectionFailureException;
-import org.springframework.data.redis.serializer.SerializationException;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.converter.HttpMessageNotReadableException;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.web.ErrorResponse;
-import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.annotation.ControllerAdvice;
-import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.ResponseStatus;
-import org.springframework.web.context.request.WebRequest;
+import org.springframework.stereotype.Component;
 
-import java.time.Instant;
-import java.util.stream.Collectors;
+import javax.crypto.Cipher;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.SecureRandom;
+import java.util.Base64;
 
 /**
- * Global exception handler for the CommonRequestService.
- * This class uses the {@link ControllerAdvice @ControllerAdvice} annotation to
- * provide centralized exception handling across all controllers. It logs errors
- * and returns consistent {@link ApiResponse} objects with appropriate HTTP
- * status codes for various exception types.
+ * Utility responsible ONLY for encryption/decryption of sensitive
+ * database fields such as EMAIL and PHONE_NUMBER.
+ *
+ * IMPORTANT:
+ * This utility is separate from AesEncryptionUtil.
+ *
+ * AesEncryptionUtil:
+ *     Frontend request/response encryption.
+ *
+ * DatabaseEncryptionUtil:
+ *     Permanent encryption of sensitive values stored in database.
  */
-@ControllerAdvice
-@Slf4j
-public class GlobalExceptionHandler {
+@Component
+public class DatabaseEncryptionUtil {
 
-    /**
-     * Handles {@link ResourceNotFoundException}.
-     * Returns an HTTP 404 Not Found response.
-     *
-     * @param ex      The ResourceNotFoundException instance.
-     * @param request The current web request.
-     * @return A ResponseEntity containing an ApiResponse with an error message and HTTP status 404.
-     */
-    @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<ApiResponse<Object>> handleResourceNotFoundException(ResourceNotFoundException ex, WebRequest request) {
-        log.error("Resource not found: {}", ex.getMessage());
-        return new ResponseEntity<>(ApiResponse.error(ex.getMessage()), HttpStatus.NOT_FOUND);
-    }
+    private static final String ALGORITHM = "AES/GCM/NoPadding";
 
-    /**
-     * Handles exceptions related to processing JSON payloads, such as malformed JSON or invalid data types.
-     * Catches {@link JsonProcessingException} and {@link HttpMessageNotReadableException}.
-     * Returns an HTTP 400 Bad Request response.
-     *
-     * @param ex      The exception instance.
-     * @param request The current web request.
-     * @return A ResponseEntity containing an ApiResponse with an error message and HTTP status 400.
-     */
-    @ExceptionHandler({JsonProcessingException.class, HttpMessageNotReadableException.class})
-    public ResponseEntity<ApiResponse<Object>> handleJsonProcessingException(Exception ex, WebRequest request) {
-        log.error("Error processing JSON payload: {}", ex.getMessage());
-        return new ResponseEntity<>(ApiResponse.error("Invalid request payload format. Please check the JSON structure and data types."), HttpStatus.BAD_REQUEST);
-    }
+    // AES-GCM authentication tag = 128 bits = 16 bytes.
+    private static final int TAG_LENGTH_BIT = 128;
 
-    /**
-     * Handles {@link DataIntegrityViolationException}, typically thrown when database constraints are violated.
-     * Checks for specific messages related to unique constraints or pending requests and returns a 409 Conflict status.
+    // AES-256 requires a 256-bit key = 32 bytes.
+    private static final int KEY_LENGTH_BYTES = 32;
+
+    // Recommended GCM IV size.
+    private static final int IV_LENGTH_BYTES = 12;
+
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+    /*
+     * IMPORTANT:
      *
-     * @param ex      The DataIntegrityViolationException instance.
-     * @param request The current web request.
-     * @return A ResponseEntity containing an ApiResponse with a specific or generic conflict error message and HTTP status 409.
+     * Do NOT hard-code the production encryption key here.
+     *
+     * This value should ultimately come from environment/secret management.
      */
-    @ExceptionHandler(DataIntegrityViolationException.class)
-    public ResponseEntity<ApiResponse<Object>> handleDataIntegrityViolationException(DataIntegrityViolationException ex, WebRequest request) {
-        log.error("Data integrity violation: {}", ex.getMessage());
-        // Check for common unique constraint violation message
-        log.error("error: {}", ex.getMostSpecificCause().getMessage());
-        if (ex.getMostSpecificCause().getMessage().contains("unique constraint")) {
-            return new ResponseEntity<>(ApiResponse.error("A resource with the provided identifier already exists."), HttpStatus.CONFLICT);
-        } else if (ex.getMostSpecificCause().getMessage().contains("pending request")) {
-            return new ResponseEntity<>(ApiResponse.error("A pending request is already exists."), HttpStatus.CONFLICT);
+    private final String base64Key;
+
+    public DatabaseEncryptionUtil() {
+
+        String key = System.getenv("DB_ENCRYPTION_KEY");
+
+        if (key == null || key.isBlank()) {
+            throw new IllegalStateException(
+                    "DB_ENCRYPTION_KEY environment variable is not configured."
+            );
         }
-        return new ResponseEntity<>(ApiResponse.error("Database constraint violation. A required field may be missing or a value is invalid."), HttpStatus.CONFLICT);
+
+        this.base64Key = key;
     }
 
     /**
-     * Handles general argument and state-related exceptions.
-     * Catches {@link IllegalArgumentException} and {@link IllegalStateException}.
-     * Returns an HTTP 400 Bad Request response.
+     * Encrypts a plaintext database value using AES-256-GCM.
      *
-     * @param ex      The runtime exception instance.
-     * @param request The current web request.
-     * @return A ResponseEntity containing an ApiResponse with the exception's message and HTTP status 400.
-     */
-    @ExceptionHandler({IllegalArgumentException.class, IllegalStateException.class})
-    public ResponseEntity<ApiResponse<Object>> handleArgumentAndStateExceptions(RuntimeException ex, WebRequest request) {
-        log.error("Illegal argument or state: {}", ex.getMessage());
-        return new ResponseEntity<>(ApiResponse.error(ex.getMessage()), HttpStatus.BAD_REQUEST);
-    }
-
-    /**
-     * A catch-all handler for any other unhandled exceptions.
-     * Ensures that unexpected errors are logged and a generic HTTP 500 Internal Server Error response is returned.
+     * Stored format:
      *
-     * @param ex      The exception instance.
-     * @param request The current web request.
-     * @return A ResponseEntity containing a generic internal server error ApiResponse and HTTP status 500.
-     */
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiResponse<Object>> handleGlobalException(Exception ex, WebRequest request) {
-        log.error("An unexpected error occurred: {}", ex.getMessage(), ex);
-        return new ResponseEntity<>(ApiResponse.error("An internal server error occurred."), HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-
-
-    /**
-     * Handles exceptions thrown when {@link jakarta.validation.Valid @Valid} validation fails on a request body.
-     * Collects all field errors and returns a 400 Bad Request with a list of validation errors.
+     * Base64(IV):Base64(CipherText)
      *
-     * @param ex The MethodArgumentNotValidException instance.
-     * @return A ResponseEntity containing an ApiResponse with detailed validation errors and HTTP status 400.
+     * A new random IV is generated for every encryption.
      */
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiResponse<Object>> handleValidationExceptions(MethodArgumentNotValidException ex) {
-        // 1. Detailed logging for INTERNAL use (keep this)
-        String detailedErrors = ex.getBindingResult().getFieldErrors().stream()
-                .map(error -> error.getField() + ": " + error.getDefaultMessage())
-                .collect(Collectors.joining(", "));
-        log.warn("Validation failed for incoming request: {}", detailedErrors);
+    public String encrypt(String plainText) {
 
-        // 2. Generic message for EXTERNAL users (Prevents Information Disclosure)
-        return new ResponseEntity<>(
-                ApiResponse.error("Invalid request parameters. Please ensure all fields follow the required format."),
-                HttpStatus.BAD_REQUEST
-        );
+        if (plainText == null) {
+            return null;
+        }
+
+        if (plainText.isBlank()) {
+            return plainText;
+        }
+
+        try {
+            byte[] keyBytes = Base64.getDecoder().decode(base64Key);
+
+            validateKey(keyBytes);
+
+            byte[] iv = new byte[IV_LENGTH_BYTES];
+            SECURE_RANDOM.nextBytes(iv);
+
+            SecretKeySpec secretKey =
+                    new SecretKeySpec(keyBytes, "AES");
+
+            GCMParameterSpec gcmParameterSpec =
+                    new GCMParameterSpec(TAG_LENGTH_BIT, iv);
+
+            Cipher cipher =
+                    Cipher.getInstance(ALGORITHM);
+
+            cipher.init(
+                    Cipher.ENCRYPT_MODE,
+                    secretKey,
+                    gcmParameterSpec
+            );
+
+            byte[] encryptedBytes =
+                    cipher.doFinal(
+                            plainText.getBytes(StandardCharsets.UTF_8)
+                    );
+
+            return Base64.getEncoder().encodeToString(iv)
+                    + ":"
+                    + Base64.getEncoder().encodeToString(encryptedBytes);
+
+        } catch (GeneralSecurityException |
+                 IllegalArgumentException e) {
+
+            throw new IllegalStateException(
+                    "Unable to encrypt database value.",
+                    e
+            );
+        }
     }
-
 
     /**
-     * Handles exceptions thrown by the Jakarta Validator, for example,
-     * when validation is manually triggered or constraints on service methods are violated.
-     * Returns a 400 Bad Request with a list of constraint violations.
-     *
-     * @param ex The ConstraintViolationException instance.
-     * @return A ResponseEntity containing an ApiResponse with detailed constraint violations and HTTP status 400.
+     * Decrypts a database value encrypted using AES-256-GCM.
      */
-    @ExceptionHandler(ConstraintViolationException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ResponseEntity<ApiResponse<Object>> handleConstraintViolationException(ConstraintViolationException ex) {
-        String errors = ex.getConstraintViolations().stream()
-                .map(cv -> cv.getPropertyPath() + ": " + cv.getMessage())
-                .collect(Collectors.joining(", "));
+    public String decrypt(String encryptedValue) {
 
-        log.warn("Constraint violation during processing: {}", errors);
-        return new ResponseEntity<>(ApiResponse.error("Validation Failed: " + errors), HttpStatus.BAD_REQUEST);
+        if (encryptedValue == null) {
+            return null;
+        }
+
+        if (encryptedValue.isBlank()) {
+            return encryptedValue;
+        }
+
+        try {
+
+            String[] parts = encryptedValue.split(":", 2);
+
+            if (parts.length != 2) {
+                throw new IllegalArgumentException(
+                        "Invalid encrypted database value."
+                );
+            }
+
+            byte[] iv =
+                    Base64.getDecoder().decode(parts[0]);
+
+            byte[] cipherText =
+                    Base64.getDecoder().decode(parts[1]);
+
+            byte[] keyBytes =
+                    Base64.getDecoder().decode(base64Key);
+
+            validateKey(keyBytes);
+
+            SecretKeySpec secretKey =
+                    new SecretKeySpec(keyBytes, "AES");
+
+            GCMParameterSpec gcmParameterSpec =
+                    new GCMParameterSpec(TAG_LENGTH_BIT, iv);
+
+            Cipher cipher =
+                    Cipher.getInstance(ALGORITHM);
+
+            cipher.init(
+                    Cipher.DECRYPT_MODE,
+                    secretKey,
+                    gcmParameterSpec
+            );
+
+            byte[] decryptedBytes =
+                    cipher.doFinal(cipherText);
+
+            return new String(
+                    decryptedBytes,
+                    StandardCharsets.UTF_8
+            );
+
+        } catch (GeneralSecurityException |
+                 IllegalArgumentException e) {
+
+            throw new IllegalStateException(
+                    "Unable to decrypt database value.",
+                    e
+            );
+        }
     }
 
     /**
-     * Handles security-related access denial.
-     * Returns an HTTP 403 Forbidden response.
+     * Ensures that the configured key is really an AES-256 key.
      */
-    @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ApiResponse<Object>> handleAccessDeniedException(AccessDeniedException ex, WebRequest request) {
-        log.warn("Access denied: {}", ex.getMessage());
-        return new ResponseEntity<>(ApiResponse.error("You do not have permission to perform this action."), HttpStatus.FORBIDDEN);
-    }
+    private void validateKey(byte[] keyBytes) {
 
-    @ExceptionHandler(ApplicationException.class)
-    public ResponseEntity<ApiResponse<Object>> handleApplicationException(ApplicationException ex, WebRequest request) {
-        log.error("Application Error [{}]: {}", ex.getErrorCode(), ex.getMessage(), ex);
-        return new ResponseEntity<>(ApiResponse.error(ex.getMessage()), ex.getStatus());
-    }
-
-    // Handle Raw Redis Connection Failures (if not wrapped)
-    @ExceptionHandler(RedisConnectionFailureException.class)
-    public ResponseEntity<ApiResponse<Object>> handleRedisConnectionFailure(RedisConnectionFailureException ex, WebRequest request) {
-        log.error("Redis Connection Failed", ex);
-        return new ResponseEntity<>(ApiResponse.error("Cache Service Temporarily Unavailable : REDIS_DOWN"), HttpStatus.SERVICE_UNAVAILABLE);
-    }
-
-    // Handle Serialization Issues
-    @ExceptionHandler(SerializationException.class)
-    public ResponseEntity<ApiResponse<Object>> handleSerializationException(SerializationException ex, WebRequest request) {
-        log.error("Data Serialization Failed", ex);
-        return new ResponseEntity<>(ApiResponse.error("Internal Data Processing Error : SERIALIZATION_FAILURE"), HttpStatus.INTERNAL_SERVER_ERROR);
+        if (keyBytes.length != KEY_LENGTH_BYTES) {
+            throw new IllegalArgumentException(
+                    "DB_ENCRYPTION_KEY must contain exactly 32 bytes for AES-256."
+            );
+        }
     }
 }
 
 
 
-//application prpo
-spring.application.name=userService
-spring.datasource.driver-class-name=oracle.jdbc.OracleDriver
-spring.profiles.active=dev
 
-server.port=8087
+//converter 
 
-# LDAP
-spring.ldap.domain=UATAD.SBI
-spring.ldap.urls=ldaps://uatrootdc1.uatad.sbi:3269
-spring.ldap.base=DC=UATAD,DC=SBI
-spring.ldap.username="cn=fincorecbops,dc=UATAD,dc=SBI"
-spring.ldap.password="F1C0re#15"
+package com.fincore.commonutilities.persistence;
 
-#security.ldap.truststore-path=${LDAP_TRUSTSTORE_PATH}
-#security.ldap.truststore-password=${LDAP_TRUSTSTORE_PASSWORD}
-security.ldap.truststore-path='file:C:/fincore/secrets/ad-truststore.jks'
-security.ldap.truststore-password='changeit'
+import com.fincore.commonutilities.util.DatabaseEncryptionUtil;
+import jakarta.persistence.AttributeConverter;
+import jakarta.persistence.Converter;
+import lombok.RequiredArgsConstructor;
 
-# --- Redis Configuration ---
-spring.cache.type=redis
+/**
+ * JPA converter responsible for transparent encryption/decryption
+ * of sensitive String fields.
+ *
+ * Database write:
+ *
+ * Java plaintext
+ *       ↓
+ * encrypt()
+ *       ↓
+ * encrypted database value
+ *
+ * Database read:
+ *
+ * encrypted database value
+ *       ↓
+ * decrypt()
+ *       ↓
+ * Java plaintext
+ */
+@Converter
+@RequiredArgsConstructor
+public class EncryptedStringConverter
+        implements AttributeConverter<String, String> {
 
-# --- Jackson (JSON) ---
-spring.jackson.date-format=yyyy-MM-dd HH:mm:ss
-spring.jackson.time-zone=Asia/Kolkata
-# spring.jackson.serialization.write-dates-as-timestamps=false
+    private final DatabaseEncryptionUtil encryptionUtil;
 
-## --- Debezium JSON Deserialization ---
-spring.kafka.consumer.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer
-spring.kafka.consumer.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer
+    /**
+     * Called automatically by JPA before storing the value in DB.
+     */
+    @Override
+    public String convertToDatabaseColumn(String attribute) {
 
-# Disable JSON type mapping features to prevent auto-conversion attempts
-spring.kafka.consumer.properties.spring.json.trusted.packages=*
-spring.kafka.consumer.properties.spring.json.use.type.headers=false
+        if (attribute == null || attribute.isBlank()) {
+            return attribute;
+        }
 
-# --- JPA Common ---
-spring.jpa.open-in-view=false
+        return encryptionUtil.encrypt(attribute);
+    }
 
-# --- Actuator Base Config ---
-# Enable the endpoints, but control exposure in specific profile files
-management.endpoints.web.base-path=/actuator
-management.endpoint.health.probes.enabled=true
-management.endpoints.web.exposure.include=health, info, prometheus
-management.endpoint.health.show-details=always
-management.metrics.tags.application=${spring.application.name}
-management.info.env.enabled=true
+    /**
+     * Called automatically by JPA after reading the value from DB.
+     */
+    @Override
+    public String convertToEntityAttribute(String dbData) {
 
-# Add some custom info to the /info endpoint
-info.app.name=UserService
-info.app.description=Service for managing all user and role related operations
-info.app.version=1.0.0
+        if (dbData == null || dbData.isBlank()) {
+            return dbData;
+        }
 
-# LOGIN SERVICE KEY USED BY common-entities
-jwt.secret=bWV0aGlvbnlsdGhyZW9ueWx0aHJlb255bGdsdXRhbWlueWxhbGFueWw=
+        return encryptionUtil.decrypt(dbData);
+    }
+}
 
-# DB Timeouts: Configuration of connection pooling timeouts ## 30 sec.
-spring.datasource.hikari.connection-timeout=30000
-spring.datasource.hikari.maximum-pool-size=30
 
-# ==============================================================
-# RESILIENCE4J CONFIGURATION (Global Rules)
-# ==============================================================
 
-# --- 1. RETRY STRATEGY ---
-# A. RETRY ON THESE (Transient / "Blips")
-# 1. Spring's wrapper for DB Timeouts, Deadlocks, Connection Drops
-resilience4j.retry.instances.defaultService.retry-exceptions[0]=org.springframework.dao.TransientDataAccessException
-# 2. Connection failure at start of transaction
-resilience4j.retry.instances.defaultService.retry-exceptions[1]=org.springframework.transaction.CannotCreateTransactionException
-# 3. DB Resource Failure (DB Down)
-resilience4j.retry.instances.defaultService.retry-exceptions[2]=org.springframework.dao.DataAccessResourceFailureException
-# 4. Network I/O errors (for Feign/RestCalls)
-resilience4j.retry.instances.defaultService.retry-exceptions[3]=java.io.IOException
-resilience4j.retry.instances.defaultService.retry-exceptions[4]=java.net.ConnectException
-resilience4j.retry.instances.defaultService.retry-exceptions[5]=java.net.SocketTimeoutException
-# B. DO NOT RETRY ON THESE (Logic / Permanent Errors)
-# Even if these happen, we fail immediately so GlobalExceptionHandler can return 400/409
-resilience4j.retry.instances.defaultService.ignore-exceptions[0]=java.lang.IllegalArgumentException
-resilience4j.retry.instances.defaultService.ignore-exceptions[1]=java.lang.NullPointerException
-resilience4j.retry.instances.defaultService.ignore-exceptions[2]=org.springframework.dao.DataIntegrityViolationException
-resilience4j.retry.instances.defaultService.ignore-exceptions[3]=org.springframework.dao.DuplicateKeyException
-resilience4j.retry.instances.defaultService.ignore-exceptions[4]=org.springframework.web.client.HttpClientErrorException
 
-# --- 2. CIRCUIT BREAKER STRATEGY ---
-# If 50% of requests fail, OPEN the circuit (Fail Fast)
-resilience4j.circuitbreaker.instances.defaultService.failure-rate-threshold=50
-# Wait 10 seconds before trying again (Half-Open state)
-resilience4j.circuitbreaker.instances.defaultService.wait-duration-in-open-state=10s
-# Must have at least 5 calls to calculate failure rate
-resilience4j.circuitbreaker.instances.defaultService.minimum-number-of-calls=5
-# When Half-Open, allow 3 test calls to see if backend is up
-resilience4j.circuitbreaker.instances.defaultService.permitted-number-of-calls-in-half-open-state=3
-# Automatically move from Open to Half-Open
-resilience4j.circuitbreaker.instances.defaultService.automatic-transition-from-open-to-half-open-enabled=true
+//
+package com.tcs.userservice.model;
+
+import com.fincore.commonutilities.persistence.EncryptedStringConverter;
+import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Getter
+@Setter
+@Table(name = "users")
+public class User {
+
+    @Id
+    @Column(name = "USER_ID")
+    private String userId;
+
+    @Column(name = "FIRST_NAME")
+    private String firstName;
+
+    @Column(name = "MIDDLE_NAME")
+    private String middleName;
+
+    @Column(name = "LAST_NAME")
+    private String lastName;
+
+    /*
+     * Sensitive field.
+     *
+     * @Convert tells Hibernate to automatically:
+     *
+     * Java -> Database : Encrypt
+     * Database -> Java : Decrypt
+     */
+    @Convert(converter = EncryptedStringConverter.class)
+    @Column(name = "PHONE_NUMBER")
+    private String phoneNumber;
+
+    /*
+     * Sensitive field.
+     *
+     * Email is encrypted before being stored in Oracle.
+     */
+    @Convert(converter = EncryptedStringConverter.class)
+    @Column(name = "EMAIL")
+    private String email;
+
+    /*
+     * Existing password hash remains unchanged.
+     *
+     * Password handling should continue using the existing
+     * password hashing mechanism.
+     */
+    @Column(name = "PASSWORD_HASH")
+    private String passwordHash;
+
+    @Column(name = "ACCOUNT_STATUS")
+    private String accountStatus;
+
+    @Column(name = "CREATED_AT")
+    private LocalDateTime createdAt;
+
+    @Column(name = "UPDATED_AT")
+    private LocalDateTime updatedAt;
+
+    @Column(name = "LAST_LOGIN_AT")
+    private LocalDateTime lastLoginAt;
+
+    @Column(name = "IS_DELETED")
+    private char isDeleted;
+
+    @Column(name = "DELETED_AT")
+    private LocalDateTime deletedAt;
+
+    @Column(name = "TEMP_PASSWORD_SET_AT")
+    private LocalDateTime tempPasswordSetAt;
+
+    @Column(name = "USER_WRONG_PASSWORD_COUNT")
+    private int userWrongPasswordCount;
+
+    @Column(name = "BRANCH")
+    private int branch;
+}
+
+
+
