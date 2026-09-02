@@ -1,352 +1,43 @@
-package com.fincore.commonutilities.security;
-
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fincore.commonutilities.annotation.EncryptedResponse;
-import com.fincore.commonutilities.jwt.JwtUtil;
-import com.fincore.commonutilities.util.AesEncryptionUtil;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.MethodParameter;
-import org.springframework.core.io.Resource;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
-import org.springframework.http.converter.HttpMessageConverter;
-import org.springframework.http.converter.StringHttpMessageConverter;
-import org.springframework.http.server.ServerHttpRequest;
-import org.springframework.http.server.ServerHttpResponse;
-import org.springframework.http.server.ServletServerHttpRequest;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.web.bind.annotation.ControllerAdvice;
-import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
-
-import java.security.GeneralSecurityException;
-import java.util.Map;
-
 /**
- * Global Interceptor that encrypts outgoing responses for methods
- * annotated with @EncryptedResponse.
+ * Decrypts sensitive user fields returned by native SQL queries.
  *
- *  @author SHUBHANKAR DAS [Emp ID: V1018405]
- *  <a href="mailto:shubhankar.das.cbstcs@sbi.co.in">shubhankar.das.cbstcs@sbi.co.in</a>
- *  @version 1.0.0
- *  @since 2026-05-01
- */
-@Slf4j
-@ControllerAdvice
-@RequiredArgsConstructor
-public class EncryptResponseBodyAdvice implements ResponseBodyAdvice<Object> {
-
-    private final AesEncryptionUtil aesEncryptionUtil;
-    private final StringRedisTemplate redisTemplate;
-    private final JwtUtil jwtUtil;
-    private final ObjectMapper objectMapper;
-
-    private static final String AES_KEY_PREFIX = "AES:USR:";
-
-    @Override
-    public boolean supports(MethodParameter returnType, Class<? extends HttpMessageConverter<?>> converterType) {
-        return returnType.hasMethodAnnotation(EncryptedResponse.class) ||
-                returnType.getDeclaringClass().isAnnotationPresent(EncryptedResponse.class);
-    }
-
-    @Override
-    public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType selectedContentType,
-                                  Class<? extends HttpMessageConverter<?>> selectedConverterType,
-                                  ServerHttpRequest request, ServerHttpResponse response) {
-
-        // EDGE CASE 1: Skip Nulls, File Downloads, and Spring Standard Error Responses
-        if (body == null || body instanceof Resource || body instanceof byte[] || body instanceof ProblemDetail) {
-            return body;
-        }
-
-        // EDGE CASE 2: Custom Error Wrappers (Don't encrypt 400/500 API responses)
-        if (body.getClass().getSimpleName().toLowerCase().contains("error")) {
-            return body;
-        }
-
-        try {
-            // 1. Serialize payload to JSON (handle raw Strings cleanly)
-            var plainTextPayload = body instanceof String ? (String) body : objectMapper.writeValueAsString(body);
-
-            // 2. Validate Token & Extract User
-            var servletRequest = ((ServletServerHttpRequest) request).getServletRequest();
-            var token = servletRequest.getHeader(HttpHeaders.AUTHORIZATION);
-            if (token == null || !token.toLowerCase().startsWith("bearer ")) {
-                throw new AccessDeniedException("No valid Auth token found for encrypted response.");
-            }
-
-            var userId = jwtUtil.getUserIdFromToken(token.substring(7));
-
-            // 3. Fetch AES Session Key
-            var base64AesKey = redisTemplate.opsForValue().get(AES_KEY_PREFIX + userId);
-
-            // EDGE CASE 3: The Data Leak Trap. NEVER return plaintext if marked for encryption.
-            if (base64AesKey == null) {
-                log.error("Encryption failed: AES Key missing for user {}", userId);
-                throw new IllegalStateException("Encryption Session expired. Cannot securely transmit data.");
-            }
-
-            // 4. Perform AES-256-GCM Encryption
-            var encryptedString = aesEncryptionUtil.encrypt(plainTextPayload, base64AesKey);
-
-            // 5. Add Header so Frontend knows to decrypt
-            response.getHeaders().add("X-Encrypted-Response", "true");
-
-            // 6. Wrap in JSON Map structure
-            var wrappedResponse = Map.of("encryptedResponse", encryptedString);
-
-            // EDGE CASE 4: The StringHttpMessageConverter Trap
-            // If the controller returns a String, Spring will crash trying to map a Map.
-            // We must manually serialize our wrapper map back into a String.
-            if (selectedConverterType.equals(StringHttpMessageConverter.class)) {
-                return objectMapper.writeValueAsString(wrappedResponse);
-            }
-
-            return wrappedResponse;
-
-        } catch (GeneralSecurityException e) {
-            log.error("Cryptographic failure during response encryption: {}", e.getMessage());
-            // Hard fail - Do not leak plaintext
-            throw new SecurityException("Failed to secure sensitive response.", e);
-        } catch (JsonProcessingException e) {
-            log.error("JSON serialization failure during response encryption: {}", e.getMessage());
-            throw new IllegalStateException("Failed to serialize response payload.", e);
-        }
-    }
-}
-
-
-
-package com.fincore.commonutilities.security;
-
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fincore.commonutilities.annotation.EncryptedResponse;
-import com.fincore.commonutilities.jwt.JwtUtil;
-import com.fincore.commonutilities.util.AesEncryptionUtil;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.MethodParameter;
-import org.springframework.core.io.Resource;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
-import org.springframework.http.converter.HttpMessageConverter;
-import org.springframework.http.converter.StringHttpMessageConverter;
-import org.springframework.http.server.ServerHttpRequest;
-import org.springframework.http.server.ServerHttpResponse;
-import org.springframework.http.server.ServletServerHttpRequest;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.web.bind.annotation.ControllerAdvice;
-import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
-
-import java.security.GeneralSecurityException;
-import java.util.Map;
-
-/**
- * Global Interceptor that encrypts outgoing responses for methods
- * annotated with @EncryptedResponse.
+ * IMPORTANT:
+ * JPA AttributeConverter works automatically when a User entity
+ * is loaded.
  *
- *  @author SHUBHANKAR DAS [Emp ID: V1018405]
- *  <a href="mailto:shubhankar.das.cbstcs@sbi.co.in">shubhankar.das.cbstcs@sbi.co.in</a>
- *  @version 1.0.0
- *  @since 2026-05-01
- */
-@Slf4j
-@ControllerAdvice
-@RequiredArgsConstructor
-public class EncryptResponseBodyAdvice implements ResponseBodyAdvice<Object> {
-
-    private final AesEncryptionUtil aesEncryptionUtil;
-    private final StringRedisTemplate redisTemplate;
-    private final JwtUtil jwtUtil;
-    private final ObjectMapper objectMapper;
-
-    private static final String AES_KEY_PREFIX = "AES:USR:";
-
-    @Override
-    public boolean supports(MethodParameter returnType, Class<? extends HttpMessageConverter<?>> converterType) {
-        return returnType.hasMethodAnnotation(EncryptedResponse.class) ||
-                returnType.getDeclaringClass().isAnnotationPresent(EncryptedResponse.class);
-    }
-
-    @Override
-    public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType selectedContentType,
-                                  Class<? extends HttpMessageConverter<?>> selectedConverterType,
-                                  ServerHttpRequest request, ServerHttpResponse response) {
-
-        // EDGE CASE 1: Skip Nulls, File Downloads, and Spring Standard Error Responses
-        if (body == null || body instanceof Resource || body instanceof byte[] || body instanceof ProblemDetail) {
-            return body;
-        }
-
-        // EDGE CASE 2: Custom Error Wrappers (Don't encrypt 400/500 API responses)
-        if (body.getClass().getSimpleName().toLowerCase().contains("error")) {
-            return body;
-        }
-
-        try {
-            // 1. Serialize payload to JSON (handle raw Strings cleanly)
-            var plainTextPayload = body instanceof String ? (String) body : objectMapper.writeValueAsString(body);
-
-            // 2. Validate Token & Extract User
-            var servletRequest = ((ServletServerHttpRequest) request).getServletRequest();
-            var token = servletRequest.getHeader(HttpHeaders.AUTHORIZATION);
-            if (token == null || !token.toLowerCase().startsWith("bearer ")) {
-                throw new AccessDeniedException("No valid Auth token found for encrypted response.");
-            }
-
-            var userId = jwtUtil.getUserIdFromToken(token.substring(7));
-
-            // 3. Fetch AES Session Key
-            var base64AesKey = redisTemplate.opsForValue().get(AES_KEY_PREFIX + userId);
-
-            // EDGE CASE 3: The Data Leak Trap. NEVER return plaintext if marked for encryption.
-            if (base64AesKey == null) {
-                log.error("Encryption failed: AES Key missing for user {}", userId);
-                throw new IllegalStateException("Encryption Session expired. Cannot securely transmit data.");
-            }
-
-            // 4. Perform AES-256-GCM Encryption
-            var encryptedString = aesEncryptionUtil.encrypt(plainTextPayload, base64AesKey);
-
-            // 5. Add Header so Frontend knows to decrypt
-            response.getHeaders().add("X-Encrypted-Response", "true");
-
-            // 6. Wrap in JSON Map structure
-            var wrappedResponse = Map.of("encryptedResponse", encryptedString);
-
-            // EDGE CASE 4: The StringHttpMessageConverter Trap
-            // If the controller returns a String, Spring will crash trying to map a Map.
-            // We must manually serialize our wrapper map back into a String.
-            if (selectedConverterType.equals(StringHttpMessageConverter.class)) {
-                return objectMapper.writeValueAsString(wrappedResponse);
-            }
-
-            return wrappedResponse;
-
-        } catch (GeneralSecurityException e) {
-            log.error("Cryptographic failure during response encryption: {}", e.getMessage());
-            // Hard fail - Do not leak plaintext
-            throw new SecurityException("Failed to secure sensitive response.", e);
-        } catch (JsonProcessingException e) {
-            log.error("JSON serialization failure during response encryption: {}", e.getMessage());
-            throw new IllegalStateException("Failed to serialize response payload.", e);
-        }
-    }
-}
-
-
-
-package com.fincore.commonutilities.security;
-
-import com.fincore.commonutilities.jwt.JwtUtil;
-import com.fincore.commonutilities.util.AesEncryptionUtil;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.MethodParameter;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpInputMessage;
-import org.springframework.http.converter.HttpMessageConverter;
-import org.springframework.http.converter.HttpMessageNotReadableException;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.web.bind.annotation.ControllerAdvice;
-import org.springframework.web.servlet.mvc.method.annotation.RequestBodyAdviceAdapter;
-
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.lang.reflect.Type;
-import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
-
-/**
- * Global Interceptor that decrypts incoming @RequestBody payloads
- * before they reach the Controller DTO mapping.
+ * However, native queries returning Map<String, Object> bypass
+ * the entity converter.
  *
- *  @author SHUBHANKAR DAS [Emp ID: V1018405]
- *  <a href="mailto:shubhankar.das.cbstcs@sbi.co.in">shubhankar.das.cbstcs@sbi.co.in</a>
- *  @version 1.0.0
- *  @since 2026-05-01
+ * Therefore EMAIL and PHONE_NUMBER must be decrypted explicitly
+ * before returning the data to the caller.
  */
-@Slf4j
-@ControllerAdvice
-@RequiredArgsConstructor
-public class DecryptRequestBodyAdvice extends RequestBodyAdviceAdapter {
+private void decryptUserSensitiveFields(Map<String, Object> user) {
 
-    private final AesEncryptionUtil aesEncryptionUtil;
-    private final StringRedisTemplate redisTemplate;
-    private final JwtUtil jwtUtil;
-
-    private static final String ENCRYPTION_HEADER = "X-Encrypted-Payload";
-    private static final String AES_KEY_PREFIX = "AES:USR:";
-
-    @Override
-    public boolean supports(MethodParameter methodParameter, Type targetType, Class<? extends HttpMessageConverter<?>> converterType) {
-        return true;
+    if (user == null || user.isEmpty()) {
+        return;
     }
 
-    @Override
-    public HttpInputMessage beforeBodyRead(HttpInputMessage inputMessage, MethodParameter parameter,
-                                           Type targetType, Class<? extends HttpMessageConverter<?>> converterType) throws IOException {
+    // Decrypt EMAIL if present.
+    Object encryptedEmail = user.get("email");
 
-        var headers = inputMessage.getHeaders();
-        boolean isEncrypted = "true".equalsIgnoreCase(headers.getFirst(ENCRYPTION_HEADER));
+    if (encryptedEmail != null) {
+        user.put(
+                "email",
+                databaseEncryptionUtil.decrypt(
+                        encryptedEmail.toString()
+                )
+        );
+    }
 
-        if (!isEncrypted) {
-            return inputMessage;
-        }
+    // Decrypt PHONE_NUMBER if present.
+    Object encryptedPhone = user.get("phone_number");
 
-        // 1. Read body safely
-        var encryptedBody = new String(inputMessage.getBody().readAllBytes(), StandardCharsets.UTF_8).trim();
-
-        // Safely strip double quotes if the frontend stringified the payload (Axios edge-case)
-        if (encryptedBody.startsWith("\"") && encryptedBody.endsWith("\"")) {
-            encryptedBody = encryptedBody.substring(1, encryptedBody.length() - 1);
-        }
-
-        // 2. Validate Token & Extract User
-        var token = headers.getFirst(HttpHeaders.AUTHORIZATION);
-        if (token == null || !token.toLowerCase().startsWith("bearer ")) {
-            throw new AccessDeniedException("Missing or invalid Authorization header for encrypted payload.");
-        }
-        var userId = jwtUtil.getUserIdFromToken(token.substring(7));
-
-        // 3. Fetch Session Key
-        var base64AesKey = redisTemplate.opsForValue().get(AES_KEY_PREFIX + userId);
-        if (base64AesKey == null) {
-            log.warn("Encryption Session Key missing in Redis for User: {}", userId);
-            throw new AccessDeniedException("Encryption Session expired. Please refresh the page.");
-        }
-
-        // 4. Decrypt with precise exception handling
-        try {
-            var decryptedJson = aesEncryptionUtil.decrypt(encryptedBody, base64AesKey);
-            var decryptedBytes = decryptedJson.getBytes(StandardCharsets.UTF_8);
-
-            return new HttpInputMessage() {
-                @Override
-                public InputStream getBody() {
-                    return new ByteArrayInputStream(decryptedBytes);
-                }
-
-                @Override
-                public HttpHeaders getHeaders() {
-                    return headers;
-                }
-            };
-
-        } catch (IllegalArgumentException | GeneralSecurityException e) {
-            log.error("Payload decryption failed for User {}: {}", userId, e.getMessage());
-
-            // Throwing this ensures Spring MVC translates it into a 400 BAD REQUEST,
-            // rather than crashing the thread with a 500 INTERNAL SERVER ERROR.
-            throw new HttpMessageNotReadableException("Malformed encrypted payload or decryption failed.", e, inputMessage);
-        }
+    if (encryptedPhone != null) {
+        user.put(
+                "phone_number",
+                databaseEncryptionUtil.decrypt(
+                        encryptedPhone.toString()
+                )
+        );
     }
 }
