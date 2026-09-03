@@ -1,148 +1,107 @@
-package com.fincore.commonutilities.encryption;
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.0</version>
+        <relativePath />
+    </parent>
+    <groupId>com.fincore</groupId>
+    <artifactId>common-utilities</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>common-utilities</name>
+    <description>Common utilities used across the application.</description>
 
-import com.fincore.commonutilities.util.DatabaseEncryptionUtil;
-import org.hibernate.event.spi.PostLoadEvent;
-import org.hibernate.event.spi.PostLoadEventListener;
-import org.hibernate.event.spi.PreInsertEvent;
-import org.hibernate.event.spi.PreInsertEventListener;
-import org.hibernate.event.spi.PreUpdateEvent;
-import org.hibernate.event.spi.PreUpdateEventListener;
-import org.hibernate.persister.entity.EntityPersister;
-import org.springframework.stereotype.Component;
+    <properties>
+        <java.version>21</java.version>
+        <jjwt.version>0.12.5</jjwt.version>
+    </properties>
 
-@Component
-public class DatabaseEncryptionListener
-        implements PreInsertEventListener,
-                   PreUpdateEventListener,
-                   PostLoadEventListener {
+    <dependencies>
+        <!-- CORE SPRING BOOT -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
 
-    private final DatabaseEncryptionUtil encryptionUtil;
+        <!-- UTILS -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+        </dependency>
 
-    public DatabaseEncryptionListener(
-            DatabaseEncryptionUtil encryptionUtil) {
-        this.encryptionUtil = encryptionUtil;
-    }
+        <!-- JWT SECURITY (JJWT) -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>${jjwt.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
 
-    /**
-     * Called by Hibernate before inserting an entity.
-     */
-    @Override
-    public boolean onPreInsert(PreInsertEvent event) {
 
-        encryptSensitiveFields(
-                event.getState(),
-                event.getPersister(),
-                event.getEntity()
-        );
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
 
-        return false;
-    }
 
-    /**
-     * Called by Hibernate before updating an entity.
-     */
-    @Override
-    public boolean onPreUpdate(PreUpdateEvent event) {
+        <!-- AOP: To intercept Service calls globally -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
 
-        encryptSensitiveFields(
-                event.getState(),
-                event.getPersister(),
-                event.getEntity()
-        );
+        <!-- RESILIENCE4J: The Industry Standard for Retry/CircuitBreaker -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-spring-boot3</artifactId>
+            <version>2.3.0</version>
+        </dependency>
 
-        return false;
-    }
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-retry</artifactId>
+            <version>2.3.0</version>
+            <scope>compile</scope>
+        </dependency>
 
-    /**
-     * Called by Hibernate after loading an entity from the database.
-     */
-    @Override
-    public void onPostLoad(PostLoadEvent event) {
+        <!-- METRICS: To see Retries in Grafana/Prometheus -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-micrometer</artifactId>
+            <version>2.3.0</version>
+        </dependency>
 
-        decryptSensitiveFields(
-                event.getEntity(),
-                event.getPersister()
-        );
-    }
+    </dependencies>
+</project>
 
-    /**
-     * Encrypt EMAIL and PHONE_NUMBER before Hibernate
-     * writes the values to the database.
-     */
-    private void encryptSensitiveFields(
-            Object[] state,
-            EntityPersister persister,
-            Object entity) {
-
-        String[] propertyNames = persister.getPropertyNames();
-
-        for (int i = 0; i < propertyNames.length; i++) {
-
-            String propertyName = propertyNames[i];
-
-            if (isEmailField(propertyName)
-                    || isPhoneField(propertyName)) {
-
-                Object value = state[i];
-
-                if (value instanceof String plainText
-                        && !plainText.isBlank()) {
-
-                    state[i] = encryptionUtil.encrypt(plainText);
-                }
-            }
-        }
-    }
-
-    /**
-     * Decrypt EMAIL and PHONE_NUMBER after Hibernate
-     * loads the entity from the database.
-     */
-    private void decryptSensitiveFields(
-            Object entity,
-            EntityPersister persister) {
-
-        String[] propertyNames = persister.getPropertyNames();
-
-        Object[] values = persister.getPropertyValues(entity);
-
-        for (int i = 0; i < propertyNames.length; i++) {
-
-            String propertyName = propertyNames[i];
-
-            if (isEmailField(propertyName)
-                    || isPhoneField(propertyName)) {
-
-                Object value = values[i];
-
-                if (value instanceof String encryptedValue
-                        && !encryptedValue.isBlank()) {
-
-                    values[i] = encryptionUtil.decrypt(encryptedValue);
-                }
-            }
-        }
-
-        persister.setPropertyValues(entity, values);
-    }
-
-    /**
-     * Identifies email fields.
-     */
-    private boolean isEmailField(String propertyName) {
-
-        return "email".equalsIgnoreCase(propertyName)
-                || "emailAddress".equalsIgnoreCase(propertyName);
-    }
-
-    /**
-     * Identifies phone fields.
-     */
-    private boolean isPhoneField(String propertyName) {
-
-        return "phoneNumber".equalsIgnoreCase(propertyName)
-                || "phone".equalsIgnoreCase(propertyName)
-                || "mobileNumber".equalsIgnoreCase(propertyName)
-                || "mobile".equalsIgnoreCase(propertyName);
-    }
-}
