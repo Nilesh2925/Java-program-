@@ -5,14 +5,14 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.0</version>
+        <version>4.1.0</version>
         <relativePath />
     </parent>
     <groupId>com.fincore</groupId>
     <artifactId>common-utilities</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1.1.0</version>
     <name>common-utilities</name>
-    <description>Common utilities used across the application.</description>
+    <description>Common utilities used across the application, [Added s2s communication authentication logic.]</description>
 
     <properties>
         <java.version>21</java.version>
@@ -74,13 +74,6 @@
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
 
-
-        <!-- AOP: To intercept Service calls globally -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-aop</artifactId>
-        </dependency>
-
         <!-- RESILIENCE4J: The Industry Standard for Retry/CircuitBreaker -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>
@@ -100,6 +93,12 @@
             <groupId>io.github.resilience4j</groupId>
             <artifactId>resilience4j-micrometer</artifactId>
             <version>2.3.0</version>
+        </dependency>
+
+        <!-- AOP: To intercept Service calls globally -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aspectj</artifactId>
         </dependency>
 
     </dependencies>
