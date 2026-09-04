@@ -1,4 +1,3 @@
-org.springframework.boot.autoconfigure.AutoConfiguration.imports
+jar tf "%USERPROFILE%\.m2\repository\com\fincore\common-utilities\1.1.0\common-utilities-1.1.0.jar" | findstr "AutoConfiguration"
 
-
-com.fincore.commonutilities.encryption.DatabaseEncryptionHibernateConfig
+jar tf "%USERPROFILE%\.m2\repository\com\fincore\common-utilities\1.1.0\common-utilities-1.1.0.jar" | findstr "DatabaseEncryptionHibernateConfig"
