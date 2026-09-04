@@ -1,137 +1,67 @@
+
 package com.fincore.commonutilities.encryption;
 
 import com.fincore.commonutilities.util.DatabaseEncryptionUtil;
-import org.hibernate.event.spi.PostLoadEvent;
-import org.hibernate.event.spi.PostLoadEventListener;
-import org.hibernate.event.spi.PreInsertEvent;
-import org.hibernate.event.spi.PreInsertEventListener;
-import org.hibernate.event.spi.PreUpdateEvent;
-import org.hibernate.event.spi.PreUpdateEventListener;
-import org.hibernate.persister.entity.EntityPersister;
+import org.hibernate.boot.Metadata;
+import org.hibernate.boot.spi.SessionFactoryImplementor;
+import org.hibernate.event.service.spi.EventListenerRegistry;
+import org.hibernate.event.spi.EventType;
+import org.hibernate.integrator.spi.Integrator;
+import org.hibernate.jpa.boot.spi.IntegratorProvider;
+import org.hibernate.service.spi.SessionFactoryServiceRegistry;
+import org.springframework.boot.hibernate.autoconfigure.HibernatePropertiesCustomizer;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
-public class DatabaseEncryptionListener
-        implements PreInsertEventListener,
-                   PreUpdateEventListener,
-                   PostLoadEventListener {
+import java.util.List;
 
-    private final DatabaseEncryptionUtil encryptionUtil;
+@Configuration
+public class DatabaseEncryptionHibernateConfig {
 
-    public DatabaseEncryptionListener(
+    @Bean
+    public HibernatePropertiesCustomizer databaseEncryptionCustomizer(
             DatabaseEncryptionUtil encryptionUtil) {
-        this.encryptionUtil = encryptionUtil;
-    }
 
-    @Override
-    public boolean onPreInsert(PreInsertEvent event) {
+        return hibernateProperties -> {
 
-        encryptSensitiveFields(
-                event.getState(),
-                event.getPersister()
-        );
+            Integrator integrator = new Integrator() {
 
-        return false;
-    }
+                @Override
+                public void integrate(
+                        Metadata metadata,
+                        SessionFactoryImplementor sessionFactory,
+                        SessionFactoryServiceRegistry serviceRegistry) {
 
-    @Override
-    public boolean onPreUpdate(PreUpdateEvent event) {
+                    EventListenerRegistry registry =
+                            serviceRegistry.getService(
+                                    EventListenerRegistry.class
+                            );
 
-        encryptSensitiveFields(
-                event.getState(),
-                event.getPersister()
-        );
+                    DatabaseEncryptionListener listener =
+                            new DatabaseEncryptionListener(encryptionUtil);
 
-        return false;
-    }
+                    registry.getEventListenerGroup(EventType.PRE_INSERT)
+                            .appendListener(listener);
 
-    @Override
-    public void onPostLoad(PostLoadEvent event) {
+                    registry.getEventListenerGroup(EventType.PRE_UPDATE)
+                            .appendListener(listener);
 
-        decryptSensitiveFields(
-                event.getEntity(),
-                event.getPersister()
-        );
-    }
-
-    private void encryptSensitiveFields(
-            Object[] state,
-            EntityPersister persister) {
-
-        String[] propertyNames =
-                persister.getPropertyNames();
-
-        for (int i = 0; i < propertyNames.length; i++) {
-
-            String propertyName = propertyNames[i];
-
-            if (!isSensitiveField(propertyName)) {
-                continue;
-            }
-
-            Object value = state[i];
-
-            if (value instanceof String plainText
-                    && !plainText.isBlank()) {
-
-                /*
-                 * Prevent accidental double encryption.
-                 */
-                if (!encryptionUtil.isEncrypted(plainText)) {
-
-                    state[i] =
-                            encryptionUtil.encrypt(plainText);
+                    registry.getEventListenerGroup(EventType.POST_LOAD)
+                            .appendListener(listener);
                 }
-            }
-        }
-    }
 
-    private void decryptSensitiveFields(
-            Object entity,
-            EntityPersister persister) {
+                @Override
+                public void disintegrate(
+                        SessionFactoryImplementor sessionFactory,
+                        SessionFactoryServiceRegistry serviceRegistry) {
+                    // Nothing to clean up.
+                }
+            };
 
-        String[] propertyNames =
-                persister.getPropertyNames();
-
-        Object[] values =
-                persister.getValues(entity);
-
-        for (int i = 0; i < propertyNames.length; i++) {
-
-            String propertyName = propertyNames[i];
-
-            if (!isSensitiveField(propertyName)) {
-                continue;
-            }
-
-            Object value = values[i];
-
-            if (value instanceof String encryptedValue
-                    && encryptionUtil.isEncrypted(encryptedValue)) {
-
-                values[i] =
-                        encryptionUtil.decrypt(encryptedValue);
-            }
-        }
-
-        persister.setValues(entity, values);
-    }
-
-    private boolean isSensitiveField(String propertyName) {
-
-        return isEmailField(propertyName)
-                || isPhoneField(propertyName);
-    }
-
-    private boolean isEmailField(String propertyName) {
-
-        return "email".equalsIgnoreCase(propertyName)
-                || "emailAddress".equalsIgnoreCase(propertyName);
-    }
-
-    private boolean isPhoneField(String propertyName) {
-
-        return "phoneNumber".equalsIgnoreCase(propertyName)
-                || "phone".equalsIgnoreCase(propertyName)
-                || "mobileNumber".equalsIgnoreCase(propertyName)
-                || "mobile".equalsIgnoreCase(propertyName);
+            hibernateProperties.put(
+                    "hibernate.integrator_provider",
+                    (IntegratorProvider) () -> List.of(integrator)
+            );
+        };
     }
 }
