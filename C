@@ -1,21 +1,20 @@
-
 package com.fincore.commonutilities.encryption;
 
 import com.fincore.commonutilities.util.DatabaseEncryptionUtil;
+import org.hibernate.boot.BootstrapContext;
 import org.hibernate.boot.Metadata;
-import org.hibernate.boot.spi.SessionFactoryImplementor;
+import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.event.service.spi.EventListenerRegistry;
 import org.hibernate.event.spi.EventType;
 import org.hibernate.integrator.spi.Integrator;
 import org.hibernate.jpa.boot.spi.IntegratorProvider;
-import org.hibernate.service.spi.SessionFactoryServiceRegistry;
 import org.springframework.boot.hibernate.autoconfigure.HibernatePropertiesCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.List;
 
-@Configuration
+@Configuration(proxyBeanMethods = false)
 public class DatabaseEncryptionHibernateConfig {
 
     @Bean
@@ -29,13 +28,13 @@ public class DatabaseEncryptionHibernateConfig {
                 @Override
                 public void integrate(
                         Metadata metadata,
-                        SessionFactoryImplementor sessionFactory,
-                        SessionFactoryServiceRegistry serviceRegistry) {
+                        BootstrapContext bootstrapContext,
+                        SessionFactoryImplementor sessionFactory) {
 
                     EventListenerRegistry registry =
-                            serviceRegistry.getService(
-                                    EventListenerRegistry.class
-                            );
+                            sessionFactory
+                                    .getServiceRegistry()
+                                    .getService(EventListenerRegistry.class);
 
                     DatabaseEncryptionListener listener =
                             new DatabaseEncryptionListener(encryptionUtil);
@@ -53,7 +52,8 @@ public class DatabaseEncryptionHibernateConfig {
                 @Override
                 public void disintegrate(
                         SessionFactoryImplementor sessionFactory,
-                        SessionFactoryServiceRegistry serviceRegistry) {
+                        org.hibernate.service.spi.SessionFactoryServiceRegistry serviceRegistry) {
+
                     // Nothing to clean up.
                 }
             };
