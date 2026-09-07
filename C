@@ -1,4 +1,3 @@
-
 package com.fincore.commonutilities.security;
 
 import com.fincore.commonutilities.util.DatabaseEncryptionUtil;
@@ -13,6 +12,8 @@ import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -54,58 +55,102 @@ public class DatabaseDecryptionResponseBodyAdvice
                 ">>> DATABASE DECRYPTION: RESPONSE PROCESSING"
         );
 
-        decryptObject(body);
+        decryptResponseWrapper(body);
 
         return body;
     }
 
-    private void decryptObject(Object value) {
+    /**
+     * Handles response wrapper objects such as ResponseVO.
+     *
+     * We do not modify the native-query TupleBackedMap directly.
+     * Instead, we create a new mutable structure and replace the
+     * result inside the existing response object.
+     */
+    private void decryptResponseWrapper(Object response) {
 
-        if (value == null) {
-            return;
-        }
+        try {
 
-        /*
-         * Handle ResponseVO and similar response wrapper objects.
-         *
-         * We DO NOT rebuild the response object.
-         * We directly access its existing "result" object.
-         */
-        if (!(value instanceof Map<?, ?>)
-                && !(value instanceof List<?>)
-                && !(value instanceof String)) {
+            Method getResult =
+                    response.getClass().getMethod("getResult");
 
-            try {
+            Method setResult =
+                    findSetResultMethod(response.getClass());
 
-                Method getResult =
-                        value.getClass().getMethod("getResult");
+            Object result =
+                    getResult.invoke(response);
 
-                Object result =
-                        getResult.invoke(value);
+            Object decryptedResult =
+                    decryptValue(result);
 
-                decryptObject(result);
+            if (setResult != null) {
 
-            } catch (NoSuchMethodException ignored) {
-
-                /*
-                 * This object is not a response wrapper.
-                 */
-
-            } catch (Exception e) {
-
-                throw new IllegalStateException(
-                        "Unable to process database encrypted response.",
-                        e
+                setResult.invoke(
+                        response,
+                        decryptedResult
                 );
             }
 
-            return;
+        } catch (NoSuchMethodException ignored) {
+
+            /*
+             * Not a ResponseVO-style wrapper.
+             * Process the object directly.
+             */
+            decryptValue(response);
+
+        } catch (Exception e) {
+
+            System.out.println(
+                    ">>> DATABASE DECRYPTION ERROR: "
+                            + e.getClass().getName()
+                            + " : "
+                            + e.getMessage()
+            );
+
+            e.printStackTrace();
+
+            throw new IllegalStateException(
+                    "Unable to process database encrypted response.",
+                    e
+            );
+        }
+    }
+
+    /**
+     * Recursively creates NEW mutable collections/maps.
+     *
+     * This is important because native JPA query results can be
+     * TupleBackedMap instances which cannot be modified.
+     */
+    private Object decryptValue(Object value) {
+
+        if (value == null) {
+            return null;
         }
 
         /*
-         * Handle Map<String, Object>
+         * String value.
+         *
+         * A String itself does not tell us whether it is EMAIL or
+         * PHONE_NUMBER, so sensitive-field decryption is handled
+         * when processing Map entries.
+         */
+        if (value instanceof String) {
+            return value;
+        }
+
+        /*
+         * Map:
+         *
+         * NEVER modify the original Map.
+         *
+         * Create a new LinkedHashMap instead.
          */
         if (value instanceof Map<?, ?> map) {
+
+            Map<Object, Object> decryptedMap =
+                    new LinkedHashMap<>();
 
             for (Map.Entry<?, ?> entry : map.entrySet()) {
 
@@ -118,34 +163,109 @@ public class DatabaseDecryptionResponseBodyAdvice
 
                     if (encryptionUtil.isEncrypted(stringValue)) {
 
-                        ((Map<Object, Object>) map).put(
+                        decryptedMap.put(
                                 key,
                                 encryptionUtil.decrypt(stringValue)
+                        );
+
+                    } else {
+
+                        decryptedMap.put(
+                                key,
+                                stringValue
                         );
                     }
 
                 } else {
 
-                    decryptObject(childValue);
+                    decryptedMap.put(
+                            key,
+                            decryptValue(childValue)
+                    );
                 }
             }
 
-            return;
+            return decryptedMap;
         }
 
         /*
-         * Handle List<Map<String, Object>>
+         * List:
+         *
+         * Create a new mutable List.
          */
         if (value instanceof List<?> list) {
 
+            List<Object> decryptedList =
+                    new ArrayList<>(list.size());
+
             for (Object item : list) {
 
-                decryptObject(item);
+                decryptedList.add(
+                        decryptValue(item)
+                );
             }
+
+            return decryptedList;
         }
+
+        /*
+         * Handle other Iterable implementations.
+         */
+        if (value instanceof Iterable<?> iterable) {
+
+            List<Object> decryptedList =
+                    new ArrayList<>();
+
+            for (Object item : iterable) {
+
+                decryptedList.add(
+                        decryptValue(item)
+                );
+            }
+
+            return decryptedList;
+        }
+
+        /*
+         * For normal objects, leave them untouched.
+         *
+         * Entity responses are already handled by the Hibernate
+         * PostLoad listener.
+         */
+        return value;
     }
 
-    private boolean isSensitiveField(String fieldName) {
+    private Method findSetResultMethod(
+            Class<?> responseClass) {
+
+        try {
+
+            return responseClass.getMethod(
+                    "setResult",
+                    Map.class
+            );
+
+        } catch (NoSuchMethodException ignored) {
+        }
+
+        /*
+         * Fallback for generic Object parameter.
+         */
+        for (Method method :
+                responseClass.getMethods()) {
+
+            if ("setResult".equals(method.getName())
+                    && method.getParameterCount() == 1) {
+
+                return method;
+            }
+        }
+
+        return null;
+    }
+
+    private boolean isSensitiveField(
+            String fieldName) {
 
         return "EMAIL".equalsIgnoreCase(fieldName)
                 || "EMAIL_ADDRESS".equalsIgnoreCase(fieldName)
