@@ -1,8 +1,6 @@
+
 package com.fincore.commonutilities.security;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fincore.commonutilities.util.DatabaseEncryptionUtil;
 import org.springframework.core.MethodParameter;
 import org.springframework.core.Ordered;
@@ -14,7 +12,8 @@ import org.springframework.http.server.ServerHttpResponse;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
 
-import java.util.Iterator;
+import java.lang.reflect.Method;
+import java.util.List;
 import java.util.Map;
 
 @ControllerAdvice
@@ -23,14 +22,11 @@ public class DatabaseDecryptionResponseBodyAdvice
         implements ResponseBodyAdvice<Object> {
 
     private final DatabaseEncryptionUtil encryptionUtil;
-    private final ObjectMapper objectMapper;
 
     public DatabaseDecryptionResponseBodyAdvice(
-            DatabaseEncryptionUtil encryptionUtil,
-            ObjectMapper objectMapper) {
+            DatabaseEncryptionUtil encryptionUtil) {
 
         this.encryptionUtil = encryptionUtil;
-        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -58,73 +54,93 @@ public class DatabaseDecryptionResponseBodyAdvice
                 ">>> DATABASE DECRYPTION: RESPONSE PROCESSING"
         );
 
-        JsonNode root = objectMapper.valueToTree(body);
+        decryptObject(body);
 
-        decryptJsonNode(root);
-
-        try {
-            return objectMapper.treeToValue(
-                    root,
-                    body.getClass()
-            );
-
-        } catch (Exception e) {
-
-            e.printStackTrace();
-
-            throw new IllegalStateException(
-                    "Unable to rebuild decrypted database response.",
-                    e
-            );
-        }
+        return body;
     }
 
-    private void decryptJsonNode(JsonNode node) {
+    private void decryptObject(Object value) {
 
-        if (node == null) {
+        if (value == null) {
             return;
         }
 
-        if (node.isObject()) {
+        /*
+         * Handle ResponseVO and similar response wrapper objects.
+         *
+         * We DO NOT rebuild the response object.
+         * We directly access its existing "result" object.
+         */
+        if (!(value instanceof Map<?, ?>)
+                && !(value instanceof List<?>)
+                && !(value instanceof String)) {
 
-            ObjectNode objectNode = (ObjectNode) node;
+            try {
 
-            Iterator<Map.Entry<String, JsonNode>> fields =
-                    objectNode.fields();
+                Method getResult =
+                        value.getClass().getMethod("getResult");
 
-            while (fields.hasNext()) {
+                Object result =
+                        getResult.invoke(value);
 
-                Map.Entry<String, JsonNode> entry =
-                        fields.next();
+                decryptObject(result);
 
-                String fieldName = entry.getKey();
-                JsonNode fieldValue = entry.getValue();
+            } catch (NoSuchMethodException ignored) {
 
-                if (fieldValue.isTextual()
-                        && isSensitiveField(fieldName)) {
+                /*
+                 * This object is not a response wrapper.
+                 */
 
-                    String encryptedValue =
-                            fieldValue.asText();
+            } catch (Exception e) {
 
-                    if (encryptionUtil.isEncrypted(encryptedValue)) {
+                throw new IllegalStateException(
+                        "Unable to process database encrypted response.",
+                        e
+                );
+            }
 
-                        objectNode.put(
-                                fieldName,
-                                encryptionUtil.decrypt(encryptedValue)
+            return;
+        }
+
+        /*
+         * Handle Map<String, Object>
+         */
+        if (value instanceof Map<?, ?> map) {
+
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+
+                Object key = entry.getKey();
+                Object childValue = entry.getValue();
+
+                if (key != null
+                        && childValue instanceof String stringValue
+                        && isSensitiveField(key.toString())) {
+
+                    if (encryptionUtil.isEncrypted(stringValue)) {
+
+                        ((Map<Object, Object>) map).put(
+                                key,
+                                encryptionUtil.decrypt(stringValue)
                         );
                     }
 
                 } else {
 
-                    decryptJsonNode(fieldValue);
+                    decryptObject(childValue);
                 }
             }
+
+            return;
         }
 
-        else if (node.isArray()) {
+        /*
+         * Handle List<Map<String, Object>>
+         */
+        if (value instanceof List<?> list) {
 
-            for (JsonNode child : node) {
-                decryptJsonNode(child);
+            for (Object item : list) {
+
+                decryptObject(item);
             }
         }
     }
@@ -141,7 +157,6 @@ public class DatabaseDecryptionResponseBodyAdvice
                 || "emailAddress".equalsIgnoreCase(fieldName)
                 || "phoneNumber".equalsIgnoreCase(fieldName)
                 || "phone".equalsIgnoreCase(fieldName)
-                || "mobileNumber".equalsIgnoreCase(fieldName)
-                || "mobile".equalsIgnoreCase(fieldName);
+                || "mobileNumber".equalsIgnoreCase(fieldName);
     }
 }
