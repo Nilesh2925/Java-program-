@@ -1,74 +1,147 @@
-private void decryptObject(Object value) {
+package com.fincore.commonutilities.security;
 
-    if (value == null) {
-        return;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fincore.commonutilities.util.DatabaseEncryptionUtil;
+import org.springframework.core.MethodParameter;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.MediaType;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.http.server.ServerHttpResponse;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
+
+import java.util.Iterator;
+import java.util.Map;
+
+@ControllerAdvice
+@Order(Ordered.HIGHEST_PRECEDENCE)
+public class DatabaseDecryptionResponseBodyAdvice
+        implements ResponseBodyAdvice<Object> {
+
+    private final DatabaseEncryptionUtil encryptionUtil;
+    private final ObjectMapper objectMapper;
+
+    public DatabaseDecryptionResponseBodyAdvice(
+            DatabaseEncryptionUtil encryptionUtil,
+            ObjectMapper objectMapper) {
+
+        this.encryptionUtil = encryptionUtil;
+        this.objectMapper = objectMapper;
     }
 
-    /*
-     * Handle ResponseVO-style wrapper objects.
-     * The User Service response structure is:
-     *
-     * ResponseVO
-     *     -> result
-     *         -> users
-     *             -> List<Map<String,Object>>
-     */
-    if (!(value instanceof Map<?, ?>)
-            && !(value instanceof List<?>)
-            && !(value instanceof String)) {
+    @Override
+    public boolean supports(
+            MethodParameter returnType,
+            Class<? extends HttpMessageConverter<?>> converterType) {
+
+        return true;
+    }
+
+    @Override
+    public Object beforeBodyWrite(
+            Object body,
+            MethodParameter returnType,
+            MediaType selectedContentType,
+            Class<? extends HttpMessageConverter<?>> selectedConverterType,
+            ServerHttpRequest request,
+            ServerHttpResponse response) {
+
+        if (body == null) {
+            return null;
+        }
+
+        System.out.println(
+                ">>> DATABASE DECRYPTION: RESPONSE PROCESSING"
+        );
+
+        JsonNode root = objectMapper.valueToTree(body);
+
+        decryptJsonNode(root);
 
         try {
-            var resultMethod = value.getClass()
-                    .getMethod("getResult");
+            return objectMapper.treeToValue(
+                    root,
+                    body.getClass()
+            );
 
-            Object result = resultMethod.invoke(value);
-
-            decryptObject(result);
-
-            return;
-
-        } catch (NoSuchMethodException ignored) {
-            // Not a wrapper object. Nothing to do here.
         } catch (Exception e) {
+
+            e.printStackTrace();
+
             throw new IllegalStateException(
-                    "Unable to process database encrypted response.",
+                    "Unable to rebuild decrypted database response.",
                     e
             );
         }
     }
 
-    if (value instanceof Map<?, ?> map) {
+    private void decryptJsonNode(JsonNode node) {
 
-        for (Map.Entry<?, ?> entry : map.entrySet()) {
+        if (node == null) {
+            return;
+        }
 
-            Object key = entry.getKey();
-            Object childValue = entry.getValue();
+        if (node.isObject()) {
 
-            if (key != null
-                    && childValue instanceof String stringValue
-                    && isSensitiveField(key.toString())) {
+            ObjectNode objectNode = (ObjectNode) node;
 
-                if (encryptionUtil.isEncrypted(stringValue)) {
+            Iterator<Map.Entry<String, JsonNode>> fields =
+                    objectNode.fields();
 
-                    ((Map<Object, Object>) map).put(
-                            key,
-                            encryptionUtil.decrypt(stringValue)
-                    );
+            while (fields.hasNext()) {
+
+                Map.Entry<String, JsonNode> entry =
+                        fields.next();
+
+                String fieldName = entry.getKey();
+                JsonNode fieldValue = entry.getValue();
+
+                if (fieldValue.isTextual()
+                        && isSensitiveField(fieldName)) {
+
+                    String encryptedValue =
+                            fieldValue.asText();
+
+                    if (encryptionUtil.isEncrypted(encryptedValue)) {
+
+                        objectNode.put(
+                                fieldName,
+                                encryptionUtil.decrypt(encryptedValue)
+                        );
+                    }
+
+                } else {
+
+                    decryptJsonNode(fieldValue);
                 }
-
-            } else {
-
-                decryptObject(childValue);
             }
         }
 
-        return;
+        else if (node.isArray()) {
+
+            for (JsonNode child : node) {
+                decryptJsonNode(child);
+            }
+        }
     }
 
-    if (value instanceof List<?> list) {
+    private boolean isSensitiveField(String fieldName) {
 
-        for (Object item : list) {
-            decryptObject(item);
-        }
+        return "EMAIL".equalsIgnoreCase(fieldName)
+                || "EMAIL_ADDRESS".equalsIgnoreCase(fieldName)
+                || "PHONE_NUMBER".equalsIgnoreCase(fieldName)
+                || "PHONE".equalsIgnoreCase(fieldName)
+                || "MOBILE_NUMBER".equalsIgnoreCase(fieldName)
+                || "MOBILE".equalsIgnoreCase(fieldName)
+                || "email".equalsIgnoreCase(fieldName)
+                || "emailAddress".equalsIgnoreCase(fieldName)
+                || "phoneNumber".equalsIgnoreCase(fieldName)
+                || "phone".equalsIgnoreCase(fieldName)
+                || "mobileNumber".equalsIgnoreCase(fieldName)
+                || "mobile".equalsIgnoreCase(fieldName);
     }
 }
