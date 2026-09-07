@@ -1,108 +1,74 @@
-package com.fincore.commonutilities.security;
+private void decryptObject(Object value) {
 
-import com.fincore.commonutilities.util.DatabaseEncryptionUtil;
-import org.springframework.core.MethodParameter;
-import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
-import org.springframework.http.MediaType;
-import org.springframework.http.converter.HttpMessageConverter;
-import org.springframework.http.server.ServerHttpRequest;
-import org.springframework.http.server.ServerHttpResponse;
-import org.springframework.web.bind.annotation.ControllerAdvice;
-import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
-
-import java.util.List;
-import java.util.Map;
-
-@ControllerAdvice
-@Order(Ordered.HIGHEST_PRECEDENCE)
-public class DatabaseDecryptionResponseBodyAdvice
-        implements ResponseBodyAdvice<Object> {
-
-    private final DatabaseEncryptionUtil encryptionUtil;
-
-    public DatabaseDecryptionResponseBodyAdvice(
-            DatabaseEncryptionUtil encryptionUtil) {
-        this.encryptionUtil = encryptionUtil;
+    if (value == null) {
+        return;
     }
 
-    @Override
-    public boolean supports(
-            MethodParameter returnType,
-            Class<? extends HttpMessageConverter<?>> converterType) {
+    /*
+     * Handle ResponseVO-style wrapper objects.
+     * The User Service response structure is:
+     *
+     * ResponseVO
+     *     -> result
+     *         -> users
+     *             -> List<Map<String,Object>>
+     */
+    if (!(value instanceof Map<?, ?>)
+            && !(value instanceof List<?>)
+            && !(value instanceof String)) {
 
-        return true;
-    }
+        try {
+            var resultMethod = value.getClass()
+                    .getMethod("getResult");
 
-    @Override
-    public Object beforeBodyWrite(
-            Object body,
-            MethodParameter returnType,
-            MediaType selectedContentType,
-            Class<? extends HttpMessageConverter<?>> selectedConverterType,
-            ServerHttpRequest request,
-            ServerHttpResponse response) {
+            Object result = resultMethod.invoke(value);
 
-        decryptObject(body);
+            decryptObject(result);
 
-        return body;
-    }
-
-    private void decryptObject(Object value) {
-
-        if (value == null) {
             return;
+
+        } catch (NoSuchMethodException ignored) {
+            // Not a wrapper object. Nothing to do here.
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    "Unable to process database encrypted response.",
+                    e
+            );
         }
+    }
 
-        if (value instanceof Map<?, ?> map) {
+    if (value instanceof Map<?, ?> map) {
 
-            for (Map.Entry<?, ?> entry : map.entrySet()) {
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
 
-                Object key = entry.getKey();
-                Object childValue = entry.getValue();
+            Object key = entry.getKey();
+            Object childValue = entry.getValue();
 
-                if (key != null
-                        && childValue instanceof String stringValue
-                        && isSensitiveField(key.toString())) {
+            if (key != null
+                    && childValue instanceof String stringValue
+                    && isSensitiveField(key.toString())) {
 
-                    if (encryptionUtil.isEncrypted(stringValue)) {
+                if (encryptionUtil.isEncrypted(stringValue)) {
 
-                        ((Map<Object, Object>) map).put(
-                                key,
-                                encryptionUtil.decrypt(stringValue)
-                        );
-                    }
-
-                } else {
-
-                    decryptObject(childValue);
+                    ((Map<Object, Object>) map).put(
+                            key,
+                            encryptionUtil.decrypt(stringValue)
+                    );
                 }
-            }
 
-            return;
-        }
+            } else {
 
-        if (value instanceof List<?> list) {
-
-            for (Object item : list) {
-                decryptObject(item);
+                decryptObject(childValue);
             }
         }
+
+        return;
     }
 
-    private boolean isSensitiveField(String fieldName) {
+    if (value instanceof List<?> list) {
 
-        return "EMAIL".equalsIgnoreCase(fieldName)
-                || "EMAIL_ADDRESS".equalsIgnoreCase(fieldName)
-                || "PHONE_NUMBER".equalsIgnoreCase(fieldName)
-                || "PHONE".equalsIgnoreCase(fieldName)
-                || "MOBILE_NUMBER".equalsIgnoreCase(fieldName)
-                || "MOBILE".equalsIgnoreCase(fieldName)
-                || "email".equalsIgnoreCase(fieldName)
-                || "emailAddress".equalsIgnoreCase(fieldName)
-                || "phoneNumber".equalsIgnoreCase(fieldName)
-                || "phone".equalsIgnoreCase(fieldName)
-                || "mobileNumber".equalsIgnoreCase(fieldName)
-                || "mobile".equalsIgnoreCase(fieldName);
+        for (Object item : list) {
+            decryptObject(item);
+        }
     }
 }
