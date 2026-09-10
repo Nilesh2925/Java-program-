@@ -1,90 +1,255 @@
-package com.fincore.commonutilities.encryption;
+package com.fincore.commonutilities.security;
 
-import com.fincore.commonutilities.security.DatabaseDecryptionResponseBodyAdvice;
 import com.fincore.commonutilities.util.DatabaseEncryptionUtil;
-import org.hibernate.boot.Metadata;
-import org.hibernate.boot.spi.BootstrapContext;
-import org.hibernate.engine.spi.SessionFactoryImplementor;
-import org.hibernate.event.service.spi.EventListenerRegistry;
-import org.hibernate.event.spi.EventType;
-import org.hibernate.integrator.spi.Integrator;
-import org.hibernate.jpa.boot.spi.IntegratorProvider;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.hibernate.autoconfigure.HibernatePropertiesCustomizer;
-import org.springframework.context.annotation.Bean;
+import org.springframework.core.MethodParameter;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.MediaType;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.http.server.ServerHttpResponse;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
 
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
-@AutoConfiguration
-public class DatabaseEncryptionHibernateConfig {
+@ControllerAdvice
+@Order(Ordered.HIGHEST_PRECEDENCE)
+public class DatabaseDecryptionResponseBodyAdvice
+        implements ResponseBodyAdvice<Object> {
 
-    // Create the encryption utility using the existing AES key.
-    @Bean
-    @ConditionalOnMissingBean
-    public DatabaseEncryptionUtil databaseEncryptionUtil(
-            @Value("${security.internal.kafka-aes-key}") String configuredKey) {
+    private final DatabaseEncryptionUtil encryptionUtil;
 
-        return new DatabaseEncryptionUtil(configuredKey);
-    }
-
-    // Register response advice for decrypting sensitive response values.
-    @Bean
-    public DatabaseDecryptionResponseBodyAdvice databaseDecryptionResponseBodyAdvice(
+    public DatabaseDecryptionResponseBodyAdvice(
             DatabaseEncryptionUtil encryptionUtil) {
 
-        return new DatabaseDecryptionResponseBodyAdvice(encryptionUtil);
+        this.encryptionUtil = encryptionUtil;
     }
 
-    // Register the encryption listener with Hibernate lifecycle events.
-    @Bean
-    public HibernatePropertiesCustomizer databaseEncryptionCustomizer(
-            DatabaseEncryptionUtil encryptionUtil) {
+    @Override
+    public boolean supports(
+            MethodParameter returnType,
+            Class<? extends HttpMessageConverter<?>> converterType) {
 
-        return hibernateProperties -> {
+        return true;
+    }
 
-            Integrator integrator = new Integrator() {
+    @Override
+    public Object beforeBodyWrite(
+            Object body,
+            MethodParameter returnType,
+            MediaType selectedContentType,
+            Class<? extends HttpMessageConverter<?>> selectedConverterType,
+            ServerHttpRequest request,
+            ServerHttpResponse response) {
 
-                @Override
-                public void integrate(
-                        Metadata metadata,
-                        BootstrapContext bootstrapContext,
-                        SessionFactoryImplementor sessionFactory) {
+        if (body == null) {
+            return null;
+        }
 
-                    EventListenerRegistry registry = sessionFactory
-                            .getServiceRegistry()
-                            .getService(EventListenerRegistry.class);
+    
 
-                    DatabaseEncryptionListener listener =
-                            new DatabaseEncryptionListener(encryptionUtil);
+        decryptResponseWrapper(body);
 
-                    // Encrypt fields before INSERT.
-                    registry.getEventListenerGroup(EventType.PRE_INSERT)
-                            .appendListener(listener);
+        return body;
+    }
 
-                    // Encrypt fields before UPDATE.
-                    registry.getEventListenerGroup(EventType.PRE_UPDATE)
-                            .appendListener(listener);
+    /**
+     * Handles response wrapper objects such as ResponseVO.
+     *
+     * We do not modify the native-query TupleBackedMap directly.
+     * Instead, we create a new mutable structure and replace the
+     * result inside the existing response object.
+     */
+    private void decryptResponseWrapper(Object response) {
 
-                    // Decrypt fields after entity LOAD.
-                    registry.getEventListenerGroup(EventType.POST_LOAD)
-                            .appendListener(listener);
+        try {
+
+            Method getResult = response.getClass().getMethod("getResult");
+
+            Method setResult = findSetResultMethod(response.getClass());
+
+            Object result = getResult.invoke(response);
+
+            Object decryptedResult = decryptValue(result);
+
+            if (setResult != null) {
+
+                setResult.invoke(
+                        response,
+                        decryptedResult);
+            }
+
+        } catch (NoSuchMethodException ignored) {
+
+            /*
+             * Not a ResponseVO-style wrapper.
+             * Process the object directly.
+             */
+            decryptValue(response);
+
+        } catch (Exception e) {
+
+            throw new IllegalStateException(
+                    "Unable to process database encrypted response.",
+                    e);
+        }
+    }
+
+    /**
+     * Recursively creates NEW mutable collections/maps.
+     *
+     * This is important because native JPA query results can be
+     * TupleBackedMap instances which cannot be modified.
+     */
+    private Object decryptValue(Object value) {
+
+        if (value == null) {
+            return null;
+        }
+
+        /*
+         * String value.
+         *
+         * A String itself does not tell us whether it is EMAIL or
+         * PHONE_NUMBER, so sensitive-field decryption is handled
+         * when processing Map entries.
+         */
+        if (value instanceof String) {
+            return value;
+        }
+
+        /*
+         * Map:
+         *
+         * NEVER modify the original Map.
+         *
+         * Create a new LinkedHashMap instead.
+         */
+        if (value instanceof Map<?, ?> map) {
+
+            Map<Object, Object> decryptedMap = new LinkedHashMap<>();
+
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+
+                Object key = entry.getKey();
+                Object childValue = entry.getValue();
+
+                if (key != null
+                        && childValue instanceof String stringValue
+                        && isSensitiveField(key.toString())) {
+
+                    if (encryptionUtil.isEncrypted(stringValue)) {
+
+                        decryptedMap.put(
+                                key,
+                                encryptionUtil.decrypt(stringValue));
+
+                    } else {
+
+                        decryptedMap.put(
+                                key,
+                                stringValue);
+                    }
+
+                } else {
+
+                    decryptedMap.put(
+                            key,
+                            decryptValue(childValue));
                 }
+            }
 
-                @Override
-                public void disintegrate(
-                        SessionFactoryImplementor sessionFactory,
-                        org.hibernate.service.spi.SessionFactoryServiceRegistry serviceRegistry) {
+            return decryptedMap;
+        }
 
-                    // Nothing to clean up.
-                }
-            };
+        /*
+         * List:
+         *
+         * Create a new mutable List.
+         */
+        if (value instanceof List<?> list) {
 
-            // Register the Hibernate integrator.
-            hibernateProperties.put(
-                    "hibernate.integrator_provider",
-                    (IntegratorProvider) () -> List.of(integrator));
-        };
+            List<Object> decryptedList = new ArrayList<>(list.size());
+
+            for (Object item : list) {
+
+                decryptedList.add(
+                        decryptValue(item));
+            }
+
+            return decryptedList;
+        }
+
+        /*
+         * Handle other Iterable implementations.
+         */
+        if (value instanceof Iterable<?> iterable) {
+
+            List<Object> decryptedList = new ArrayList<>();
+
+            for (Object item : iterable) {
+
+                decryptedList.add(
+                        decryptValue(item));
+            }
+
+            return decryptedList;
+        }
+
+        /*
+         * For normal objects, leave them untouched.
+         *
+         * Entity responses are already handled by the Hibernate
+         * PostLoad listener.
+         */
+        return value;
+    }
+
+    private Method findSetResultMethod(
+            Class<?> responseClass) {
+
+        try {
+
+            return responseClass.getMethod(
+                    "setResult",
+                    Map.class);
+
+        } catch (NoSuchMethodException ignored) {
+        }
+
+        /*
+         * Fallback for generic Object parameter.
+         */
+        for (Method method : responseClass.getMethods()) {
+
+            if ("setResult".equals(method.getName())
+                    && method.getParameterCount() == 1) {
+
+                return method;
+            }
+        }
+
+        return null;
+    }
+
+    private boolean isSensitiveField(
+            String fieldName) {
+
+        return "EMAIL".equalsIgnoreCase(fieldName)
+                || "EMAIL_ADDRESS".equalsIgnoreCase(fieldName)
+                || "PHONE_NUMBER".equalsIgnoreCase(fieldName)
+                || "PHONE".equalsIgnoreCase(fieldName)
+                || "MOBILE_NUMBER".equalsIgnoreCase(fieldName)
+                || "MOBILE".equalsIgnoreCase(fieldName)
+                || "email".equalsIgnoreCase(fieldName)
+                || "emailAddress".equalsIgnoreCase(fieldName)
+                || "phoneNumber".equalsIgnoreCase(fieldName)
+                || "phone".equalsIgnoreCase(fieldName)
+                || "mobileNumber".equalsIgnoreCase(fieldName);
     }
 }
