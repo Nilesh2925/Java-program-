@@ -1,4 +1,225 @@
+package com.fincore.commonutilities.encryption;
 
-jar tf "%USERPROFILE%\.m2\repository\com\fincore\common-utilities\1.1.0\common-utilities-1.1.0.jar" | findstr "DatabaseEncryptionHibernateConfig"
+import com.fincore.commonutilities.util.DatabaseEncryptionUtil;
+import org.hibernate.event.spi.PostLoadEvent;
+import org.hibernate.event.spi.PostLoadEventListener;
+import org.hibernate.event.spi.PreInsertEvent;
+import org.hibernate.event.spi.PreInsertEventListener;
+import org.hibernate.event.spi.PreUpdateEvent;
+import org.hibernate.event.spi.PreUpdateEventListener;
+import org.hibernate.persister.entity.EntityPersister;
 
-jar tf "%USERPROFILE%\.m2\repository\com\fincore\common-utilities\1.1.0\common-utilities-1.1.0.jar" | findstr "AutoConfiguration.imports"
+public class DatabaseEncryptionListener
+        implements PreInsertEventListener,
+        PreUpdateEventListener,
+        PostLoadEventListener {
+
+    private final DatabaseEncryptionUtil encryptionUtil;
+
+    public DatabaseEncryptionListener(
+            DatabaseEncryptionUtil encryptionUtil) {
+        this.encryptionUtil = encryptionUtil;
+    }
+
+    @Override
+    public boolean onPreInsert(PreInsertEvent event) {
+    
+
+        encryptSensitiveFields(
+                event.getState(),
+                event.getPersister());
+
+        return false;
+    }
+
+    @Override
+    public boolean onPreUpdate(PreUpdateEvent event) {
+
+        encryptSensitiveFields(
+                event.getState(),
+                event.getPersister());
+
+        return false;
+    }
+
+    @Override
+    public void onPostLoad(PostLoadEvent event) {
+
+
+        decryptSensitiveFields(
+                event.getEntity(),
+                event.getPersister());
+    }
+
+    private void encryptSensitiveFields(
+            Object[] state,
+            EntityPersister persister) {
+
+        String[] propertyNames = persister.getPropertyNames();
+
+        for (int i = 0; i < propertyNames.length; i++) {
+
+            String propertyName = propertyNames[i];
+
+            if (!isSensitiveField(propertyName)) {
+                continue;
+            }
+
+            Object value = state[i];
+
+            if (value instanceof String plainText
+                    && !plainText.isBlank()) {
+
+                /*
+                 * Prevent accidental double encryption.
+                 */
+                if (!encryptionUtil.isEncrypted(plainText)) {
+
+                    state[i] = encryptionUtil.encrypt(plainText);
+                }
+            }
+        }
+    }
+
+    private void decryptSensitiveFields(
+            Object entity,
+            EntityPersister persister) {
+
+        String[] propertyNames = persister.getPropertyNames();
+
+        Object[] values = persister.getValues(entity);
+
+        for (int i = 0; i < propertyNames.length; i++) {
+
+            String propertyName = propertyNames[i];
+
+            if (!isSensitiveField(propertyName)) {
+                continue;
+            }
+
+            Object value = values[i];
+
+            if (value instanceof String encryptedValue
+                    && encryptionUtil.isEncrypted(encryptedValue)) {
+
+                values[i] = encryptionUtil.decrypt(encryptedValue);
+            }
+        }
+
+        persister.setValues(entity, values);
+    }
+
+    private boolean isSensitiveField(String propertyName) {
+
+        return isEmailField(propertyName)
+                || isPhoneField(propertyName);
+    }
+
+    private boolean isEmailField(String propertyName) {
+
+        return "email".equalsIgnoreCase(propertyName)
+                || "emailAddress".equalsIgnoreCase(propertyName)
+                || "emailId".equalsIgnoreCase(propertyName);
+    }
+
+    private boolean isPhoneField(String propertyName) {
+
+        return "phoneNumber".equalsIgnoreCase(propertyName)
+                || "phone".equalsIgnoreCase(propertyName)
+                || "mobileNumber".equalsIgnoreCase(propertyName)
+                || "mobile".equalsIgnoreCase(propertyName);
+    }
+}
+
+
+
+
+
+
+package com.fincore.commonutilities.encryption;
+
+import com.fincore.commonutilities.util.DatabaseEncryptionUtil;
+import org.hibernate.boot.Metadata;
+import org.hibernate.boot.spi.BootstrapContext;
+import org.hibernate.engine.spi.SessionFactoryImplementor;
+import org.hibernate.event.service.spi.EventListenerRegistry;
+import org.hibernate.event.spi.EventType;
+import org.hibernate.integrator.spi.Integrator;
+import org.hibernate.jpa.boot.spi.IntegratorProvider;
+//import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
+// import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.hibernate.autoconfigure.HibernatePropertiesCustomizer;
+import org.springframework.context.annotation.Bean;
+import com.fincore.commonutilities.security.DatabaseDecryptionResponseBodyAdvice;
+import java.util.List;
+
+@AutoConfiguration
+public class DatabaseEncryptionHibernateConfig {
+
+
+
+    @Bean
+    @ConditionalOnMissingBean
+    public DatabaseEncryptionUtil databaseEncryptionUtil() {
+
+        return new DatabaseEncryptionUtil();
+    }
+
+    @Bean
+    public DatabaseDecryptionResponseBodyAdvice databaseDecryptionResponseBodyAdvice(
+            DatabaseEncryptionUtil encryptionUtil) {
+        return new DatabaseDecryptionResponseBodyAdvice(encryptionUtil);
+    }
+
+    @Bean
+    public HibernatePropertiesCustomizer databaseEncryptionCustomizer(
+            DatabaseEncryptionUtil encryptionUtil) {
+        
+
+        return hibernateProperties -> {
+
+            
+
+            Integrator integrator = new Integrator() {
+
+                @Override
+                public void integrate(
+                        Metadata metadata,
+                        BootstrapContext bootstrapContext,
+                        SessionFactoryImplementor sessionFactory) {
+                    
+
+                    EventListenerRegistry registry = sessionFactory
+                            .getServiceRegistry()
+                            .getService(EventListenerRegistry.class);
+
+                    DatabaseEncryptionListener listener = new DatabaseEncryptionListener(
+                            encryptionUtil);
+
+                    registry.getEventListenerGroup(EventType.PRE_INSERT)
+                            .appendListener(listener);
+
+                    registry.getEventListenerGroup(EventType.PRE_UPDATE)
+                            .appendListener(listener);
+
+                    registry.getEventListenerGroup(EventType.POST_LOAD)
+                            .appendListener(listener);
+                }
+
+                @Override
+                public void disintegrate(
+                        SessionFactoryImplementor sessionFactory,
+                        org.hibernate.service.spi.SessionFactoryServiceRegistry serviceRegistry) {
+
+                    // Nothing to clean up.
+                }
+            };
+
+            hibernateProperties.put(
+                    "hibernate.integrator_provider",
+                    (IntegratorProvider) () -> List.of(integrator));
+        };
+    }
+}
