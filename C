@@ -1,181 +1,3 @@
-
-package com.fincore.commonutilities.util;
-
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
-
-import javax.crypto.Cipher;
-import javax.crypto.spec.GCMParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
-import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
-import java.security.SecureRandom;
-import java.util.Base64;
-
-@Component
-public class DatabaseEncryptionUtil {
-
-    private static final String ALGORITHM = "AES/GCM/NoPadding";
-    private static final String KEY_ALGORITHM = "AES";
-
-    private static final int KEY_LENGTH_BYTES = 32;
-    private static final int IV_LENGTH_BYTES = 12;
-    private static final int TAG_LENGTH_BITS = 128;
-
-    private static final String VERSION = "v1";
-
-    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
-
-    private final byte[] keyBytes;
-
-    public DatabaseEncryptionUtil(
-            @Value("${security.internal.kafka-aes-key}") String configuredKey) {
-
-        try {
-            this.keyBytes = Base64.getDecoder().decode(configuredKey);
-        } catch (IllegalArgumentException e) {
-            throw new IllegalStateException(
-                    "Encryption key must be a valid Base64 value.",
-                    e
-            );
-        }
-
-        validateKey(this.keyBytes);
-    }
-
-    public String encrypt(String plainText) {
-
-        if (plainText == null) {
-            return null;
-        }
-
-        if (plainText.isBlank()) {
-            return plainText;
-        }
-
-        try {
-            byte[] iv = new byte[IV_LENGTH_BYTES];
-            SECURE_RANDOM.nextBytes(iv);
-
-            SecretKeySpec secretKey =
-                    new SecretKeySpec(keyBytes, KEY_ALGORITHM);
-
-            GCMParameterSpec gcmParameterSpec =
-                    new GCMParameterSpec(TAG_LENGTH_BITS, iv);
-
-            Cipher cipher = Cipher.getInstance(ALGORITHM);
-
-            cipher.init(
-                    Cipher.ENCRYPT_MODE,
-                    secretKey,
-                    gcmParameterSpec
-            );
-
-            byte[] cipherText =
-                    cipher.doFinal(
-                            plainText.getBytes(StandardCharsets.UTF_8)
-                    );
-
-            return VERSION
-                    + ":"
-                    + Base64.getEncoder().encodeToString(iv)
-                    + ":"
-                    + Base64.getEncoder().encodeToString(cipherText);
-
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException(
-                    "Unable to encrypt database value.",
-                    e
-            );
-        }
-    }
-
-    public String decrypt(String encryptedValue) {
-
-        if (encryptedValue == null) {
-            return null;
-        }
-
-        if (encryptedValue.isBlank()) {
-            return encryptedValue;
-        }
-
-        try {
-            String[] parts = encryptedValue.split(":", 3);
-
-            if (parts.length != 3 || !VERSION.equals(parts[0])) {
-                throw new IllegalArgumentException(
-                        "Invalid encrypted database value."
-                );
-            }
-
-            byte[] iv =
-                    Base64.getDecoder().decode(parts[1]);
-
-            byte[] cipherText =
-                    Base64.getDecoder().decode(parts[2]);
-
-            if (iv.length != IV_LENGTH_BYTES) {
-                throw new IllegalArgumentException(
-                        "Invalid IV length in encrypted database value."
-                );
-            }
-
-            SecretKeySpec secretKey =
-                    new SecretKeySpec(keyBytes, KEY_ALGORITHM);
-
-            GCMParameterSpec gcmParameterSpec =
-                    new GCMParameterSpec(TAG_LENGTH_BITS, iv);
-
-            Cipher cipher = Cipher.getInstance(ALGORITHM);
-
-            cipher.init(
-                    Cipher.DECRYPT_MODE,
-                    secretKey,
-                    gcmParameterSpec
-            );
-
-            byte[] plainText =
-                    cipher.doFinal(cipherText);
-
-            return new String(
-                    plainText,
-                    StandardCharsets.UTF_8
-            );
-
-        } catch (GeneralSecurityException | IllegalArgumentException e) {
-            throw new IllegalStateException(
-                    "Unable to decrypt database value.",
-                    e
-            );
-        }
-    }
-
-    public boolean isEncrypted(String value) {
-
-        if (value == null || value.isBlank()) {
-            return false;
-        }
-
-        return value.startsWith(VERSION + ":");
-    }
-
-    private void validateKey(byte[] key) {
-
-        if (key.length != KEY_LENGTH_BYTES) {
-            throw new IllegalStateException(
-                    "Encryption key must contain exactly "
-                            + KEY_LENGTH_BYTES
-                            + " bytes for AES-256."
-            );
-    }
-}
-
-
-
-
-
-
 package com.fincore.commonutilities.encryption;
 
 import com.fincore.commonutilities.security.DatabaseDecryptionResponseBodyAdvice;
@@ -187,7 +9,9 @@ import org.hibernate.event.service.spi.EventListenerRegistry;
 import org.hibernate.event.spi.EventType;
 import org.hibernate.integrator.spi.Integrator;
 import org.hibernate.jpa.boot.spi.IntegratorProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.hibernate.autoconfigure.HibernatePropertiesCustomizer;
 import org.springframework.context.annotation.Bean;
 
@@ -195,6 +19,15 @@ import java.util.List;
 
 @AutoConfiguration
 public class DatabaseEncryptionHibernateConfig {
+
+    // Create the encryption utility using the existing AES key.
+    @Bean
+    @ConditionalOnMissingBean
+    public DatabaseEncryptionUtil databaseEncryptionUtil(
+            @Value("${security.internal.kafka-aes-key}") String configuredKey) {
+
+        return new DatabaseEncryptionUtil(configuredKey);
+    }
 
     // Register response advice for decrypting sensitive response values.
     @Bean
@@ -255,6 +88,3 @@ public class DatabaseEncryptionHibernateConfig {
         };
     }
 }
-
-
-
