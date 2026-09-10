@@ -21,9 +21,9 @@ public class DatabaseEncryptionListener
         this.encryptionUtil = encryptionUtil;
     }
 
+    // Encrypt sensitive fields before inserting a new entity.
     @Override
     public boolean onPreInsert(PreInsertEvent event) {
-    
 
         encryptSensitiveFields(
                 event.getState(),
@@ -32,6 +32,7 @@ public class DatabaseEncryptionListener
         return false;
     }
 
+    // Encrypt sensitive fields before updating an entity.
     @Override
     public boolean onPreUpdate(PreUpdateEvent event) {
 
@@ -42,15 +43,16 @@ public class DatabaseEncryptionListener
         return false;
     }
 
+    // Decrypt sensitive fields after loading an entity from the database.
     @Override
     public void onPostLoad(PostLoadEvent event) {
-
 
         decryptSensitiveFields(
                 event.getEntity(),
                 event.getPersister());
     }
 
+    // Encrypt configured sensitive fields before database persistence.
     private void encryptSensitiveFields(
             Object[] state,
             EntityPersister persister) {
@@ -81,6 +83,7 @@ public class DatabaseEncryptionListener
         }
     }
 
+    // Decrypt configured sensitive fields after database retrieval.
     private void decryptSensitiveFields(
             Object entity,
             EntityPersister persister) {
@@ -109,12 +112,14 @@ public class DatabaseEncryptionListener
         persister.setValues(entity, values);
     }
 
+    // Check whether the field requires encryption/decryption.
     private boolean isSensitiveField(String propertyName) {
 
         return isEmailField(propertyName)
                 || isPhoneField(propertyName);
     }
 
+    // Supported email field names.
     private boolean isEmailField(String propertyName) {
 
         return "email".equalsIgnoreCase(propertyName)
@@ -122,6 +127,7 @@ public class DatabaseEncryptionListener
                 || "emailId".equalsIgnoreCase(propertyName);
     }
 
+    // Supported phone field names.
     private boolean isPhoneField(String propertyName) {
 
         return "phoneNumber".equalsIgnoreCase(propertyName)
@@ -130,8 +136,6 @@ public class DatabaseEncryptionListener
                 || "mobile".equalsIgnoreCase(propertyName);
     }
 }
-
-
 
 
 
@@ -159,7 +163,7 @@ import java.util.List;
 public class DatabaseEncryptionHibernateConfig {
 
 
-
+    // Create the encryption utility bean if one is not already available.
     @Bean
     @ConditionalOnMissingBean
     public DatabaseEncryptionUtil databaseEncryptionUtil() {
@@ -167,20 +171,21 @@ public class DatabaseEncryptionHibernateConfig {
         return new DatabaseEncryptionUtil();
     }
 
+    // Register response advice for decrypting sensitive response values.
     @Bean
     public DatabaseDecryptionResponseBodyAdvice databaseDecryptionResponseBodyAdvice(
             DatabaseEncryptionUtil encryptionUtil) {
         return new DatabaseDecryptionResponseBodyAdvice(encryptionUtil);
     }
 
+    // Register the encryption listener with Hibernate lifecycle events.
     @Bean
     public HibernatePropertiesCustomizer databaseEncryptionCustomizer(
             DatabaseEncryptionUtil encryptionUtil) {
-        
+
 
         return hibernateProperties -> {
 
-            
 
             Integrator integrator = new Integrator() {
 
@@ -189,7 +194,6 @@ public class DatabaseEncryptionHibernateConfig {
                         Metadata metadata,
                         BootstrapContext bootstrapContext,
                         SessionFactoryImplementor sessionFactory) {
-                    
 
                     EventListenerRegistry registry = sessionFactory
                             .getServiceRegistry()
@@ -198,12 +202,15 @@ public class DatabaseEncryptionHibernateConfig {
                     DatabaseEncryptionListener listener = new DatabaseEncryptionListener(
                             encryptionUtil);
 
+                    // Encrypt fields before INSERT.
                     registry.getEventListenerGroup(EventType.PRE_INSERT)
                             .appendListener(listener);
 
+                    // Encrypt fields before UPDATE.
                     registry.getEventListenerGroup(EventType.PRE_UPDATE)
                             .appendListener(listener);
 
+                    // Decrypt fields after entity LOAD.
                     registry.getEventListenerGroup(EventType.POST_LOAD)
                             .appendListener(listener);
                 }
@@ -217,9 +224,17 @@ public class DatabaseEncryptionHibernateConfig {
                 }
             };
 
+            // Register the Hibernate integrator.
             hibernateProperties.put(
                     "hibernate.integrator_provider",
                     (IntegratorProvider) () -> List.of(integrator));
         };
     }
 }
+
+
+
+
+
+
+
