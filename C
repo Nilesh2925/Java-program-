@@ -1,147 +1,184 @@
-package com.fincore.commonutilities.encryption;
 
-import com.fincore.commonutilities.util.DatabaseEncryptionUtil;
-import org.hibernate.event.spi.PostLoadEvent;
-import org.hibernate.event.spi.PostLoadEventListener;
-import org.hibernate.event.spi.PreInsertEvent;
-import org.hibernate.event.spi.PreInsertEventListener;
-import org.hibernate.event.spi.PreUpdateEvent;
-import org.hibernate.event.spi.PreUpdateEventListener;
-import org.hibernate.persister.entity.EntityPersister;
+package com.fincore.commonutilities.util;
 
-public class DatabaseEncryptionListener
-        implements PreInsertEventListener,
-        PreUpdateEventListener,
-        PostLoadEventListener {
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 
-    private final DatabaseEncryptionUtil encryptionUtil;
+import javax.crypto.Cipher;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.SecureRandom;
+import java.util.Base64;
 
-    public DatabaseEncryptionListener(
-            DatabaseEncryptionUtil encryptionUtil) {
-        this.encryptionUtil = encryptionUtil;
+@Component
+public class DatabaseEncryptionUtil {
+
+    private static final String ALGORITHM = "AES/GCM/NoPadding";
+    private static final String KEY_ALGORITHM = "AES";
+
+    private static final int KEY_LENGTH_BYTES = 32;
+    private static final int IV_LENGTH_BYTES = 12;
+    private static final int TAG_LENGTH_BITS = 128;
+
+    private static final String VERSION = "v1";
+
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+    private final byte[] keyBytes;
+
+    public DatabaseEncryptionUtil(
+            @Value("${security.internal.kafka-aes-key}") String configuredKey) {
+
+        try {
+            this.keyBytes = Base64.getDecoder().decode(configuredKey);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException(
+                    "Encryption key must be a valid Base64 value.",
+                    e
+            );
+        }
+
+        validateKey(this.keyBytes);
     }
 
-    // Encrypt sensitive fields before inserting a new entity.
-    @Override
-    public boolean onPreInsert(PreInsertEvent event) {
+    public String encrypt(String plainText) {
 
-        encryptSensitiveFields(
-                event.getState(),
-                event.getPersister());
+        if (plainText == null) {
+            return null;
+        }
 
-        return false;
-    }
+        if (plainText.isBlank()) {
+            return plainText;
+        }
 
-    // Encrypt sensitive fields before updating an entity.
-    @Override
-    public boolean onPreUpdate(PreUpdateEvent event) {
+        try {
+            byte[] iv = new byte[IV_LENGTH_BYTES];
+            SECURE_RANDOM.nextBytes(iv);
 
-        encryptSensitiveFields(
-                event.getState(),
-                event.getPersister());
+            SecretKeySpec secretKey =
+                    new SecretKeySpec(keyBytes, KEY_ALGORITHM);
 
-        return false;
-    }
+            GCMParameterSpec gcmParameterSpec =
+                    new GCMParameterSpec(TAG_LENGTH_BITS, iv);
 
-    // Decrypt sensitive fields after loading an entity from the database.
-    @Override
-    public void onPostLoad(PostLoadEvent event) {
+            Cipher cipher = Cipher.getInstance(ALGORITHM);
 
-        decryptSensitiveFields(
-                event.getEntity(),
-                event.getPersister());
-    }
+            cipher.init(
+                    Cipher.ENCRYPT_MODE,
+                    secretKey,
+                    gcmParameterSpec
+            );
 
-    // Encrypt configured sensitive fields before database persistence.
-    private void encryptSensitiveFields(
-            Object[] state,
-            EntityPersister persister) {
+            byte[] cipherText =
+                    cipher.doFinal(
+                            plainText.getBytes(StandardCharsets.UTF_8)
+                    );
 
-        String[] propertyNames = persister.getPropertyNames();
+            return VERSION
+                    + ":"
+                    + Base64.getEncoder().encodeToString(iv)
+                    + ":"
+                    + Base64.getEncoder().encodeToString(cipherText);
 
-        for (int i = 0; i < propertyNames.length; i++) {
-
-            String propertyName = propertyNames[i];
-
-            if (!isSensitiveField(propertyName)) {
-                continue;
-            }
-
-            Object value = state[i];
-
-            if (value instanceof String plainText
-                    && !plainText.isBlank()) {
-
-                /*
-                 * Prevent accidental double encryption.
-                 */
-                if (!encryptionUtil.isEncrypted(plainText)) {
-
-                    state[i] = encryptionUtil.encrypt(plainText);
-                }
-            }
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException(
+                    "Unable to encrypt database value.",
+                    e
+            );
         }
     }
 
-    // Decrypt configured sensitive fields after database retrieval.
-    private void decryptSensitiveFields(
-            Object entity,
-            EntityPersister persister) {
+    public String decrypt(String encryptedValue) {
 
-        String[] propertyNames = persister.getPropertyNames();
-
-        Object[] values = persister.getValues(entity);
-
-        for (int i = 0; i < propertyNames.length; i++) {
-
-            String propertyName = propertyNames[i];
-
-            if (!isSensitiveField(propertyName)) {
-                continue;
-            }
-
-            Object value = values[i];
-
-            if (value instanceof String encryptedValue
-                    && encryptionUtil.isEncrypted(encryptedValue)) {
-
-                values[i] = encryptionUtil.decrypt(encryptedValue);
-            }
+        if (encryptedValue == null) {
+            return null;
         }
 
-        persister.setValues(entity, values);
+        if (encryptedValue.isBlank()) {
+            return encryptedValue;
+        }
+
+        try {
+            String[] parts = encryptedValue.split(":", 3);
+
+            if (parts.length != 3 || !VERSION.equals(parts[0])) {
+                throw new IllegalArgumentException(
+                        "Invalid encrypted database value."
+                );
+            }
+
+            byte[] iv =
+                    Base64.getDecoder().decode(parts[1]);
+
+            byte[] cipherText =
+                    Base64.getDecoder().decode(parts[2]);
+
+            if (iv.length != IV_LENGTH_BYTES) {
+                throw new IllegalArgumentException(
+                        "Invalid IV length in encrypted database value."
+                );
+            }
+
+            SecretKeySpec secretKey =
+                    new SecretKeySpec(keyBytes, KEY_ALGORITHM);
+
+            GCMParameterSpec gcmParameterSpec =
+                    new GCMParameterSpec(TAG_LENGTH_BITS, iv);
+
+            Cipher cipher = Cipher.getInstance(ALGORITHM);
+
+            cipher.init(
+                    Cipher.DECRYPT_MODE,
+                    secretKey,
+                    gcmParameterSpec
+            );
+
+            byte[] plainText =
+                    cipher.doFinal(cipherText);
+
+            return new String(
+                    plainText,
+                    StandardCharsets.UTF_8
+            );
+
+        } catch (GeneralSecurityException | IllegalArgumentException e) {
+            throw new IllegalStateException(
+                    "Unable to decrypt database value.",
+                    e
+            );
+        }
     }
 
-    // Check whether the field requires encryption/decryption.
-    private boolean isSensitiveField(String propertyName) {
+    public boolean isEncrypted(String value) {
 
-        return isEmailField(propertyName)
-                || isPhoneField(propertyName);
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+
+        return value.startsWith(VERSION + ":");
     }
 
-    // Supported email field names.
-    private boolean isEmailField(String propertyName) {
+    private void validateKey(byte[] key) {
 
-        return "email".equalsIgnoreCase(propertyName)
-                || "emailAddress".equalsIgnoreCase(propertyName)
-                || "emailId".equalsIgnoreCase(propertyName);
-    }
-
-    // Supported phone field names.
-    private boolean isPhoneField(String propertyName) {
-
-        return "phoneNumber".equalsIgnoreCase(propertyName)
-                || "phone".equalsIgnoreCase(propertyName)
-                || "mobileNumber".equalsIgnoreCase(propertyName)
-                || "mobile".equalsIgnoreCase(propertyName);
+        if (key.length != KEY_LENGTH_BYTES) {
+            throw new IllegalStateException(
+                    "Encryption key must contain exactly "
+                            + KEY_LENGTH_BYTES
+                            + " bytes for AES-256."
+            );
     }
 }
 
 
 
 
+
+
 package com.fincore.commonutilities.encryption;
 
+import com.fincore.commonutilities.security.DatabaseDecryptionResponseBodyAdvice;
 import com.fincore.commonutilities.util.DatabaseEncryptionUtil;
 import org.hibernate.boot.Metadata;
 import org.hibernate.boot.spi.BootstrapContext;
@@ -150,31 +187,20 @@ import org.hibernate.event.service.spi.EventListenerRegistry;
 import org.hibernate.event.spi.EventType;
 import org.hibernate.integrator.spi.Integrator;
 import org.hibernate.jpa.boot.spi.IntegratorProvider;
-//import org.springframework.context.annotation.Configuration;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
-// import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.hibernate.autoconfigure.HibernatePropertiesCustomizer;
 import org.springframework.context.annotation.Bean;
-import com.fincore.commonutilities.security.DatabaseDecryptionResponseBodyAdvice;
+
 import java.util.List;
 
 @AutoConfiguration
 public class DatabaseEncryptionHibernateConfig {
 
-
-    // Create the encryption utility bean if one is not already available.
-    @Bean
-    @ConditionalOnMissingBean
-    public DatabaseEncryptionUtil databaseEncryptionUtil() {
-
-        return new DatabaseEncryptionUtil();
-    }
-
     // Register response advice for decrypting sensitive response values.
     @Bean
     public DatabaseDecryptionResponseBodyAdvice databaseDecryptionResponseBodyAdvice(
             DatabaseEncryptionUtil encryptionUtil) {
+
         return new DatabaseDecryptionResponseBodyAdvice(encryptionUtil);
     }
 
@@ -183,9 +209,7 @@ public class DatabaseEncryptionHibernateConfig {
     public HibernatePropertiesCustomizer databaseEncryptionCustomizer(
             DatabaseEncryptionUtil encryptionUtil) {
 
-
         return hibernateProperties -> {
-
 
             Integrator integrator = new Integrator() {
 
@@ -199,8 +223,8 @@ public class DatabaseEncryptionHibernateConfig {
                             .getServiceRegistry()
                             .getService(EventListenerRegistry.class);
 
-                    DatabaseEncryptionListener listener = new DatabaseEncryptionListener(
-                            encryptionUtil);
+                    DatabaseEncryptionListener listener =
+                            new DatabaseEncryptionListener(encryptionUtil);
 
                     // Encrypt fields before INSERT.
                     registry.getEventListenerGroup(EventType.PRE_INSERT)
@@ -231,10 +255,6 @@ public class DatabaseEncryptionHibernateConfig {
         };
     }
 }
-
-
-
-
 
 
 
